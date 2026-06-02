@@ -3,4 +3,4 @@ auth/
 .env
 proxies.txt
 release/
-dist/
+/feedflow-recovered/

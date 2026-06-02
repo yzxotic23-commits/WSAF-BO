@@ -6,7 +6,7 @@
 |------|--------|---------|
 | Core bot (Baileys + AI) | Ada | `index.js`, `src/*` — stabil di CLI |
 | Paket Windows v1.0.10 | Ada | Folder `WhatsApp-Auto-Feeding-Windows-v1.0.10/` (installer/docs), **tanpa source Electron di repo** |
-| Source Electron | **Ditambahkan** | Folder `desktop/` — GUI connect, settings, feeding log |
+| Source Electron (FeedFlow) | **Dipulihkan** | `electron/`, `client/dist/`, `server/` (dari app terinstall) |
 | Path lintas OS | **Diperbaiki** | `src/app-paths.js` + `WA_APP_DATA` |
 | Build macOS | **Siap** | `npm run build:mac` (harus dijalankan di Mac) |
 | Auto-update macOS | Belum | `latest.yml` di paket Windows; perlu channel DMG/ZIP terpisah untuk Mac |

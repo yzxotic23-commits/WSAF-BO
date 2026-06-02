@@ -179,8 +179,24 @@ function formatPolicyAlert(sessionName, alert) {
   return lines.join('\n');
 }
 
+/** True when WA likely enforced strict scan / ban — local session should be purged. */
+function isStrictLogoutAlert(alert) {
+  if (!alert) return false;
+  if (alert.strictScanPossible) return true;
+  const strictTypes = new Set([
+    'BAN_OR_FORBIDDEN',
+    'LOGGED_OUT_OR_RESTRICTED',
+    'POLICY_KEYWORD',
+    'SEND_FORBIDDEN',
+    'SEND_RATE_LIMIT',
+    'SEND_POLICY',
+  ]);
+  return strictTypes.has(alert.type);
+}
+
 module.exports = {
   classifyDisconnect,
   classifySendError,
   formatPolicyAlert,
+  isStrictLogoutAlert,
 };

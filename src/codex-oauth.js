@@ -38,22 +38,43 @@ function parseModelList(raw) {
   return models.length > 0 ? models : undefined;
 }
 
+function normalizeBaseURL(url) {
+  const raw = String(url || '').trim().replace(/\/+$/, '');
+  return raw.endsWith('/v1') ? raw : `${raw}/v1`;
+}
+
+function getRunningProxyBaseURL() {
+  if (!runningServer?.url) return null;
+  return normalizeBaseURL(runningServer.url);
+}
+
 async function startCodexProxy() {
+  const envBase = process.env.CODEX_PROXY_BASE_URL?.trim();
+  if (envBase) {
+    return {
+      ok: true,
+      baseURL: normalizeBaseURL(envBase),
+      authFile: await findCodexAuthFile(),
+      reused: true,
+      external: true,
+    };
+  }
+
   const authFile = await findCodexAuthFile();
   if (!authFile) {
     return {
       ok: false,
       reason: 'no_auth',
       message:
-        'File auth Codex tidak ditemukan. Jalankan: npm run codex-login\n'
-        + '  (menyimpan token di ~/.codex/auth.json seperti OpenClaw/Codex CLI)',
+        'Codex auth file not found. Run: npm run codex-login\n'
+        + '  (saves token to ~/.codex/auth.json — same as Codex CLI)',
     };
   }
 
   if (runningServer) {
     return {
       ok: true,
-      baseURL: runningServer.url,
+      baseURL: getRunningProxyBaseURL(),
       authFile,
       reused: true,
     };
@@ -74,7 +95,7 @@ async function startCodexProxy() {
 
   return {
     ok: true,
-    baseURL: runningServer.url,
+    baseURL: getRunningProxyBaseURL(),
     authFile,
     host: runningServer.host,
     port: runningServer.port,
@@ -109,6 +130,8 @@ function getCodexLoginHint() {
 module.exports = {
   findCodexAuthFile,
   getAuthFileCandidates,
+  getRunningProxyBaseURL,
+  normalizeBaseURL,
   startCodexProxy,
   stopCodexProxy,
   getCodexLoginHint,
