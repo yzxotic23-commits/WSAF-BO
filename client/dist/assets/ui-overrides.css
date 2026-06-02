@@ -580,6 +580,15 @@
   z-index: 1001;
 }
 
+/* Confirm dialog (Clear sessions, etc.) must sit above settings sheet */
+.modal-backdrop > .wa-modal-backdrop {
+  z-index: 1100;
+}
+
+.modal-backdrop > .wa-modal-backdrop .wa-modal {
+  z-index: 1101;
+}
+
 .wa-update-banner {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   animation: wa-slide-down 0.28s ease-out;

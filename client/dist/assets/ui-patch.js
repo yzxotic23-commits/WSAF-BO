@@ -30,6 +30,8 @@
   }
 
   function guardModalGhostClick(e) {
+    if (e.target.closest('.modal, .wa-modal')) return;
+
     const backdrop = e.target.closest('.modal-backdrop, .wa-modal-backdrop');
     if (!backdrop) return;
 
@@ -387,6 +389,56 @@
     if (!modal) return;
     patchFeedingSave(modal);
     patchProxyTab(modal);
+    patchClearSessionsConfirm(modal);
+  }
+
+  function closeAllSettingsModals() {
+    const backdrop = document.querySelector('.modal-backdrop');
+    if (!backdrop) return;
+    const closeBtn = backdrop.querySelector('.modal-header .icon-btn[aria-label="Close"]');
+    if (closeBtn) closeBtn.click();
+  }
+
+  function patchClearSessionsConfirm(modal) {
+    const root = modal.closest('.modal-backdrop');
+    if (!root) return;
+
+    const confirm = root.querySelector('.wa-modal-backdrop');
+    if (!confirm) return;
+
+    const title = confirm.querySelector('#wa-modal-title');
+    if (!title || !/clear all sessions/i.test(title.textContent)) return;
+
+    if (confirm.dataset.ffClearHook) return;
+    confirm.dataset.ffClearHook = '1';
+
+    const confirmBtn = [...confirm.querySelectorAll('button')].find((b) =>
+      /^clear all$/i.test(b.textContent.trim())
+    );
+    if (!confirmBtn || confirmBtn.dataset.ffClearClick) return;
+    confirmBtn.dataset.ffClearClick = '1';
+
+    confirmBtn.addEventListener('click', () => {
+      window.setTimeout(closeAllSettingsModals, 500);
+    });
+  }
+
+  function setupSessionsClearAutoClose() {
+    if (window.__ffFetchPatched) return;
+    window.__ffFetchPatched = true;
+
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async function (input, init) {
+      const response = await nativeFetch(input, init);
+      try {
+        const url = typeof input === 'string' ? input : input?.url || '';
+        const method = (init?.method || 'GET').toUpperCase();
+        if (url.includes('/api/sessions/clear-all') && method === 'POST' && response.ok) {
+          window.setTimeout(closeAllSettingsModals, 80);
+        }
+      } catch { /* noop */ }
+      return response;
+    };
   }
 
   let wasFeedingActive = false;
@@ -499,6 +551,7 @@
     applyDomFixes();
     setupAutoUpdatePolling();
     setupFeedingCompleteWatcher();
+    setupSessionsClearAutoClose();
 
     document.documentElement.style.zoom = '1';
     document.body.style.zoom = '1';
