@@ -29,6 +29,14 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npm run build:mac
 
+      - name: Ad-hoc sign (unsigned build, helps Gatekeeper)
+        run: |
+          APP=$(find release -name "*.app" -maxdepth 4 | head -1)
+          if [ -n "$APP" ]; then
+            codesign --force --deep --sign - "$APP"
+            echo "Signed: $APP"
+          fi
+
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:

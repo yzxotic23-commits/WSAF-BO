@@ -7,9 +7,10 @@ CARA INSTALL
 2. Drag "WhatsApp Auto Feeding" ke folder Applications.
 3. Buka dari Launchpad atau Applications.
 
-Jika macOS memblokir ("developer cannot be verified"):
-  System Settings → Privacy & Security → Open Anyway
-  atau: klik kanan app → Open
+Jika macOS memblokir ("damaged" / "developer cannot be verified"):
+  JANGAN Move to Trash — lihat Docs/FIX-DAMAGED-macOS.txt
+  Cepat: Terminal →  xattr -cr "/Applications/WhatsApp Auto Feeding.app"
+  Atau: klik kanan app → Open
 
 SETELAN PERTAMA
 ---------------
