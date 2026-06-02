@@ -1,6 +1,7 @@
 const path = require('path');
 const { ensureAppRoot, getAppRoot } = require('./src/app-root');
 ensureAppRoot();
+require('./src/silence-deprecation-warnings');
 require('dotenv').config({ path: path.join(getAppRoot(), '.env') });
 require('./src/silence-libsignal-logs');
 if (process.env.AI_SDK_LOG_WARNINGS === undefined) {
@@ -15,6 +16,7 @@ const {
   reportFeedingChat,
   reportFeedingPairResults,
   reportAuditEntry,
+  reportFeedingComplete,
   reportProfileRefresh,
   reportStrictLogout,
 } = require('./src/feeding-reporter');
@@ -1517,7 +1519,18 @@ async function runDesktopFeedingOnce() {
   console.log(`[OK] Language: ${language} (from .env)`);
   console.log(`\n--- Desktop feeding (${pairCount()} pair${pairCount() > 1 ? 's' : ''}) ---\n`);
   totalMessagesSent = 0;
-  await runAllPairs(sessions, language, accountProxies);
+  const results = await runAllPairs(sessions, language, accountProxies);
+
+  const completed = results.filter((r) => r?.status === 'completed').length;
+  const stopped = results.filter((r) => r?.status === 'stopped').length;
+
+  await reportFeedingComplete({
+    completed,
+    stopped,
+    totalPairs: pairCount(),
+    messagesSent: totalMessagesSent,
+    success: stopped === 0,
+  });
 
   console.log('');
   console.log('='.repeat(50));

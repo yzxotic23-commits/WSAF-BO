@@ -231,6 +231,22 @@ function createDesktopApi(options = {}) {
     }
   });
 
+  app.post('/api/feeding/complete', (req, res) => {
+    try {
+      res.json(bridge.recordFeedingComplete(req.body || {}));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/feeding/complete/dismiss', (_req, res) => {
+    try {
+      res.json(bridge.dismissFeedingComplete());
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post('/api/accounts/add-pair', async (_req, res) => {
     try {
       res.json(await bridge.addPair());

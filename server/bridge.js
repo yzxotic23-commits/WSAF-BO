@@ -54,6 +54,7 @@ class DesktopBridge {
     this.codexProxyPromise = null;
     this.auditLog = new AuditLogStore(this.getAppRoot());
     this.currentFeedingRunId = null;
+    this.lastFeedingComplete = null;
     this.ensureEnvAiDefaults();
     this.ensureFirstRunEnv();
     this.ensureCapacity();
@@ -494,6 +495,7 @@ class DesktopBridge {
       feedingRunning: Boolean(this.feedingProcess && !this.feedingProcess.killed),
       feedingStarting: Boolean(this.feedingStarting),
       feedingLaunchPhase: this.feedingLaunchPhase || 'prepare',
+      lastFeedingComplete: this.lastFeedingComplete,
       accounts,
       proxies: this.proxyManager.proxies.map((url, idx) => ({
         index: idx,
@@ -856,6 +858,29 @@ class DesktopBridge {
 
   getAuditSummary() {
     return this.auditLog.computeSummary();
+  }
+
+  recordFeedingComplete(payload = {}) {
+    const summary = this.getAuditSummary();
+    this.lastFeedingComplete = {
+      at: new Date().toISOString(),
+      completed: payload.completed ?? summary.successVolume ?? 0,
+      stopped: payload.stopped ?? Math.max(0, (payload.totalPairs ?? this.pairCount()) - (payload.completed ?? summary.successVolume ?? 0)),
+      totalPairs: payload.totalPairs ?? this.pairCount(),
+      messagesSent: payload.messagesSent ?? 0,
+      success: payload.success !== false && !payload.manualStop,
+      manualStop: Boolean(payload.manualStop),
+    };
+    this.emit('feedingComplete', this.lastFeedingComplete);
+    this.emit('status', this.getStatus());
+    return this.lastFeedingComplete;
+  }
+
+  dismissFeedingComplete() {
+    if (!this.lastFeedingComplete) return { ok: true };
+    this.lastFeedingComplete = { ...this.lastFeedingComplete, dismissed: true };
+    this.emit('status', this.getStatus());
+    return { ok: true };
   }
 
   exportAuditCsv() {
@@ -1234,6 +1259,13 @@ class DesktopBridge {
     }
     this.feedingProcess = null;
     this.log('warn', '[FEEDING] Stopped');
+    this.recordFeedingComplete({
+      manualStop: true,
+      success: false,
+      stopped: this.pairCount(),
+      completed: 0,
+      totalPairs: this.pairCount(),
+    });
     this.emit('status', this.getStatus());
     return { ok: true, wasRunning: true };
   }
@@ -1264,6 +1296,7 @@ class DesktopBridge {
 
     this.feedingStarting = true;
     this.feedingLaunchPhase = 'prepare';
+    this.lastFeedingComplete = null;
     this.emit('status', this.getStatus());
 
     try {
@@ -1378,6 +1411,15 @@ class DesktopBridge {
       }
       this.log(code === 0 ? 'success' : 'warn', `[FEEDING] Exited (code ${code ?? '?'})`);
       this.feedingProcess = null;
+      if (code === 0 && !this.lastFeedingComplete?.at) {
+        this.recordFeedingComplete({ success: true });
+      } else if (code !== 0 && code != null && !this.lastFeedingComplete?.at) {
+        this.recordFeedingComplete({
+          success: false,
+          manualStop: true,
+          stopped: this.pairCount(),
+        });
+      }
       this.emit('status', this.getStatus());
       this.reconnectPreviewSessions().catch((err) => {
         this.log('warn', `[FEEDING] Preview reconnect: ${err.message}`);

@@ -1,3 +1,4 @@
+require('../src/silence-deprecation-warnings');
 const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');

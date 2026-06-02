@@ -109,11 +109,368 @@
 
   function scheduleDomFixes() {
     stampModalBackdrops();
+    if (isModalOpen()) {
+      patchSettingsModal();
+      return;
+    }
     if (domFixTimer) clearTimeout(domFixTimer);
     domFixTimer = setTimeout(() => {
       domFixTimer = null;
       applyDomFixes();
     }, DOM_FIX_DEBOUNCE_MS);
+  }
+
+  async function apiJson(path, options) {
+    const res = await fetch(`${API}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) },
+      ...options,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || `Request failed (${res.status})`);
+    return data;
+  }
+
+  function getSettingsModal() {
+    return document.querySelector('.modal-backdrop .modal');
+  }
+
+  function restoreNativePanels(modal) {
+    modal.querySelectorAll('.modal-body > [role="tabpanel"]:not(.ff-proxy-panel)').forEach((panel) => {
+      panel.hidden = false;
+      panel.style.removeProperty('display');
+    });
+  }
+
+  function showSettingsToast(modal, type, message) {
+    const header = modal.querySelector('.modal-header');
+    if (!header) return;
+
+    let group = header.querySelector('.ff-settings-header-title');
+    const h2 = header.querySelector('h2');
+    if (!group && h2) {
+      group = document.createElement('div');
+      group.className = 'ff-settings-header-title';
+      h2.parentNode.insertBefore(group, h2);
+      group.appendChild(h2);
+    }
+
+    modal.querySelectorAll('.form-actions .ff-settings-toast').forEach((el) => el.remove());
+
+    let sep = (group || header).querySelector('.ff-settings-saved-sep');
+    if (!sep) {
+      sep = document.createElement('span');
+      sep.className = 'ff-settings-saved-sep';
+      sep.setAttribute('aria-hidden', 'true');
+      sep.hidden = true;
+    }
+
+    let toast = header.querySelector('.ff-settings-toast');
+    if (!toast) {
+      toast = document.createElement('span');
+      toast.className = 'ff-settings-toast';
+      toast.setAttribute('role', 'status');
+      toast.hidden = true;
+    }
+
+    if (group) {
+      group.appendChild(sep);
+      group.appendChild(toast);
+    } else {
+      header.appendChild(sep);
+      header.appendChild(toast);
+    }
+
+    toast.className = `ff-settings-toast ff-settings-toast--${type}`;
+    toast.textContent = message;
+    toast.hidden = false;
+    sep.hidden = false;
+
+    if (type === 'success') {
+      window.clearTimeout(toast._ffHideTimer);
+      toast._ffHideTimer = window.setTimeout(() => {
+        toast.hidden = true;
+        sep.hidden = true;
+      }, 4000);
+    }
+  }
+
+  function readFeedingForm(panel) {
+    const numbers = panel.querySelectorAll('input[type="number"]');
+    const select = panel.querySelector('select');
+    return {
+      MAX_MESSAGES: numbers[0]?.value ?? '20',
+      MIN_DELAY: numbers[1]?.value ?? '30',
+      MAX_DELAY: numbers[2]?.value ?? '90',
+      LANGUAGE: select?.value ?? 'English',
+    };
+  }
+
+  function patchFeedingSave(modal) {
+    const panel = modal.querySelector('[aria-label="Feeding"]');
+    if (!panel) return;
+
+    const saveBtn = panel.querySelector('.form-actions .btn-primary');
+    if (!saveBtn || saveBtn.dataset.ffSavePatched) return;
+    saveBtn.dataset.ffSavePatched = '1';
+
+    saveBtn.addEventListener(
+      'click',
+      async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+
+        if (saveBtn.disabled) return;
+        saveBtn.disabled = true;
+
+        try {
+          const updates = readFeedingForm(panel);
+          await apiJson('/api/settings/env', {
+            method: 'POST',
+            body: JSON.stringify({ updates }),
+          });
+          if (window.desktop?.reloadEnv) await window.desktop.reloadEnv();
+          showSettingsToast(modal, 'success', 'Saved');
+        } catch (err) {
+          showSettingsToast(modal, 'error', err.message || 'Save failed');
+        } finally {
+          saveBtn.disabled = false;
+        }
+      },
+      true
+    );
+  }
+
+  async function loadProxyTextarea(modal) {
+    const textarea = modal.querySelector('.ff-proxy-textarea');
+    if (!textarea || textarea.dataset.ffDirty === '1') return;
+
+    try {
+      const data = await apiJson('/api/settings');
+      textarea.value = data.proxies || '';
+    } catch {
+      /* keep current draft */
+    }
+  }
+
+  function hideProxyPanel(modal) {
+    const panel = modal.querySelector('.ff-proxy-panel');
+    const tab = modal.querySelector('.ff-proxy-tab');
+    if (panel) {
+      panel.hidden = true;
+      panel.style.display = 'none';
+    }
+    if (tab) {
+      tab.classList.remove('active');
+      tab.setAttribute('aria-selected', 'false');
+    }
+    restoreNativePanels(modal);
+  }
+
+  function showProxyPanel(modal) {
+    modal.querySelectorAll('.modal-body > [role="tabpanel"]:not(.ff-proxy-panel)').forEach((panel) => {
+      panel.style.display = 'none';
+    });
+    modal.querySelectorAll('.modal-tabs .tab:not(.ff-proxy-tab)').forEach((tab) => {
+      tab.classList.remove('active');
+      tab.setAttribute('aria-selected', 'false');
+    });
+
+    const panel = modal.querySelector('.ff-proxy-panel');
+    const tab = modal.querySelector('.ff-proxy-tab');
+    if (panel) {
+      panel.hidden = false;
+      panel.style.display = '';
+    }
+    if (tab) {
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+    }
+    loadProxyTextarea(modal);
+  }
+
+  function patchProxyTab(modal) {
+    if (modal.dataset.ffProxyTab) return;
+    modal.dataset.ffProxyTab = '1';
+
+    const tabsNav = modal.querySelector('.modal-tabs');
+    const modalBody = modal.querySelector('.modal-body');
+    if (!tabsNav || !modalBody) return;
+
+    const proxyTab = document.createElement('button');
+    proxyTab.type = 'button';
+    proxyTab.role = 'tab';
+    proxyTab.className = 'tab ff-proxy-tab';
+    proxyTab.setAttribute('aria-selected', 'false');
+    proxyTab.textContent = 'Proxy';
+    proxyTab.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showProxyPanel(modal);
+    });
+    tabsNav.appendChild(proxyTab);
+
+    const panel = document.createElement('div');
+    panel.className = 'ff-proxy-panel';
+    panel.hidden = true;
+    panel.style.display = 'none';
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-label', 'Proxy');
+    panel.innerHTML =
+      '<p class="hint">One proxy per line. Format: <code>socks5://user:pass@ip:port</code>.</p>' +
+      '<label class="field ff-proxy-field">' +
+      '<span>Proxy list (IP per account)</span>' +
+      '<textarea class="textarea ff-proxy-textarea" spellcheck="false" placeholder="socks5://user:pass@193.8.114.78:1081"></textarea>' +
+      '</label>' +
+      '<div class="form-actions">' +
+      '<button type="button" class="btn btn-primary ff-proxy-save">Save</button>' +
+      '<button type="button" class="btn btn-ghost ff-proxy-probe">Test proxies</button>' +
+      '</div>';
+
+    modalBody.appendChild(panel);
+
+    const textarea = panel.querySelector('.ff-proxy-textarea');
+    textarea.addEventListener('input', () => {
+      textarea.dataset.ffDirty = '1';
+    });
+
+    tabsNav.querySelectorAll('.tab:not(.ff-proxy-tab)').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        hideProxyPanel(modal);
+      });
+    });
+
+    panel.querySelector('.ff-proxy-save').addEventListener('click', async () => {
+      const saveBtn = panel.querySelector('.ff-proxy-save');
+      const probeBtn = panel.querySelector('.ff-proxy-probe');
+      saveBtn.disabled = true;
+      probeBtn.disabled = true;
+      try {
+        await apiJson('/api/settings/proxies', {
+          method: 'POST',
+          body: JSON.stringify({ content: textarea.value }),
+        });
+        await apiJson('/api/proxies/load', { method: 'POST' });
+        textarea.dataset.ffDirty = '0';
+        showSettingsToast(modal, 'success', 'Saved');
+      } catch (err) {
+        showSettingsToast(modal, 'error', err.message || 'Save failed');
+      } finally {
+        saveBtn.disabled = false;
+        probeBtn.disabled = false;
+      }
+    });
+
+    panel.querySelector('.ff-proxy-probe').addEventListener('click', async () => {
+      const saveBtn = panel.querySelector('.ff-proxy-save');
+      const probeBtn = panel.querySelector('.ff-proxy-probe');
+      saveBtn.disabled = true;
+      probeBtn.disabled = true;
+      try {
+        const results = await apiJson('/api/proxies/probe', { method: 'POST' });
+        const ok = (results || []).filter((r) => r.ok).length;
+        const total = (results || []).length;
+        showSettingsToast(modal, 'success', `Probe selesai — ${ok}/${total} proxy OK`);
+      } catch (err) {
+        showSettingsToast(modal, 'error', err.message || 'Probe failed');
+      } finally {
+        saveBtn.disabled = false;
+        probeBtn.disabled = false;
+      }
+    });
+
+    loadProxyTextarea(modal);
+  }
+
+  function patchSettingsModal() {
+    const modal = getSettingsModal();
+    if (!modal) return;
+    patchFeedingSave(modal);
+    patchProxyTab(modal);
+  }
+
+  let wasFeedingActive = false;
+  let lastCompleteShownAt = null;
+
+  function removeFeedingCompleteUI() {
+    document.querySelectorAll('.ff-feeding-complete').forEach((el) => el.remove());
+  }
+
+  function showFeedingCompleteUI(data) {
+    const main = document.querySelector('.wa-main');
+    if (!main || !data?.at) return;
+
+    if (lastCompleteShownAt === data.at) return;
+    try {
+      if (sessionStorage.getItem('ff-last-complete-at') === data.at) return;
+    } catch { /* noop */ }
+
+    removeFeedingCompleteUI();
+    lastCompleteShownAt = data.at;
+
+    const success = data.success !== false && !data.manualStop;
+    const title = success ? 'Feeding selesai' : 'Feeding dihentikan';
+    const subtitle = success
+      ? 'Semua pair AI chat telah selesai. Sesi tersimpan di PC ini.'
+      : 'Feeding berhenti sebelum selesai. Anda bisa mulai lagi kapan saja.';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ff-feeding-complete';
+    overlay.setAttribute('role', 'status');
+    overlay.setAttribute('aria-live', 'polite');
+    overlay.innerHTML =
+      '<div class="ff-feeding-complete-backdrop"></div>' +
+      '<div class="ff-feeding-complete-card' + (success ? '' : ' ff-feeding-complete-card--stopped') + '">' +
+      '<div class="ff-feeding-complete-icon" aria-hidden="true">' + (success ? '✓' : '■') + '</div>' +
+      '<h2 class="ff-feeding-complete-title">' + title + '</h2>' +
+      '<p class="ff-feeding-complete-sub">' + subtitle + '</p>' +
+      '<div class="ff-feeding-complete-stats">' +
+      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.completed ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Pair selesai</span></div>' +
+      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.messagesSent ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Pesan terkirim</span></div>' +
+      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.totalPairs ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Total pair</span></div>' +
+      '</div>' +
+      '<button type="button" class="btn btn-primary ff-feeding-complete-ok">OK</button>' +
+      '</div>';
+
+    main.appendChild(overlay);
+
+    overlay.querySelector('.ff-feeding-complete-ok').addEventListener('click', () => {
+      try {
+        sessionStorage.setItem('ff-last-complete-at', data.at);
+      } catch { /* noop */ }
+      apiJson('/api/feeding/complete/dismiss', { method: 'POST' }).catch(() => {});
+      overlay.remove();
+    });
+  }
+
+  async function pollFeedingComplete() {
+    try {
+      const status = await apiJson('/api/status');
+      const running = !!(status.feedingRunning || status.feedingStarting);
+      const complete = status.lastFeedingComplete;
+
+      if (running) {
+        if (document.querySelector('.ff-feeding-complete')) {
+          removeFeedingCompleteUI();
+          lastCompleteShownAt = null;
+        }
+        wasFeedingActive = true;
+        return;
+      }
+
+      if (wasFeedingActive && complete && !complete.dismissed) {
+        showFeedingCompleteUI(complete);
+      }
+
+      wasFeedingActive = false;
+    } catch {
+      /* API belum siap */
+    }
+  }
+
+  function setupFeedingCompleteWatcher() {
+    pollFeedingComplete();
+    setInterval(pollFeedingComplete, 1500);
   }
 
   /** Re-check when app window becomes visible (complements Electron scheduler) */
@@ -141,6 +498,7 @@
 
     applyDomFixes();
     setupAutoUpdatePolling();
+    setupFeedingCompleteWatcher();
 
     document.documentElement.style.zoom = '1';
     document.body.style.zoom = '1';

@@ -88,6 +88,20 @@ async function reportProfileRefresh() {
   }
 }
 
+async function reportFeedingComplete(summary) {
+  if (process.env.DESKTOP_FEEDING !== '1') return null;
+  try {
+    const res = await fetch(`${getApiBase()}/api/feeding/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(summary || {}),
+    });
+    return res.json().catch(() => ({}));
+  } catch {
+    return null;
+  }
+}
+
 async function reportStrictLogout(slot, alert) {
   if (process.env.DESKTOP_FEEDING !== '1') return null;
   try {
@@ -107,5 +121,6 @@ module.exports = {
   reportAuditEntry,
   reportFeedingPairResults,
   reportProfileRefresh,
+  reportFeedingComplete,
   reportStrictLogout,
 };
