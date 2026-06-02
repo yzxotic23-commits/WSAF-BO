@@ -1,0 +1,43 @@
+WhatsApp Auto Feeding — macOS (v1.0.10)
+========================================
+
+CARA INSTALL
+------------
+1. Buka file .dmg dari paket release.
+2. Drag "WhatsApp Auto Feeding" ke folder Applications.
+3. Buka dari Launchpad atau Applications.
+
+Jika macOS memblokir ("developer cannot be verified"):
+  System Settings → Privacy & Security → Open Anyway
+  atau: klik kanan app → Open
+
+SETELAN PERTAMA
+---------------
+Folder data (otomatis):
+  ~/Library/Application Support/whatsapp-auto-chat/
+
+Salin Docs/.env.example → edit di folder data di atas, atau dari menu app:
+  Folder data → edit .env
+
+CONNECT WHATSAPP
+----------------
+1. Buka aplikasi.
+2. Pilih akun → Connect (QR).
+3. Scan QR di panel kanan dengan HP.
+
+CODEX / AI
+----------
+Di Terminal (sekali per Mac):
+  cd "/Applications/WhatsApp Auto Feeding.app/Contents/Resources/app"
+  npm run codex-login
+
+Atau dari folder source project jika develop.
+
+OLLAMA (fallback, opsional)
+---------------------------
+  brew install ollama
+  ollama pull qwen2.5:7b
+
+FEEDING
+-------
+Klik "Start feeding" di app, atau CLI: npm start

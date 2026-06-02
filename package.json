@@ -1,0 +1,75 @@
+{
+  "name": "whatsapp-auto-chat",
+  "version": "1.0.10",
+  "description": "Auto chat between WhatsApp accounts with AI (CLI + desktop)",
+  "main": "desktop/main.js",
+  "author": "",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "node index.js",
+    "desktop": "electron .",
+    "desktop:dev": "electron .",
+    "codex-login": "npx @openai/codex login",
+    "codex-proxy": "npx openai-oauth",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
+    "build:mac:arm": "electron-builder --mac --arm64",
+    "build:mac:intel": "electron-builder --mac --x64",
+    "build:all": "electron-builder -mwl"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "dotenv": "^16.4.5",
+    "https-proxy-agent": "^9.0.0",
+    "openai": "^4.73.0",
+    "openai-oauth": "^1.0.2",
+    "pino": "^9.5.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "socks-proxy-agent": "^10.0.0"
+  },
+  "devDependencies": {
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.whatsapp.autofeeding",
+    "productName": "WhatsApp Auto Feeding",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "src/**/*",
+      "index.js",
+      "package.json",
+      "node_modules/**/*",
+      ".env.example"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": null
+  }
+}

@@ -1,0 +1,119 @@
+:root {
+  color-scheme: light dark;
+  --bg: #0f1419;
+  --panel: #1a2332;
+  --text: #e7ecf3;
+  --muted: #9aa8bc;
+  --accent: #25d366;
+  --border: #2d3a4f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 { margin: 0; font-size: 1.25rem; }
+.muted { color: var(--muted); }
+.small { font-size: 0.85rem; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 260px 320px 1fr;
+  grid-template-rows: auto 280px;
+  gap: 12px;
+  padding: 12px;
+  min-height: calc(100vh - 72px);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.panel h2 { margin: 0 0 10px; font-size: 0.95rem; }
+
+.log-panel {
+  grid-column: 1 / -1;
+}
+
+.account-list { list-style: none; padding: 0; margin: 0; }
+.account-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.account-list li:last-child { border-bottom: none; }
+
+.account-meta { font-size: 0.85rem; color: var(--muted); }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+
+button {
+  border: 1px solid var(--border);
+  background: #243044;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+button.primary { background: #1f7a45; border-color: #25d366; }
+button:hover { filter: brightness(1.08); }
+
+#qr-image {
+  width: 280px;
+  height: 280px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.pairing-code {
+  font-size: 1.5rem;
+  letter-spacing: 0.2em;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+textarea {
+  width: 100%;
+  background: #0f1419;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+#log-output {
+  margin: 0;
+  height: 240px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+details { margin-top: 10px; }
+
+@media (max-width: 960px) {
+  .layout { grid-template-columns: 1fr; }
+  .log-panel { grid-column: auto; }
+}
