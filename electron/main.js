@@ -64,6 +64,53 @@ function resolveIndexHtml() {
   return candidates[1];
 }
 
+const ZOOM_MIN = -2;
+const ZOOM_MAX = 2;
+
+function resetWindowZoom(contents) {
+  if (!contents || contents.isDestroyed()) return;
+  contents.setZoomLevel(0);
+  contents.setZoomFactor(1);
+  try {
+    contents.setVisualZoomLevelLimits(1, 1);
+  } catch {
+    /* older Electron */
+  }
+}
+
+function setupWindowZoom(win) {
+  const contents = win.webContents;
+
+  resetWindowZoom(contents);
+
+  contents.on('did-finish-load', () => {
+    resetWindowZoom(contents);
+  });
+
+  contents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    if (!(input.control || input.meta)) return;
+
+    const key = input.key;
+    if (key === '0' || key === 'num0') {
+      resetWindowZoom(contents);
+      event.preventDefault();
+      return;
+    }
+    if (key === '=' || key === '+' || key === 'numadd') {
+      const next = Math.min(contents.getZoomLevel() + 1, ZOOM_MAX);
+      contents.setZoomLevel(next);
+      event.preventDefault();
+      return;
+    }
+    if (key === '-' || key === 'numsub') {
+      const next = Math.max(contents.getZoomLevel() - 1, ZOOM_MIN);
+      contents.setZoomLevel(next);
+      event.preventDefault();
+    }
+  });
+}
+
 function createWindow(port) {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -83,6 +130,8 @@ function createWindow(port) {
   });
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
+
+  setupWindowZoom(mainWindow);
 
   mainWindow.webContents.on('did-fail-load', (_event, code, desc, url) => {
     console.error('[UI] did-fail-load', code, desc, url);
@@ -165,7 +214,11 @@ app.whenReady().then(async () => {
     setTimeout(() => {
       updater.check(true).catch(() => {});
       scheduleUpdateChecks();
-    }, 8000);
+    }, 4000);
+
+    app.on('browser-window-focus', () => {
+      updater.check(true).catch(() => {});
+    });
   }
 
   app.on('activate', () => {

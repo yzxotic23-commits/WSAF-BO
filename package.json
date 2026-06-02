@@ -1,20 +1,22 @@
 {
   "name": "whatsapp-auto-feeding",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
   "main": "electron/main.js",
   "author": "",
   "license": "MIT",
   "scripts": {
     "start": "node index.js",
-    "desktop": "electron .",
+    "desktop": "node scripts/ensure-electron.js && electron .",
+    "ensure-electron": "node scripts/ensure-electron.js",
     "codex-login": "npx @openai/codex login",
     "codex-proxy": "npx openai-oauth",
     "build:win": "electron-builder --win --x64",
     "build:mac": "electron-builder --mac",
     "build:mac:arm": "electron-builder --mac --arm64",
     "build:mac:intel": "electron-builder --mac --x64",
-    "build:all": "electron-builder -mwl"
+    "build:all": "electron-builder -mwl",
+    "update:manifest": "node scripts/generate-update-manifest.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.16",
@@ -32,8 +34,8 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "electron": "^34.2.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^42.3.2",
+    "electron-builder": "^26.8.1"
   },
   "build": {
     "appId": "com.whatsapp.autofeeding",
@@ -59,13 +61,18 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false

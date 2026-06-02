@@ -29,6 +29,9 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npm run build:mac
 
+      - name: Generate update manifest (macOS)
+        run: node scripts/generate-update-manifest.js release
+
       - name: Ad-hoc sign (unsigned build, helps Gatekeeper)
         run: |
           APP=$(find release -name "*.app" -maxdepth 4 | head -1)
@@ -44,6 +47,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/latest-mac.yml
           if-no-files-found: error
 
   build-win:
@@ -62,10 +66,14 @@ jobs:
       - name: Build Windows installer
         run: npm run build:win
 
+      - name: Generate update manifest (Windows)
+        run: node scripts/generate-update-manifest.js release
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: |
             release/*.exe
+            release/latest.yml
           if-no-files-found: error

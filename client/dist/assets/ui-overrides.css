@@ -1,0 +1,638 @@
+/**
+ * FeedFlow UI polish — keeps existing color palette, fixes layout bugs.
+ */
+
+/* ── Global polish ───────────────────────────────────────────── */
+.wa-app {
+  letter-spacing: 0.01em;
+}
+
+.wa-app ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.wa-app ::-webkit-scrollbar-thumb {
+  background: rgba(11, 20, 26, 0.18);
+  border-radius: 999px;
+}
+
+.wa-app ::-webkit-scrollbar-thumb:hover {
+  background: rgba(11, 20, 26, 0.28);
+}
+
+.wa-app ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Sidebar header — grid layout, pas dengan logo PNG ───────── */
+.wa-list-header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
+  column-gap: 11px;
+  row-gap: 0;
+  padding: 11px 12px 9px;
+  background: linear-gradient(180deg, #fff 0%, var(--wa-header) 72%);
+  box-shadow: inset 0 -1px 0 var(--wa-border);
+}
+
+.wa-list-header-top {
+  display: contents;
+}
+
+.wa-list-header-brand {
+  grid-column: 2;
+  grid-row: 1 / 4;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 0;
+}
+
+.wa-list-header-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: unset;
+  margin: 0;
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.wa-list-header-badge {
+  align-self: center;
+  margin: 0;
+  padding: 2px 6px;
+  font-size: 0.58rem;
+  line-height: 1.2;
+}
+
+.wa-list-header-tagline {
+  margin: 1px 0 6px;
+  padding: 0;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  color: var(--wa-text-secondary);
+}
+
+.wa-header-icon-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.wa-header-icon-btn--settings {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: start;
+  justify-self: end;
+  margin: 0;
+}
+
+.wa-header-icon-btn:hover {
+  background: rgba(11, 20, 26, 0.06);
+}
+
+/* ── FeedFlow logo PNG ───────────────────────────────────────── */
+.wa-app-logo {
+  flex-shrink: 0;
+  line-height: 0;
+  overflow: visible;
+  background: transparent !important;
+  filter: none;
+}
+
+.wa-app-logo .ff-logo-img,
+.wa-app-logo img {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  object-fit: contain;
+  border-radius: 10px;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.wa-app-logo--header {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  align-self: center;
+  justify-self: center;
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+}
+
+.wa-app-logo--empty {
+  width: 56px !important;
+  height: 56px !important;
+  min-width: 56px;
+  min-height: 56px;
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.12));
+}
+
+.wa-list-header-stats {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.wa-list-header-stats::-webkit-scrollbar {
+  display: none;
+}
+
+.wa-stat-pill {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 3px 8px;
+  font-size: 0.66rem;
+  line-height: 1.2;
+  border-radius: var(--wa-radius-pill);
+  box-shadow: 0 1px 2px rgba(11, 20, 26, 0.04);
+}
+
+.wa-stat-pill__icon {
+  width: 6px;
+  height: 6px;
+}
+
+.wa-list-header-toolbar {
+  grid-column: 3;
+  grid-row: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  align-self: end;
+  justify-self: end;
+  padding: 0;
+  margin: 0;
+  min-height: unset;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+.wa-toolbar-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  line-height: 0;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+
+.wa-toolbar-btn svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.wa-toolbar-btn:hover:not(:disabled) {
+  background: rgba(0, 168, 132, 0.1);
+  transform: none;
+}
+
+.wa-toolbar-btn:active:not(:disabled) {
+  background: rgba(0, 168, 132, 0.16);
+  transform: scale(0.96);
+}
+
+.wa-toolbar-btn--refresh,
+.wa-toolbar-btn--add {
+  color: var(--wa-teal);
+}
+
+.wa-toolbar-btn--active {
+  background: rgba(0, 168, 132, 0.12) !important;
+}
+
+.wa-icon-btn {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  line-height: 0;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wa-icon-btn svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.wa-icon-btn--sm {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+}
+
+.wa-main-topbar-title {
+  display: none !important;
+}
+
+.wa-main-topbar {
+  justify-content: flex-end;
+  padding: 8px 14px;
+  min-height: 52px;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 1px 0 var(--wa-border);
+}
+
+.wa-main-topbar-actions {
+  gap: 6px;
+}
+
+.wa-topbar-pill {
+  transition: background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease, transform 0.12s ease;
+  padding: 7px 14px;
+  gap: 7px;
+  box-shadow: 0 1px 2px rgba(11, 20, 26, 0.04);
+}
+
+.wa-topbar-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(11, 20, 26, 0.08);
+}
+
+.wa-topbar-pill__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+/* Audit — tanpa frame/border, hover saja */
+.wa-topbar-pill--audit {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 6px 10px;
+}
+
+.wa-topbar-pill--audit:hover {
+  background: rgba(91, 75, 183, 0.1) !important;
+  border: none !important;
+  box-shadow: none !important;
+  transform: none;
+}
+
+.wa-topbar-pill--audit .wa-topbar-pill__icon {
+  background: transparent !important;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+}
+
+.wa-topbar-pill--audit.wa-topbar-pill--on {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.wa-topbar-pill--audit.wa-topbar-pill--on .wa-topbar-pill__icon {
+  background: transparent !important;
+}
+
+.wa-topbar-pill--audit.wa-topbar-pill--on:hover {
+  background: rgba(91, 75, 183, 0.14) !important;
+}
+
+/* System — tanpa frame/border, hover saja */
+.wa-topbar-pill--system {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 6px 10px;
+}
+
+.wa-topbar-pill--system:hover {
+  background: rgba(84, 101, 111, 0.1) !important;
+  border: none !important;
+  box-shadow: none !important;
+  transform: none;
+}
+
+.wa-topbar-pill--system .wa-topbar-pill__icon {
+  background: transparent !important;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+}
+
+.wa-topbar-pill--system.wa-topbar-pill--on {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.wa-topbar-pill--system.wa-topbar-pill--on .wa-topbar-pill__icon {
+  background: transparent !important;
+}
+
+.wa-topbar-pill--system.wa-topbar-pill--on:hover {
+  background: rgba(84, 101, 111, 0.14) !important;
+}
+
+.wa-audit-drawer {
+  box-shadow: -12px 0 32px rgba(11, 20, 26, 0.1);
+  border-left: 1px solid var(--wa-border);
+  border-radius: 16px 0 0 0;
+  overflow: hidden;
+}
+
+.wa-audit-toolbar {
+  padding: 12px 16px;
+  background: linear-gradient(180deg, #fff 0%, var(--wa-header) 100%);
+  border-bottom: 1px solid var(--wa-border);
+}
+
+.wa-audit-toolbar strong,
+.wa-audit-toolbar h2,
+.wa-audit-toolbar h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.wa-audit-export-btn {
+  padding: 7px 14px;
+  border-radius: var(--wa-radius-pill);
+  box-shadow: 0 2px 6px rgba(0, 128, 105, 0.2);
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+.wa-audit-export-btn:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(0, 128, 105, 0.28);
+  transform: translateY(-1px);
+}
+
+.wa-audit-refresh {
+  padding: 6px 12px;
+  border-radius: var(--wa-radius-pill);
+  transition: background 0.15s ease;
+}
+
+.wa-audit-refresh:hover {
+  background: rgba(0, 168, 132, 0.08);
+}
+
+.wa-audit-summary {
+  padding: 12px 14px;
+  background: var(--wa-header);
+  gap: 10px;
+}
+
+.wa-audit-summary-card {
+  border-radius: var(--wa-radius-sm);
+  padding: 10px 12px;
+  box-shadow: var(--wa-shadow-sm);
+  transition: box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+.wa-audit-summary-card:hover {
+  box-shadow: var(--wa-shadow-md);
+  transform: translateY(-1px);
+}
+
+.wa-audit-summary-value {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+}
+
+.wa-audit-table th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 10px 12px;
+}
+
+.wa-audit-table td {
+  padding: 10px 12px;
+}
+
+.wa-audit-status {
+  padding: 3px 10px;
+  letter-spacing: 0.02em;
+}
+
+.wa-log-drawer {
+  box-shadow: -12px 0 32px rgba(11, 20, 26, 0.1);
+  border-left: 1px solid var(--wa-border);
+  border-radius: 16px 0 0 0;
+  overflow: hidden;
+}
+
+.wa-log-toolbar {
+  padding: 12px 16px;
+  background: linear-gradient(180deg, #fff 0%, var(--wa-header) 100%);
+  border-bottom: 1px solid var(--wa-border);
+}
+
+.wa-chat-row-wrap {
+  transition: background 0.12s ease;
+}
+
+.wa-chat-row-wrap:hover {
+  background: var(--wa-hover);
+}
+
+.wa-chat-row-wrap--menu,
+.wa-chat-row-wrap--logging-out {
+  background: var(--wa-active);
+}
+
+.wa-chat-row-inner {
+  border-bottom: 1px solid rgba(233, 237, 239, 0.65);
+}
+
+.wa-chat-row-name-text {
+  font-weight: 500;
+}
+
+.wa-avatar {
+  box-shadow: 0 1px 3px rgba(11, 20, 26, 0.08);
+}
+
+.wa-conversation {
+  background: var(--wa-header);
+}
+
+.wa-conv-header {
+  min-height: 60px;
+  padding: 10px 16px;
+  background: var(--wa-header);
+  border-bottom: 1px solid var(--wa-border);
+  box-shadow: 0 1px 0 rgba(11, 20, 26, 0.04);
+}
+
+.wa-messages {
+  background-color: var(--wa-chat-bg);
+  background-image: url("./wa-chat-tile-light.png");
+  background-repeat: repeat;
+  background-size: 412px auto;
+  background-position: top left;
+  padding: 16px 8%;
+}
+
+.wa-messages-empty {
+  background-color: var(--wa-chat-bg);
+  background-image: url("./wa-chat-tile-light.png");
+  background-repeat: repeat;
+  background-size: 412px auto;
+}
+
+.wa-msg-bubble {
+  border-radius: 8px;
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+
+.wa-msg--in .wa-msg-bubble {
+  border-top-left-radius: 0;
+}
+
+.wa-msg--out .wa-msg-bubble {
+  border-top-right-radius: 0;
+}
+
+.wa-msg-time {
+  opacity: 0.85;
+}
+
+.wa-feeding-bar {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.wa-feeding-btn {
+  transition: transform 0.12s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.wa-feeding-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.wa-btn {
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+.wa-btn--primary {
+  box-shadow: 0 2px 8px rgba(0, 128, 105, 0.22);
+}
+
+.wa-btn--primary:hover:not(:disabled) {
+  box-shadow: 0 4px 14px rgba(0, 128, 105, 0.28);
+}
+
+.wa-modal {
+  box-shadow: 0 24px 48px rgba(11, 20, 26, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.wa-modal-backdrop {
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* Settings modal (React bundle uses .modal-backdrop, not .wa-modal-backdrop) */
+.modal-backdrop {
+  z-index: 1000;
+}
+
+.modal {
+  z-index: 1001;
+}
+
+.wa-update-banner {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  animation: wa-slide-down 0.28s ease-out;
+}
+
+@keyframes wa-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wa-update-btn {
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.wa-empty-inner {
+  box-shadow: var(--wa-shadow-md);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.wa-app--linking {
+  backdrop-filter: blur(1px);
+}
+
+.wa-pair-label-row {
+  padding: 6px 12px 2px 14px;
+  min-height: 28px;
+  flex-shrink: 0;
+}
+
+.wa-pair-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+}
+
+.wa-pair-remove-btn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.wa-chat-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.wa-settings-drawer,
+.wa-settings-panel {
+  box-shadow: -8px 0 32px rgba(11, 20, 26, 0.1);
+}
