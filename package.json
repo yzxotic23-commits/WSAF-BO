@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-auto-feeding",
-  "version": "1.0.32",
+  "version": "1.0.21",
   "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
   "main": "electron/main.js",
   "author": "",
@@ -40,8 +40,7 @@
   },
   "devDependencies": {
     "electron": "^42.3.2",
-    "electron-builder": "^26.8.1",
-    "rcedit": "^5.0.2"
+    "electron-builder": "^26.8.1"
   },
   "build": {
     "appId": "com.whatsapp.autofeeding",
@@ -64,15 +63,7 @@
     "asarUnpack": [
       "client/dist/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "electron/app-update.yml",
-        "to": "app-update.yml"
-      }
-    ],
     "win": {
-      "icon": "electron/icons/icon.ico",
-      "artifactName": "WhatsApp.Auto.Feeding.Setup.${version}.${ext}",
       "signAndEditExecutable": false,
       "target": [
         {
@@ -85,7 +76,6 @@
     },
     "mac": {
       "category": "public.app-category.productivity",
-      "artifactName": "WhatsApp.Auto.Feeding-${version}-${arch}-mac.${ext}",
       "target": [
         "dmg",
         "zip"
@@ -96,11 +86,7 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "include": "electron/installer.nsh",
-      "installerIcon": "electron/icons/icon.ico",
-      "uninstallerIcon": "electron/icons/icon.ico",
-      "installerHeaderIcon": "electron/icons/icon.ico"
+      "allowToChangeInstallationDirectory": true
     },
     "publish": null
   }

@@ -1,5 +1,4 @@
 require('dotenv').config();
-process.env.DESKTOP_BRIDGE = '1';
 require('../src/silence-libsignal-logs');
 if (process.env.AI_SDK_LOG_WARNINGS === undefined) {
   process.env.AI_SDK_LOG_WARNINGS = 'false';
@@ -8,7 +7,7 @@ if (process.env.AI_SDK_LOG_WARNINGS === undefined) {
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn, fork, spawnSync } = require('child_process');
+const { spawn, fork } = require('child_process');
 const WhatsAppSession = require('../src/whatsapp-session');
 const ProxyManager = require('../src/proxy-manager');
 const { probeProxy } = require('../src/proxy-probe');
@@ -27,18 +26,6 @@ const MAX_CHAT_PER_ACCOUNT = 400;
 function getPartnerSlot(slot) {
   const pairBase = Math.floor(slot / 2) * 2;
   return slot % 2 === 0 ? pairBase + 1 : pairBase;
-}
-
-const QR_ASCII_CHARS = /[█▀▄▌▐░▒▓■□▪▫●○◼◻⬛⬜]/;
-
-/** Feeding CLI stdout must not dump qrcode-terminal art into the UI log drawer. */
-function shouldSkipFeedingCliLogLine(line) {
-  const s = String(line || '').trim();
-  if (!s) return true;
-  if (s.length >= 24 && /^[-─═]{24,}$/.test(s)) return true;
-  const blocks = (s.match(QR_ASCII_CHARS) || []).length;
-  if (blocks >= 3) return true;
-  return s.length >= 10 && blocks / s.length > 0.12;
 }
 
 const AI_ENV_DEFAULTS = {
@@ -456,28 +443,13 @@ class DesktopBridge {
       const partnerSession = this.sessions[partnerSlot];
       const partnerProbe = new WhatsAppSession(getAccountName(partnerSlot));
       const partnerAuth = partnerProbe.getAuthStatus();
-      const sessionLive =
-        session?.isConnected
-        && !session?.isLoggedOut
-        && !session?.isLoggingOut
-        && auth.saved
-        && auth.valid;
-      const hasSaved =
-        !this.logoutSlots.has(i)
-        && ((auth.saved && auth.valid && auth.registered) || sessionLive);
-      const partnerSessionLive =
-        partnerSession?.isConnected
-        && !partnerSession?.isLoggedOut
-        && partnerAuth.saved
-        && partnerAuth.valid;
-      const partnerHasSaved =
-        !this.logoutSlots.has(partnerSlot)
-        && ((partnerAuth.saved && partnerAuth.valid && partnerAuth.registered) || partnerSessionLive);
+      const hasSaved = auth.saved && !this.logoutSlots.has(i);
+      const partnerHasSaved = partnerAuth.saved && !this.logoutSlots.has(partnerSlot);
       const displayName = hasSaved
-        ? session?.getDisplayName?.() || auth.profileName || auth.phone || null
+        ? session?.getDisplayName?.() || auth.profileName || null
         : null;
       const partnerDisplayName = partnerHasSaved
-        ? partnerSession?.getDisplayName?.() || partnerAuth.profileName || partnerAuth.phone || null
+        ? partnerSession?.getDisplayName?.() || partnerAuth.profileName || null
         : null;
       const slotLabel = getAccountLabel(i);
       const partnerSlotLabel = getAccountLabel(partnerSlot);
@@ -509,9 +481,6 @@ class DesktopBridge {
         logoutPhase: this.logoutPhase.get(i) || null,
         authValid: auth.valid,
         chatCount: this.getChatHistory(i).length,
-        loginMethod: session?.loginMethod || null,
-        pairingCode: session?.lastPairingCode || null,
-        pairingPhone: session?.lastPairingPhone || null,
       });
     }
 
@@ -816,7 +785,6 @@ class DesktopBridge {
     });
 
     session.on('profileName', (payload) => {
-      if (!session.isConnected) return;
       if (payload?.profileName) {
         this.log('info', `[${name}] Profile name synced: ${payload.profileName}`);
       }
@@ -974,70 +942,6 @@ class DesktopBridge {
       this.sessions[slotIndex] = session;
     }
 
-    const isPairing = plan.method === 'pairing';
-    if (isPairing) {
-      const { normalizePairingPhone, saveLoginPref } = require('../src/login-prefs');
-      const phoneNumber = normalizePairingPhone(plan.phoneNumber);
-      if (phoneNumber.length < 8 || phoneNumber.length > 15) {
-        throw new Error(
-          'Phone number required for pairing login (country code + number, digits only)'
-        );
-      }
-      if (
-        session.isLinking
-        && session.loginMethod === 'pairing'
-        && session.lastPairingPhone === phoneNumber
-      ) {
-        return {
-          ok: true,
-          mode: 'direct',
-          pending: true,
-          method: 'pairing',
-          deduped: true,
-          pairingCode: session.lastPairingCode || null,
-        };
-      }
-      plan = { method: 'pairing', phoneNumber };
-      saveLoginPref(sessionName, plan);
-      this.log('info', `[${sessionName}] Pairing login (${phoneNumber})…`);
-      this.attachSessionEvents(session, slotIndex);
-      session.setProxy(null);
-      session.linkedViaDirect = true;
-      session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
-      return { ok: true, mode: 'direct', pending: true, method: 'pairing' };
-    }
-
-    if (
-      !plan.clearIncomplete
-      && session?.isLinking
-      && session.loginMethod === 'qr'
-    ) {
-      return { ok: true, mode: 'direct', pending: true, method: 'qr', deduped: true };
-    }
-
-    const authProbe = new WhatsAppSession(sessionName);
-    const partialAuth = authProbe.getAuthStatus();
-    if (plan.clearIncomplete && partialAuth.saved && !partialAuth.registered) {
-      if (session) {
-        session.autoReconnectAllowed = false;
-        try {
-          await session.shutdown();
-        } catch {
-          /* ignore */
-        }
-        this.sessions[slotIndex] = null;
-        session = null;
-      }
-      authProbe.purgeLocalSession();
-      this.log('info', `[${sessionName}] Incomplete pairing cleared — starting QR link`);
-    }
-
-    if (!session) {
-      session = new WhatsAppSession(sessionName);
-      session.autoReconnectAllowed = true;
-      this.sessions[slotIndex] = session;
-    }
-
     const proxyUrl = this.hasProxies ? this.accountProxies[slotIndex] : null;
     const qrMode = this.getProxyQrLinkMode();
 
@@ -1054,7 +958,7 @@ class DesktopBridge {
     session.setProxy(proxyUrl);
     const outcome = await session.connectUntilReady(plan, 22000);
 
-    if (outcome === 'qr_waiting' || outcome === 'connected' || outcome === 'pairing_waiting') {
+    if (outcome === 'qr_waiting' || outcome === 'connected') {
       return { ok: true, outcome, proxy: proxyUrl };
     }
 
@@ -1276,20 +1180,6 @@ class DesktopBridge {
     this.emit('status', this.getStatus());
   }
 
-  /** Stop feeding + sessions before installer runs (Windows may spawn extra app.exe children). */
-  async shutdownForUpdate() {
-    this.stopFeeding(true);
-    try {
-      await Promise.race([
-        this.disconnectAll(),
-        new Promise((resolve) => setTimeout(resolve, 2500)),
-      ]);
-    } catch {
-      /* ignore */
-    }
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  }
-
   /**
    * Delete all local WhatsApp session data (auth/account*, prefs, proxy cache).
    * Use when sessions are corrupted or stuck — does not call WhatsApp remote logout.
@@ -1359,19 +1249,11 @@ class DesktopBridge {
     return { ok: true, removed, authDir: authRoot, accounts: status.accounts };
   }
 
-  stopFeeding(force = false) {
+  stopFeeding() {
     this.feedingStarting = false;
     if (!this.feedingProcess) return { ok: true, wasRunning: false };
-    const child = this.feedingProcess;
     try {
-      if (process.platform === 'win32' && force && child.pid) {
-        spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], {
-          stdio: 'ignore',
-          windowsHide: true,
-        });
-      } else {
-        child.kill(force ? 'SIGKILL' : 'SIGTERM');
-      }
+      this.feedingProcess.kill('SIGTERM');
     } catch {
       /* ignore */
     }
@@ -1461,10 +1343,6 @@ class DesktopBridge {
     }
 
     this.setFeedingLaunchPhase('disconnect');
-    this.log(
-      'info',
-      '[FEEDING] Closing preview connections — auth stays saved; CLI will reconnect both accounts'
-    );
     await this.disconnectAll();
     await new Promise((r) => setTimeout(r, 2500));
 
@@ -1507,7 +1385,6 @@ class DesktopBridge {
         .filter(Boolean)
         .forEach((line) => {
           if (this.tryParseFeedingChatLog(line)) return;
-          if (shouldSkipFeedingCliLogLine(line)) return;
           this.log(level, line);
           if (
             !cliReady

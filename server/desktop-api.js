@@ -4,7 +4,6 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const DesktopBridge = require('./bridge');
-const { normalizePairingPhone } = require('../src/login-prefs');
 
 const PORT = parseInt(process.env.DESKTOP_API_PORT || '47821', 10);
 const PKG = require('../package.json');
@@ -43,26 +42,14 @@ function createDesktopApi(options = {}) {
     }
   });
 
-  app.post('/api/update/install', async (_req, res) => {
+  app.post('/api/update/install', (_req, res) => {
     try {
       if (!updater) return res.status(400).json({ error: 'Updater not available' });
-      const state = updater.getState();
-      if (state.manualInstall && state.status === 'available') {
-        if (!updater.openDownloadPage()) {
-          return res.status(400).json({ error: 'No download URL for this update' });
-        }
-        return res.json({
-          ok: true,
-          mode: 'mac-dmg-manual',
-          downloadUrl: state.downloadUrl,
-        });
-      }
-      if (state.status !== 'downloaded') {
+      if (updater.getState().status !== 'downloaded') {
         return res.status(400).json({ error: 'No update downloaded yet' });
       }
-      await bridge.shutdownForUpdate();
       res.json({ ok: true });
-      setTimeout(() => updater.quitAndInstall(), 600);
+      setTimeout(() => updater.quitAndInstall(), 400);
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -195,26 +182,11 @@ function createDesktopApi(options = {}) {
     try {
       const slot = parseInt(req.params.slot, 10);
       const method = req.body?.method || 'qr';
-      if (method === 'pairing') {
-        const phoneNumber = normalizePairingPhone(req.body?.phoneNumber);
-        if (phoneNumber.length < 8 || phoneNumber.length > 15) {
-          res.status(400).json({
-            error:
-              'Invalid phone number — use country code + number without + (e.g. 60123456789)',
-          });
-          return;
-        }
-        res.json(
-          await bridge.connectAccount(slot, { method: 'pairing', phoneNumber })
-        );
-        return;
-      }
-      res.json(
-        await bridge.connectAccount(slot, {
-          method: 'qr',
-          clearIncomplete: Boolean(req.body?.clearIncomplete),
-        })
-      );
+      const phoneNumber = req.body?.phoneNumber || null;
+      res.json(await bridge.connectAccount(slot, {
+        method: method === 'pairing' ? 'pairing' : 'qr',
+        phoneNumber: method === 'pairing' ? phoneNumber : undefined,
+      }));
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -371,12 +343,8 @@ function createDesktopApi(options = {}) {
     updater,
     port: PORT,
     start: () =>
-      new Promise((resolve, reject) => {
+      new Promise((resolve) => {
         process.env.DESKTOP_API_PORT = String(PORT);
-        server.once('error', (err) => {
-          console.error('[API] listen failed:', err.message);
-          reject(err);
-        });
         server.listen(PORT, '127.0.0.1', () => {
           console.log(`[API] Desktop API http://127.0.0.1:${PORT}`);
           resolve(PORT);

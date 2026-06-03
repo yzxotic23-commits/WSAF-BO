@@ -1,0 +1,5 @@
+﻿WhatsApp Auto Feeding - Paket Windows v1.0.10
+INSTALLER: Installer\WhatsApp.Setup.1.0.10.exe
+DOCS: PANDUAN, .env.example, proxies.txt
+UPDATE: Upload folder UpdateServer ke APP_UPDATE_URL
+

@@ -7,12 +7,6 @@ const { createDesktopApi } = require('../server/desktop-api');
 const AppUpdater = require('./updater');
 
 const isDev = process.env.ELECTRON_DEV === '1';
-
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
-if (!gotSingleInstanceLock) {
-  app.quit();
-}
-
 let mainWindow = null;
 let api = null;
 let apiPort = 47821;
@@ -151,6 +145,8 @@ function createWindow(port) {
     show: false,
   });
 
+  mainWindow.once('ready-to-show', () => mainWindow.show());
+
   setupWindowZoom(mainWindow);
 
   mainWindow.webContents.on('did-fail-load', (_event, code, desc, url) => {
@@ -226,28 +222,9 @@ ipcMain.handle('reload-env', () => {
   return updater?.getState() || { enabled: false };
 });
 
-app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-  }
-});
-
 app.whenReady().then(async () => {
+  apiPort = await startApi();
   createWindow(apiPort);
-  mainWindow.once('ready-to-show', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-  });
-
-  try {
-    apiPort = await startApi();
-  } catch (err) {
-    console.error('[API] Startup failed (window still open):', err.message);
-    if (String(err.code) === 'EADDRINUSE') {
-      console.error('[API] Port busy — close other WhatsApp Auto Feeding instances in Task Manager.');
-    }
-  }
 
   if (!isDev && updater?.state?.enabled) {
     setTimeout(() => {
@@ -269,9 +246,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   if (updateCheckTimer) clearInterval(updateCheckTimer);
   if (api?.bridge) {
-    api.bridge.stopFeeding(true);
+    api.bridge.stopFeeding();
+    await api.bridge.disconnectAll();
   }
 });
