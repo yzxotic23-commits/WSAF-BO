@@ -32,11 +32,17 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npm run build:mac
 
-      - name: Generate update manifest (macOS)
-        run: node scripts/generate-update-manifest.js release mac
+      - name: Deep ad-hoc sign update zip (Squirrel.Mac)
+        run: bash scripts/sign-mac-release-zip.sh release
 
-      - name: Fix latest-mac.yml from actual zip filename
-        run: node scripts/fix-latest-mac-yml.js release
+      - name: Verify signed app inside update zip
+        run: |
+          WORKDIR=$(mktemp -d)
+          unzip -q release/*arm64-mac.zip -d "$WORKDIR"
+          APP=$(find "$WORKDIR" -maxdepth 3 -name '*.app' -print -quit)
+          codesign --verify --deep --strict "$APP"
+          rm -rf "$WORKDIR"
+          echo "OK codesign verify"
 
       - name: Verify local latest-mac.yml matches zip
         run: |
@@ -50,13 +56,13 @@ jobs:
           fi
           echo "OK latest-mac.yml -> $BASENAME"
 
-      - name: Ad-hoc sign (unsigned build, helps Gatekeeper)
+      - name: Ad-hoc sign DMG app bundle (manual install)
         continue-on-error: true
         run: |
           APP=$(find release -name "*.app" -maxdepth 4 | head -1)
           if [ -n "$APP" ]; then
             xattr -cr "$APP" || true
-            codesign --force --sign - "$APP" || true
+            codesign --deep --force --sign - "$APP" || true
           fi
 
       - name: Upload macOS artifacts
