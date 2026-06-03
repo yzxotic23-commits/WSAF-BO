@@ -1,81 +1,25 @@
-require('dotenv').config();
+const path = require('path');
+const { ensureAppRoot, getAppRoot } = require('./src/app-root');
+ensureAppRoot();
+require('./src/silence-deprecation-warnings');
+require('dotenv').config({ path: path.join(getAppRoot(), '.env') });
 require('./src/silence-libsignal-logs');
 if (process.env.AI_SDK_LOG_WARNINGS === undefined) {
   process.env.AI_SDK_LOG_WARNINGS = 'false';
 }
 const readline = require('readline');
 const fs = require('fs');
-const path = require('path');
-const chalk = require('chalk');
 const WhatsAppSession = require('./src/whatsapp-session');
 const AIProvider = require('./src/ai-provider');
 const ProxyManager = require('./src/proxy-manager');
-
-// ── UI helpers ──────────────────────────────────────────────────────────────
-const W = 54;
-const LINE  = '─'.repeat(W);
-const DLINE = '═'.repeat(W);
-
-const ui = {
-  box(title, lines = []) {
-    console.log(chalk.cyan('╭' + DLINE + '╮'));
-    if (title) {
-      const pad = Math.max(0, W - title.length);
-      const l = Math.floor(pad / 2);
-      const r = pad - l;
-      console.log(chalk.cyan('║') + chalk.bold.white(' '.repeat(l) + title + ' '.repeat(r)) + chalk.cyan('║'));
-      console.log(chalk.cyan('├' + LINE + '┤'));
-    }
-    for (const line of lines) {
-      const visible = line.replace(/\x1B\[[0-9;]*m/g, '');
-      const pad = Math.max(0, W - visible.length - 2);
-      console.log(chalk.cyan('│') + ' ' + line + ' '.repeat(pad) + ' ' + chalk.cyan('│'));
-    }
-    console.log(chalk.cyan('╰' + DLINE + '╯'));
-  },
-  header(title) {
-    console.log('');
-    console.log(chalk.cyan('╭' + DLINE + '╮'));
-    const pad = Math.max(0, W - title.length);
-    const l = Math.floor(pad / 2);
-    const r = pad - l;
-    console.log(chalk.cyan('║') + chalk.bold.white(' '.repeat(l) + title + ' '.repeat(r)) + chalk.cyan('║'));
-    console.log(chalk.cyan('╰' + DLINE + '╯'));
-    console.log('');
-  },
-  divider(label = '') {
-    if (!label) { console.log(chalk.dim('  ' + '─'.repeat(W - 2))); return; }
-    const side = Math.max(0, Math.floor((W - label.length - 2) / 2));
-    console.log(chalk.dim('  ' + '─'.repeat(side) + ' ') + chalk.dim(label) + chalk.dim(' ' + '─'.repeat(W - side - label.length - 4)));
-  },
-  menu(title, options) {
-    console.log('');
-    console.log(chalk.cyan('╭' + DLINE + '╮'));
-    const tpad = Math.max(0, W - title.length);
-    console.log(chalk.cyan('║') + chalk.bold.yellow(' '.repeat(Math.floor(tpad/2)) + title + ' '.repeat(tpad - Math.floor(tpad/2))) + chalk.cyan('║'));
-    console.log(chalk.cyan('├' + LINE + '┤'));
-    for (const [key, label, desc] of options) {
-      const badge = chalk.bgCyan.bold.black(` ${key} `);
-      const text  = chalk.white(` ${label}`);
-      const hint  = desc ? chalk.dim(`  ${desc}`) : '';
-      const full  = ` ${badge}${text}${hint}`;
-      const visible = full.replace(/\x1B\[[0-9;]*m/g, '');
-      const pad = Math.max(0, W - visible.length + 1);
-      console.log(chalk.cyan('│') + full + ' '.repeat(pad) + chalk.cyan('│'));
-    }
-    console.log(chalk.cyan('╰' + DLINE + '╯'));
-    console.log('');
-  },
-  ok(msg)   { console.log(chalk.green('  ✔ ') + chalk.greenBright(msg)); },
-  warn(msg) { console.log(chalk.yellow('  ⚠ ') + chalk.yellowBright(msg)); },
-  err(msg)  { console.log(chalk.red('  ✖ ') + chalk.redBright(msg)); },
-  info(msg) { console.log(chalk.cyan('  ℹ ') + chalk.white(msg)); },
-  step(msg) { console.log(chalk.blue('  → ') + chalk.white(msg)); },
-  tag(label, msg) {
-    console.log(chalk.bgBlue.bold.white(` ${label} `) + ' ' + chalk.white(msg));
-  },
-};
-// ─────────────────────────────────────────────────────────────────────────────
+const {
+  reportFeedingChat,
+  reportFeedingPairResults,
+  reportAuditEntry,
+  reportFeedingComplete,
+  reportProfileRefresh,
+  reportStrictLogout,
+} = require('./src/feeding-reporter');
 
 const MIN_DELAY = parseInt(process.env.MIN_DELAY || '30') * 1000;
 const MAX_DELAY = parseInt(process.env.MAX_DELAY || '90') * 1000;
@@ -87,17 +31,38 @@ const PAIR_MAX_NUDGES = Math.max(0, parseInt(process.env.PAIR_MAX_NUDGES || '3',
 const PAIR_STOP_ON_IDLE = process.env.PAIR_STOP_ON_IDLE === 'true';
 const ECHO_IGNORE_MS = parseInt(process.env.ECHO_IGNORE_MS || '60000', 10);
 const DEBUG_MESSAGES = process.env.DEBUG_MESSAGES === 'true';
-const PAIR_COUNT = Math.max(1, parseInt(process.env.PAIR_COUNT || '1', 10));
-const ACCOUNT_START = Math.max(1, parseInt(process.env.ACCOUNT_START || '1', 10));
-const ACCOUNT_COUNT = PAIR_COUNT * 2;
-const ACCOUNT_END = ACCOUNT_START + ACCOUNT_COUNT - 1;
+const {
+  getPairCount,
+  getAccountStart,
+  getAccountCount,
+  getAccountEnd,
+} = require('./src/app-config');
+
+function pairCount() {
+  return getPairCount();
+}
+function accountCount() {
+  return getAccountCount();
+}
+function accountStart() {
+  return getAccountStart();
+}
+function accountEnd() {
+  return getAccountEnd();
+}
 
 function getAccountName(slotIndex) {
-  return `account${ACCOUNT_START + slotIndex}`;
+  return `account${accountStart() + slotIndex}`;
+}
+
+function sessionSlotIndex(session) {
+  const num = parseInt(String(session?.sessionName || '').replace(/\D/g, ''), 10);
+  if (!Number.isFinite(num)) return null;
+  return num - accountStart();
 }
 
 function getAccountLabel(slotIndex) {
-  return `Account${ACCOUNT_START + slotIndex}`;
+  return `Account${accountStart() + slotIndex}`;
 }
 
 /**
@@ -129,15 +94,15 @@ function getAccountPhone(slotIndex) {
 /** Ask for phone number once, save to prefs so it auto-detects on next restart. */
 async function askAndSavePhone(sessionName) {
   console.log('');
-  ui.info(`Pairing code for ${chalk.bold(sessionName)} — format: country code + number, e.g. ${chalk.yellow('628123456789')}`);
-  const input = await ask(chalk.cyan('  ▶ ') + chalk.white('Phone number: '));
+  console.log(`[PAIRING] Enter phone number for ${sessionName} (country code + number, e.g. 628123456789):`);
+  const input = await ask('Phone number: ');
   const phone = (input || '').trim().replace(/[^0-9]/g, '');
   if (phone.length < 8) {
-    ui.warn('Number too short — skipped.');
+    console.log('[WARN] Number too short — skipped.');
     return null;
   }
   saveLoginPref(sessionName, { method: 'pairing', phoneNumber: phone });
-  ui.ok(`Phone ${chalk.bold(phone)} saved — will be reused automatically on restart.`);
+  console.log(`[OK] Phone ${phone} saved — will be reused automatically on restart.`);
   return phone;
 }
 
@@ -196,14 +161,11 @@ function sleep(ms) {
 }
 
 function log(pairNum, message) {
-  const tag = chalk.bgBlue.bold.white(` P${pairNum} `);
-  console.log(tag + ' ' + chalk.white(message));
+  console.log(`[Pair ${pairNum}] ${message}`);
 }
 
 function msgCount(n) {
-  const pct = Math.round((n / MAX_MESSAGES) * 10);
-  const bar = chalk.green('█'.repeat(pct)) + chalk.dim('░'.repeat(10 - pct));
-  return chalk.dim(`[`) + chalk.cyan(`${n}/${MAX_MESSAGES}`) + chalk.dim(`]`) + ' ' + bar;
+  return `[${n}/${MAX_MESSAGES}]`;
 }
 
 /** Collapse whitespace/newlines so each log line stays on one terminal row. */
@@ -212,25 +174,28 @@ function oneLine(text) {
 }
 
 function logOut(pairNum, from, to, text, count, suffix = '') {
-  const extra = suffix ? chalk.dim(` ${suffix}`) : '';
-  const arrow = chalk.cyan(' → ');
-  const fromLabel = chalk.bold.green(from);
-  const toLabel   = chalk.bold.yellow(to);
-  const body      = chalk.white(oneLine(text).slice(0, 80) + (oneLine(text).length > 80 ? '…' : ''));
-  const tag = chalk.bgBlue.bold.white(` P${pairNum} `);
-  console.log(tag + ' ' + fromLabel + arrow + toLabel + chalk.dim(': ') + body + ' ' + msgCount(count) + extra);
+  if (process.env.DESKTOP_FEEDING === '1') {
+    reportFeedingChat(from, to, oneLine(text), 'message');
+    return;
+  }
+  const extra = suffix ? ` ${suffix}` : '';
+  log(pairNum, `${from} → ${to}: ${oneLine(text)} ${msgCount(count)}${extra}`);
 }
 
 function logNudge(pairNum, from, to, text, nudgeNum) {
-  const tag = chalk.bgBlue.bold.white(` P${pairNum} `);
-  const badge = chalk.bgYellow.black(` nudge ${nudgeNum}/${PAIR_MAX_NUDGES} `);
-  console.log(tag + ' ' + badge + ' ' + chalk.yellow(from) + chalk.dim(' → ') + chalk.yellow(to) + chalk.dim(': ') + chalk.white(oneLine(text)));
+  if (process.env.DESKTOP_FEEDING === '1') {
+    reportFeedingChat(from, to, oneLine(text), 'nudge');
+    return;
+  }
+  log(pairNum, `${from} → ${to}: ${oneLine(text)} (nudge ${nudgeNum}/${PAIR_MAX_NUDGES})`);
 }
 
 function logTyping(pairNum, who, sec) {
-  const tag = chalk.bgBlue.bold.white(` P${pairNum} `);
-  const dots = chalk.dim('· · ·');
-  console.log(tag + ' ' + chalk.dim(who) + ' ' + dots + ' ' + chalk.dim(`typing ${sec}s`));
+  if (process.env.DESKTOP_FEEDING === '1') {
+    reportFeedingChat(who, '', `typing… ${sec}s`, 'typing');
+    return;
+  }
+  log(pairNum, `${who} typing... ${sec}s`);
 }
 
 function ask(question) {
@@ -243,7 +208,19 @@ function ask(question) {
   });
 }
 
-const LOGIN_PREFS_PATH = path.join(process.cwd(), 'auth', '_login-prefs.json');
+const LOGIN_PREFS_PATH = path.join(getAppRoot(), 'auth', '_login-prefs.json');
+
+function isDesktopFeeding() {
+  return process.env.DESKTOP_FEEDING === '1' || !process.stdin.isTTY;
+}
+
+/** Push profile name updates to desktop sidebar while CLI feeding runs. */
+function attachDesktopProfileSync(session) {
+  if (!isDesktopFeeding()) return;
+  session.on('profileName', () => {
+    reportProfileRefresh().catch(() => {});
+  });
+}
 
 function readLoginPrefs() {
   if (!fs.existsSync(LOGIN_PREFS_PATH)) return {};
@@ -271,23 +248,27 @@ function clearLoginPrefs() {
 }
 
 async function askLoginMethodChoice(title) {
-  ui.menu(title, [
-    ['1', 'QR Scan', 'show QR code in terminal'],
-    ['2', 'Pairing Code', '8-digit code on your phone'],
-  ]);
-  const choice = await ask(chalk.cyan('  ▶ ') + chalk.white('Choose login method (1-2): '));
+  console.log('');
+  console.log('='.repeat(50));
+  console.log(title);
+  console.log('='.repeat(50));
+  console.log('');
+  console.log('  1. QR scan (show QR in terminal)');
+  console.log('  2. Phone number + pairing code (8-digit code on phone)');
+  console.log('');
+
+  const choice = await ask('Choose login method (1-2): ');
   return choice === '2' ? 'pairing' : 'qr';
 }
 
 async function askPairingPhone(sessionName) {
   console.log('');
-  ui.info(`Phone for ${chalk.bold(sessionName)} — country code + number, digits only`);
-  ui.info('Example: ' + chalk.yellow('60123456789') + ' (MY) | ' + chalk.yellow('8613800138000') + ' (CN)');
-  console.log('');
-  const phone = await ask(chalk.cyan('  ▶ ') + chalk.white('Enter phone number: '));
+  console.log(`Phone for ${sessionName} — country code + number, digits only`);
+  console.log('Example: 60123456789 (MY) | 8613800138000 (CN)');
+  const phone = await ask('Enter phone number: ');
   const phoneNumber = phone.replace(/\D/g, '');
   if (phoneNumber.length < 8) {
-    ui.warn('Number too short — using QR scan instead.');
+    console.log('[WARN] Number too short — using QR scan instead.');
     return null;
   }
   return phoneNumber;
@@ -332,7 +313,7 @@ async function prepareLoginPlans() {
   const needLink = [];
   const prefs = readLoginPrefs();
 
-  for (let i = 0; i < ACCOUNT_COUNT; i++) {
+  for (let i = 0; i < accountCount(); i++) {
     const name = getAccountName(i);
     const probe = new WhatsAppSession(name);
     const auth = probe.getAuthStatus();
@@ -353,6 +334,17 @@ async function prepareLoginPlans() {
     console.log('');
     console.log('[LOGIN] All accounts have valid saved sessions — no login prompts.');
     return plans;
+  }
+
+  if (isDesktopFeeding()) {
+    console.log('');
+    console.log(`[LOGIN] ${needLink.length} account(s) not linked. Use the desktop app first:`);
+    console.log(`  Auth folder: ${path.join(getAppRoot(), 'auth')}`);
+    for (const { name, reason } of needLink) {
+      console.log(`  - ${name} (${reason})`);
+    }
+    console.log('[LOGIN] Link each account from the desktop app sidebar, then click Start feeding.');
+    process.exit(1);
   }
 
   console.log('');
@@ -378,33 +370,56 @@ async function prepareLoginPlans() {
 }
 
 async function selectLanguage() {
-  ui.menu('SELECT LANGUAGE FOR THIS SESSION', [
-    ['1', 'Indonesia', ''],
-    ['2', 'English', ''],
-    ['3', 'Melayu', ''],
-    ['4', 'Chinese', 'Simplified'],
-  ]);
-  const choice = await ask(chalk.cyan('  ▶ ') + chalk.white('Choose language (1-4): '));
+  if (isDesktopFeeding()) {
+    const selected = process.env.LANGUAGE || 'English';
+    console.log(`[OK] Language: ${selected} (from .env / desktop feeding)`);
+    return selected;
+  }
+
+  console.log('');
+  console.log('='.repeat(50));
+  console.log('SELECT LANGUAGE FOR THIS SESSION');
+  console.log('='.repeat(50));
+  console.log('');
+  console.log('  1. Indonesia');
+  console.log('  2. English');
+  console.log('  3. Melayu');
+  console.log('  4. Chinese (Simplified)');
+  console.log('');
+
+  const choice = await ask('Choose language (1-4): ');
+
   const languages = { '1': 'Indonesia', '2': 'English', '3': 'Melayu', '4': 'Chinese' };
   const selected = languages[choice] || 'Indonesia';
-  ui.ok(`Language set to: ${chalk.bold(selected)}`);
+  console.log(`[OK] Language set to: ${selected}`);
   return selected;
 }
 
 async function askPostFeedingAction() {
-  ui.menu('FEEDING DONE — NEXT STEP', [
-    ['1', 'Continue', 'keep session, no QR needed'],
-    ['2', 'New Session', 'logout all + link again'],
-    ['3', 'Exit', 'close the app'],
-  ]);
-  const choice = await ask(chalk.cyan('  ▶ ') + chalk.white('Choose (1-3): '));
+  if (isDesktopFeeding()) return 'exit';
+
+  console.log('');
+  console.log('='.repeat(50));
+  console.log('FEEDING DONE — NEXT STEP');
+  console.log('='.repeat(50));
+  console.log('');
+  console.log('  1. Continue (keep session, no QR)');
+  console.log('  2. New session (logout all + link again)');
+  console.log('  3. Exit');
+  console.log('');
+
+  const choice = await ask('Choose (1-3): ');
+
   if (choice === '2') return 'new';
   if (choice === '3') return 'exit';
   return 'continue';
 }
 
 async function resetAllSessionsNew(sessions, hasProxies, proxyManager, accountProxies) {
-  ui.header('NEW SESSION — Logout & clear all auth');
+  console.log('');
+  console.log('='.repeat(50));
+  console.log('NEW SESSION — Logout & clear all auth');
+  console.log('='.repeat(50));
 
   for (const session of sessions) {
     await session.logoutAndClear();
@@ -413,7 +428,8 @@ async function resetAllSessionsNew(sessions, hasProxies, proxyManager, accountPr
   clearLoginPrefs();
   await sleep(3000);
 
-  ui.step('Reconnecting all accounts (QR or pairing code if needed)...');
+  console.log('');
+  console.log('Reconnecting all accounts (QR or pairing code if needed)...');
   console.log('');
 
   if (hasProxies) {
@@ -448,7 +464,21 @@ async function resetAllSessionsNew(sessions, hasProxies, proxyManager, accountPr
   await sleep(3000);
 }
 
-async function runPairSession(sessionA, sessionB, language, pairNum, labelA, labelB, controller, aiA, aiB) {
+async function runPairSession(
+  sessionA,
+  sessionB,
+  language,
+  pairNum,
+  labelA,
+  labelB,
+  controller,
+  aiA,
+  aiB,
+  accountProxies = []
+) {
+  attachDesktopProfileSync(sessionA);
+  attachDesktopProfileSync(sessionB);
+
   const jidA = sessionA.getMyJid();
   const jidB = sessionB.getMyJid();
   sessionA.setExpectedPartner(jidB);
@@ -674,7 +704,7 @@ async function runPairSession(sessionA, sessionB, language, pairNum, labelA, lab
     clearIdleWatch();
     log(pairNum, '');
     log(pairNum, `Stopped: ${reason}`);
-    if (PAIR_COUNT > 1) log(pairNum, 'Other pairs keep running.');
+    if (pairCount() > 1) log(pairNum, 'Other pairs keep running.');
     log(pairNum, '');
     controller.stopPair(pairNum, reason);
   };
@@ -722,13 +752,35 @@ async function runPairSession(sessionA, sessionB, language, pairNum, labelA, lab
     sessionA.on('loggedOut', onLoggedOutA);
     sessionB.on('loggedOut', onLoggedOutB);
 
-    const onPolicyAlert = (label) => (alert) => {
+    const onPolicyAlert = (label, session) => (alert) => {
+      if (isDesktopFeeding()) {
+        const slot = sessionSlotIndex(session);
+        reportAuditEntry({
+          runId: process.env.FEEDING_RUN_ID || null,
+          slot,
+          sessionName: session.sessionName,
+          accountName: session.getDisplayName?.() || label,
+          policyType: alert.type,
+          reason: alert.title || alert.type,
+          proxyUrl: session.proxyUrl || accountProxies[slot] || null,
+          pairIndex: pairNum - 1,
+        }).catch(() => {});
+      }
       if (alert.severity === 'critical') {
         stopPair(`${label}: ${alert.type} — check phone for WA restriction`);
       }
     };
-    sessionA.on('policyAlert', onPolicyAlert(labelA));
-    sessionB.on('policyAlert', onPolicyAlert(labelB));
+    sessionA.on('policyAlert', onPolicyAlert(labelA, sessionA));
+    sessionB.on('policyAlert', onPolicyAlert(labelB, sessionB));
+
+    const onStrictLogout = (label, session) => ({ alert }) => {
+      if (!isDesktopFeeding()) return;
+      const slot = sessionSlotIndex(session);
+      reportStrictLogout(slot, alert).catch(() => {});
+      stopPair(`${label}: strict logout — session removed; check phone for WA limit`);
+    };
+    sessionA.on('strictLogout', onStrictLogout(labelA, sessionA));
+    sessionB.on('strictLogout', onStrictLogout(labelB, sessionB));
 
     processInbound = async (side, sender, text) => {
       if (controller.isPairStopped(pairNum)) return;
@@ -885,14 +937,14 @@ async function runPairSession(sessionA, sessionB, language, pairNum, labelA, lab
   });
 }
 
-async function runAllPairs(sessions, language) {
+async function runAllPairs(sessions, language, accountProxies = []) {
   const controller = new PairChatController();
   const pairConfigs = [];
 
   console.log('');
-  ui.info(chalk.cyan(`${PAIR_COUNT}`) + chalk.dim(` pair(s)  ·  lang: `) + chalk.white(language));
+  console.log(`[SESSION] ${pairCount()} pair(s) | ${language}`);
 
-  for (let p = 0; p < PAIR_COUNT; p++) {
+  for (let p = 0; p < pairCount(); p++) {
     const aiA = new AIProvider();
     const aiB = new AIProvider();
     aiA.language = language;
@@ -924,7 +976,18 @@ async function runAllPairs(sessions, language) {
   console.log('');
 
   const tasks = pairConfigs.map(({ pairNum, sessionA, sessionB, labelA, labelB, aiA, aiB }) =>
-    runPairSession(sessionA, sessionB, language, pairNum, labelA, labelB, controller, aiA, aiB)
+    runPairSession(
+      sessionA,
+      sessionB,
+      language,
+      pairNum,
+      labelA,
+      labelB,
+      controller,
+      aiA,
+      aiB,
+      accountProxies
+    )
       .catch((err) => {
         log(pairNum, `[ERROR] ${err.message}`);
         controller.stopPair(pairNum, err.message);
@@ -939,7 +1002,11 @@ async function runAllPairs(sessions, language) {
   const stopped = results.filter((r) => r?.status === 'stopped').length;
 
   console.log('');
-  ui.info(chalk.green(`${completed} completed`) + chalk.dim('  ·  ') + (stopped > 0 ? chalk.yellow(`${stopped} stopped`) : chalk.dim('0 stopped')) + chalk.dim(`  ·  ${PAIR_COUNT} total`));
+  console.log(`[SESSION] Done: ${completed} | Stopped: ${stopped} | Total: ${pairCount()}`);
+
+  if (isDesktopFeeding()) {
+    await reportFeedingPairResults(results, sessions, accountProxies);
+  }
 
   return results;
 }
@@ -950,21 +1017,21 @@ async function assignAccountProxies(proxyManager) {
 
   if (probeEnabled) {
     accountProxies = await proxyManager.assignWorkingForAccounts(
-      ACCOUNT_COUNT,
+      accountCount(),
       (i) => getAccountName(i)
     );
   } else {
-    accountProxies = proxyManager.assignForAccounts(ACCOUNT_COUNT);
+    accountProxies = proxyManager.assignForAccounts(accountCount());
     console.log('[PROXY] PROXY_PROBE=false — using fixed slot order (no rotation test)');
   }
 
   const n = proxyManager.proxies.length;
 
-  if (n > 0 && n < ACCOUNT_COUNT && !probeEnabled) {
-    console.log(`[PROXY] ${n} proxy(ies) for ${ACCOUNT_COUNT} accounts — slots reuse proxies round-robin`);
+  if (n > 0 && n < accountCount() && !probeEnabled) {
+    console.log(`[PROXY] ${n} proxy(ies) for ${accountCount()} accounts — slots reuse proxies round-robin`);
   }
 
-  for (let p = 0; p < PAIR_COUNT; p++) {
+  for (let p = 0; p < pairCount(); p++) {
     const slotA = p * 2;
     const slotB = p * 2 + 1;
     const proxyA = accountProxies[slotA];
@@ -994,31 +1061,38 @@ async function reassignAccountProxies(proxyManager) {
 }
 
 function printAuthStatusSummary() {
-  const rows = [];
+  console.log('');
+  console.log('='.repeat(50));
+  console.log('SESSION STATUS (auth/ folder)');
+  console.log(`  Data folder: ${getAppRoot()}`);
+  console.log(`  Auth path:   ${path.join(getAppRoot(), 'auth')}`);
+  console.log('='.repeat(50));
+
   let ready = 0;
   let needLink = 0;
 
-  for (let i = 0; i < ACCOUNT_COUNT; i++) {
+  for (let i = 0; i < accountCount(); i++) {
     const name = getAccountName(i);
     const auth = new WhatsAppSession(name).getAuthStatus();
     if (auth.valid) {
       ready++;
-      const phone = auth.phone ? chalk.dim(`(${auth.phone})`) : chalk.dim('(linked)');
-      rows.push(chalk.green('  ✔ ') + chalk.bold(name) + ' ' + phone + chalk.dim(' — auto connect'));
+      console.log(`  ${name}: ready (${auth.phone || 'linked'}) — auto connect, no login prompt`);
     } else if (auth.saved) {
       needLink++;
-      rows.push(chalk.yellow('  ⚠ ') + chalk.bold(name) + chalk.dim(' — invalid session, will re-login'));
+      console.log(`  ${name}: invalid session — will ask login on connect`);
     } else {
       needLink++;
-      rows.push(chalk.dim('  ○ ') + chalk.bold(name) + chalk.dim(' — not linked, login required'));
+      console.log(`  ${name}: not linked — will ask login on connect`);
     }
   }
 
-  const summary = needLink === 0
-    ? chalk.green(`All ${ready} account(s) ready`)
-    : chalk.yellow(`${ready} ready`) + chalk.dim(', ') + chalk.yellow(`${needLink} need linking`);
-
-  ui.box('SESSION STATUS  (auth/ folder)', [...rows, '', '  ' + summary]);
+  console.log('');
+  if (needLink === 0) {
+    console.log(`All ${ready} account(s) ready — startup skips login method.`);
+  } else {
+    console.log(`${ready} ready, ${needLink} need linking (login asked only for those).`);
+  }
+  console.log('='.repeat(50));
 }
 
 /** Ordered list: assigned proxy first, then every proxy in proxies.txt. */
@@ -1155,14 +1229,17 @@ async function connectAllSessions(hasProxies, proxyManager, accountProxies) {
   const sessions = [];
   const loginPlans = await prepareLoginPlans();
 
-  for (let i = 0; i < ACCOUNT_COUNT; i++) {
+  for (let i = 0; i < accountCount(); i++) {
     const sessionName = getAccountName(i);
     let plan = loginPlans.get(sessionName) || { method: 'qr' };
 
     console.log('');
-    ui.header(`STEP ${i + 1}/${ACCOUNT_COUNT}  ·  Connect ${sessionName}`);
+    console.log('='.repeat(50));
+    console.log(`STEP ${i + 1}/${accountCount()}: Connect WhatsApp ${sessionName}`);
+    console.log('='.repeat(50));
 
     const session = new WhatsAppSession(sessionName);
+    attachDesktopProfileSync(session);
     const proxyUrl = hasProxies ? accountProxies[i] : null;
     const linkCandidates = hasProxies
       ? getLinkProxyCandidates(i, proxyManager, proxyUrl)
@@ -1251,61 +1328,58 @@ function printConnectedSummary(sessions, hasProxies, proxyManager, accountProxie
   const connected = sessions.filter((s) => s.isConnected && !s.isLoggedOut);
   const ready = connected.length;
 
-  const rows = [];
-  for (let p = 0; p < PAIR_COUNT; p++) {
+  console.log('');
+  console.log('='.repeat(50));
+  if (ready === accountCount()) {
+    console.log(`All ${accountCount()} accounts connected! (${pairCount()} pair${pairCount() > 1 ? 's' : ''})`);
+  } else {
+    console.log(`Connected: ${ready}/${accountCount()} — fix failed accounts before feeding`);
+  }
+  console.log('='.repeat(50));
+
+  for (let p = 0; p < pairCount(); p++) {
     const sessionA = sessions[p * 2];
     const sessionB = sessions[p * 2 + 1];
-    const phoneA = sessionA.getPhone() || chalk.dim('(not linked)');
-    const phoneB = sessionB.getPhone() || chalk.dim('(not linked)');
-    const stA = sessionA.isConnected ? chalk.green('●') : chalk.red('●');
-    const stB = sessionB.isConnected ? chalk.green('●') : chalk.red('●');
-
-    let proxyLine = '';
+    const phoneA = sessionA.getPhone() || '(not linked)';
+    const phoneB = sessionB.getPhone() || '(not linked)';
+    const statusA = sessionA.isConnected ? 'ok' : 'OFFLINE';
+    const statusB = sessionB.isConnected ? 'ok' : 'OFFLINE';
+    let proxyInfo = '';
     if (hasProxies) {
-      const liveA = sessionA.proxyUrl ? chalk.dim(proxyManager.maskUrl(sessionA.proxyUrl)) : chalk.dim('direct');
-      const liveB = sessionB.proxyUrl ? chalk.dim(proxyManager.maskUrl(sessionB.proxyUrl)) : chalk.dim('direct');
-      proxyLine = chalk.dim('  ⇒ ') + liveA + chalk.dim(' / ') + liveB;
+      const slotA = p * 2;
+      const slotB = p * 2 + 1;
+      const liveA = sessionA.proxyUrl ? proxyManager.maskUrl(sessionA.proxyUrl) : 'direct';
+      const liveB = sessionB.proxyUrl ? proxyManager.maskUrl(sessionB.proxyUrl) : 'direct';
+      proxyInfo = ` | ${getAccountLabel(slotA)}: ${liveA} [${statusA}] | ${getAccountLabel(slotB)}: ${liveB} [${statusB}]`;
+    } else {
+      proxyInfo = ` | ${getAccountLabel(p * 2)} [${statusA}] | ${getAccountLabel(p * 2 + 1)} [${statusB}]`;
     }
-
-    rows.push(
-      chalk.bold.cyan(`  Pair ${p + 1}`) + '  ' +
-      stA + ' ' + chalk.white(phoneA) + chalk.dim(' ↔ ') + stB + ' ' + chalk.white(phoneB) +
-      proxyLine
-    );
+    console.log(`  Pair ${p + 1}: ${phoneA} <-> ${phoneB}${proxyInfo}`);
   }
 
-  const headline = ready === ACCOUNT_COUNT
-    ? chalk.green(`All ${ACCOUNT_COUNT} accounts connected`) + chalk.dim(` · ${PAIR_COUNT} pair${PAIR_COUNT > 1 ? 's' : ''}`)
-    : chalk.yellow(`${ready}/${ACCOUNT_COUNT} connected`) + chalk.dim(' — fix offline accounts before feeding');
+  if (!hasProxies) {
+    console.log('  Proxy    : none (direct connection)');
+  }
+  console.log('='.repeat(50));
 
-  if (!hasProxies) rows.push(chalk.dim('  Proxy: none (direct connection)'));
-  ui.box('CONNECTION STATUS', [headline, '', ...rows]);
-
-  if (ready < ACCOUNT_COUNT) {
-    ui.warn('Some accounts are offline — scan QR again or wait for account recovery.');
+  if (ready < accountCount()) {
+    console.log('[WARN] Some accounts are offline — scan QR again or wait if account is on strict limit.');
   }
 }
 
 async function main() {
-  console.clear();
+  console.log('+===========================================+');
+  console.log('|   WhatsApp Auto Chat - Terminal Edition   |');
+  console.log('|   AI-Powered Conversation Generator      |');
+  console.log('+===========================================+');
   console.log('');
-  console.log(chalk.cyan('  ╔' + '═'.repeat(50) + '╗'));
-  console.log(chalk.cyan('  ║') + chalk.bold.white('          WhatsApp Auto Chat                      ') + chalk.cyan('║'));
-  console.log(chalk.cyan('  ║') + chalk.dim('        AI-Powered Conversation Generator         ') + chalk.cyan('║'));
-  console.log(chalk.cyan('  ╚' + '═'.repeat(50) + '╝'));
-  console.log('');
-
   const aiPrimary = process.env.AI_PROVIDER_PRIMARY || 'openai';
   const aiFallback = process.env.AI_PROVIDER_FALLBACK || 'ollama';
-  const idleStop = PAIR_STOP_ON_IDLE ? chalk.yellow(`yes (${PAIR_IDLE_TIMEOUT_MS / 1000}s)`) : chalk.dim('no');
-
-  ui.box('CONFIGURATION', [
-    chalk.dim('AI Provider  ') + chalk.cyan(aiPrimary) + chalk.dim('  fallback: ') + chalk.dim(aiFallback),
-    chalk.dim('Pairs        ') + chalk.white(`${PAIR_COUNT}`) + chalk.dim(`  (account${ACCOUNT_START}–${ACCOUNT_END}, ${ACCOUNT_COUNT} accounts)`),
-    chalk.dim('Delay        ') + chalk.white(`${process.env.MIN_DELAY || 30}s`) + chalk.dim(' – ') + chalk.white(`${process.env.MAX_DELAY || 90}s`),
-    chalk.dim('Max Messages ') + chalk.white(`${MAX_MESSAGES}`) + chalk.dim(' per pair per session'),
-    chalk.dim('Idle stop    ') + idleStop,
-  ]);
+  console.log(`AI Provider : ${aiPrimary} (fallback: ${aiFallback})`);
+  console.log(`Pairs       : ${pairCount()} (account${accountStart()}–${accountEnd()}, ${accountCount()} accounts)`);
+  console.log(`Delay       : ${process.env.MIN_DELAY || 30}s - ${process.env.MAX_DELAY || 90}s`);
+  console.log(`Max Messages: ${MAX_MESSAGES} per pair per session`);
+  console.log(`Idle stop   : ${PAIR_STOP_ON_IDLE ? `yes (${PAIR_IDLE_TIMEOUT_MS / 1000}s)` : 'no (keeps waiting)'}`);
   console.log('');
 
   const proxyManager = new ProxyManager();
@@ -1327,7 +1401,7 @@ async function main() {
   activeSessions = sessions;
 
   console.log('');
-  ui.step('Waiting for stable connection...');
+  console.log('Waiting for stable connection...');
   await sleep(5000);
 
   printConnectedSummary(sessions, hasProxies, proxyManager, accountProxies);
@@ -1336,16 +1410,14 @@ async function main() {
   while (true) {
     const language = await selectLanguage();
 
-    console.log('');
-    ui.divider(`Session #${sessionNumber}  ·  ${PAIR_COUNT} pair${PAIR_COUNT > 1 ? 's' : ''} in parallel`);
-    console.log('');
+    console.log(`\n--- Session #${sessionNumber} (${pairCount()} pair${pairCount() > 1 ? 's' : ''} in parallel) ---\n`);
     totalMessagesSent = 0;
-    await runAllPairs(sessions, language);
+    await runAllPairs(sessions, language, accountProxies);
 
     console.log('');
-    ui.box(`FEEDING #${sessionNumber} COMPLETE`, [
-      chalk.green('  ✔ ') + chalk.white(`${totalMessagesSent} messages sent`) + chalk.dim(' across all pairs'),
-    ]);
+    console.log('='.repeat(50));
+    console.log(`Feeding #${sessionNumber} done (${totalMessagesSent} messages sent)`);
+    console.log('='.repeat(50));
 
     const action = await askPostFeedingAction();
 
@@ -1365,7 +1437,7 @@ async function main() {
       await reconnectAllSessions(sessions, proxyManager, accountProxies);
       printConnectedSummary(sessions, hasProxies, proxyManager, accountProxies);
       const ready = sessions.filter((s) => s.isConnected && !s.isLoggedOut).length;
-      if (ready < ACCOUNT_COUNT) {
+      if (ready < accountCount()) {
         console.log('[WARN] Not all accounts reconnected — fix offline accounts before the next feeding round.');
       }
       await sleep(3000);
@@ -1379,14 +1451,17 @@ async function gracefulShutdown(reason) {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
-  const shutMsg = reason === 'SIGINT' ? 'Ctrl+C — shutting down' : 'Closing app';
   console.log('');
-  ui.box('SHUTDOWN', [
-    chalk.dim(shutMsg),
-    chalk.dim('Total sent  ') + chalk.white(`${totalMessagesSent} messages`),
-    chalk.dim('Sessions    ') + chalk.dim('auth/ kept — no logout'),
-    chalk.dim('Status      ') + chalk.yellow('Disconnecting WhatsApp...'),
-  ]);
+  console.log('='.repeat(50));
+  if (reason === 'SIGINT') {
+    console.log('Ctrl+C — shutting down...');
+  } else {
+    console.log('Closing app...');
+  }
+  console.log(`Total messages sent: ${totalMessagesSent}`);
+  console.log('Sessions kept (auth/ not deleted, no logout).');
+  console.log('Disconnecting WhatsApp...');
+  console.log('='.repeat(50));
 
   for (const session of activeSessions) {
     await session.shutdown();
@@ -1410,7 +1485,72 @@ process.on('SIGTERM', () => {
   gracefulShutdown('SIGTERM');
 });
 
-main().catch((err) => {
-  console.error('Error:', err.message);
-  process.exit(1);
-});
+/** Single feeding run for desktop app (no terminal menus). */
+async function runDesktopFeedingOnce() {
+  console.log('+===========================================+');
+  console.log('|   WhatsApp Auto Feeding — Desktop CLI    |');
+  console.log('+===========================================+');
+  console.log('');
+
+  const proxyManager = new ProxyManager();
+  const hasProxies = proxyManager.load();
+  const accountProxies = hasProxies ? await assignAccountProxies(proxyManager) : [];
+
+  printAuthStatusSummary();
+
+  const sessions = await connectAllSessions(hasProxies, proxyManager, accountProxies);
+  activeSessions = sessions;
+
+  console.log('');
+  console.log('Waiting for stable connection...');
+  await sleep(5000);
+
+  printConnectedSummary(sessions, hasProxies, proxyManager, accountProxies);
+
+  const ready = sessions.filter((s) => s.isConnected && !s.isLoggedOut).length;
+  if (ready < accountCount()) {
+    console.error(
+      `[FEEDING] Only ${ready}/${accountCount()} accounts connected. Link all accounts in the desktop app first.`
+    );
+    process.exit(1);
+  }
+
+  const language = process.env.LANGUAGE || 'English';
+  console.log(`[OK] Language: ${language} (from .env)`);
+  console.log(`\n--- Desktop feeding (${pairCount()} pair${pairCount() > 1 ? 's' : ''}) ---\n`);
+  totalMessagesSent = 0;
+  const results = await runAllPairs(sessions, language, accountProxies);
+
+  const completed = results.filter((r) => r?.status === 'completed').length;
+  const stopped = results.filter((r) => r?.status === 'stopped').length;
+
+  await reportFeedingComplete({
+    completed,
+    stopped,
+    totalPairs: pairCount(),
+    messagesSent: totalMessagesSent,
+    success: stopped === 0,
+  });
+
+  console.log('');
+  console.log('='.repeat(50));
+  console.log(`Feeding done (${totalMessagesSent} messages sent)`);
+  console.log('='.repeat(50));
+
+  for (const session of sessions) {
+    await session.shutdown();
+  }
+  process.exit(0);
+}
+
+if (isDesktopFeeding()) {
+  runDesktopFeedingOnce().catch((err) => {
+    console.error('[FEEDING]', err.message || err);
+    process.exit(1);
+  });
+} else {
+  main().catch((err) => {
+    console.error('Error:', err.message);
+    process.exit(1);
+  });
+}

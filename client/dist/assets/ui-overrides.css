@@ -590,8 +590,107 @@
 }
 
 .wa-update-banner {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  animation: wa-slide-down 0.28s ease-out;
+  display: none !important;
+}
+
+.ff-update-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  width: min(320px, calc(100vw - 32px));
+  padding: 14px 14px 12px;
+  background: #fff;
+  border: 1px solid var(--wa-border);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(11, 20, 26, 0.16);
+  animation: ff-update-toast-in 0.32s ease-out;
+}
+
+.ff-update-toast__content {
+  margin-bottom: 12px;
+}
+
+.ff-update-toast__title {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--wa-text);
+  margin-bottom: 4px;
+}
+
+.ff-update-toast__sub {
+  display: block;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--wa-text-secondary);
+}
+
+.ff-update-toast__bar {
+  margin-top: 10px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--wa-header);
+  overflow: hidden;
+}
+
+.ff-update-toast__bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--wa-teal-light, #00a884);
+  transition: width 0.25s ease;
+}
+
+.ff-update-toast__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ff-update-toast__btn {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.ff-update-toast__btn--ghost {
+  background: var(--wa-header);
+  color: var(--wa-text);
+  border: 1px solid var(--wa-border);
+}
+
+.ff-update-toast__btn--ghost:hover {
+  background: var(--wa-hover);
+}
+
+.ff-update-toast__btn--primary {
+  background: var(--wa-teal);
+  color: #fff;
+}
+
+.ff-update-toast__btn--primary:hover:not(:disabled) {
+  background: var(--wa-teal-dark, #006d5b);
+}
+
+.ff-update-toast__btn--primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@keyframes ff-update-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes wa-slide-down {

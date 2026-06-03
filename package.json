@@ -1,28 +1,86 @@
 {
-  "name": "whatsapp-auto-chat",
-  "version": "1.0.0",
-  "description": "Auto chat between 2 WhatsApp accounts powered by OpenAI ChatGPT",
-  "main": "index.js",
+  "name": "whatsapp-auto-feeding",
+  "version": "1.0.14",
+  "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
+  "main": "electron/main.js",
+  "author": "",
+  "license": "MIT",
   "scripts": {
     "start": "node index.js",
-    "dev:mac": "bash scripts/dev-mac.sh",
-    "setup:mac": "bash scripts/setup-env.sh",
-    "pull-ollama:mac": "bash scripts/ollama-mac.sh pull qwen2.5:7b",
+    "desktop": "node scripts/ensure-electron.js && electron .",
+    "ensure-electron": "node scripts/ensure-electron.js",
     "codex-login": "npx @openai/codex login",
-    "codex-login:mac": "npx @openai/codex login",
-    "codex-proxy": "npx openai-oauth"
+    "codex-proxy": "npx openai-oauth",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
+    "build:mac:arm": "electron-builder --mac --arm64",
+    "build:mac:intel": "electron-builder --mac --x64",
+    "build:all": "electron-builder -mwl",
+    "update:manifest": "node scripts/generate-update-manifest.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.16",
-    "chalk": "^4.1.2",
-    "cli-table3": "^0.6.5",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "electron-updater": "^6.8.3",
+    "express": "^4.21.2",
     "https-proxy-agent": "^9.0.0",
     "openai": "^4.73.0",
     "openai-oauth": "^1.0.2",
-    "ora": "^5.4.1",
     "pino": "^9.5.0",
     "qrcode-terminal": "^0.12.0",
-    "socks-proxy-agent": "^10.0.0"
+    "socket.io": "^4.8.1",
+    "socks-proxy-agent": "^10.0.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "electron": "^42.3.2",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.whatsapp.autofeeding",
+    "productName": "WhatsApp Auto Feeding",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "client/dist/**/*",
+      "server/**/*",
+      "src/**/*",
+      "index.js",
+      "package.json",
+      "node_modules/**/*",
+      ".env.example"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "client/dist/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": null
   }
 }

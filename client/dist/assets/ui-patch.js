@@ -525,18 +525,142 @@
     setInterval(pollFeedingComplete, 1500);
   }
 
-  /** Re-check when app window becomes visible (complements Electron scheduler) */
-  function setupAutoUpdatePolling() {
-    const CHECK_MS = 4 * 60 * 60 * 1000;
+  /** Corner update toast — Later / Update Now */
+  function setupUpdateCornerToast() {
+    let toastEl = null;
+    let pollTimer = null;
+    let lastState = null;
 
-    async function fetchUpdate() {
+    function getDismissedVersion() {
       try {
-        await fetch(`${API}/api/update/check`, { method: 'POST' });
+        return sessionStorage.getItem('ff-update-dismissed') || '';
       } catch {
-        /* offline / dev */
+        return '';
       }
     }
 
+    function setDismissedVersion(version) {
+      try {
+        sessionStorage.setItem('ff-update-dismissed', version || '');
+      } catch { /* noop */ }
+    }
+
+    function removeToast() {
+      if (toastEl) toastEl.remove();
+      toastEl = null;
+    }
+
+    function shouldShow(state) {
+      if (!state?.enabled) return false;
+      if (state.status === 'disabled' || state.status === 'idle' || state.status === 'checking') return false;
+      if (state.status === 'not-available') return false;
+      if (state.status === 'error') return false;
+      if (state.status === 'downloaded') return true;
+      const ver = state.latestVersion || '';
+      return getDismissedVersion() !== ver;
+    }
+
+    function renderToast(state) {
+      lastState = state;
+      if (!shouldShow(state)) {
+        removeToast();
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+        return;
+      }
+
+      if (!pollTimer && (state.status === 'available' || state.status === 'downloading')) {
+        pollTimer = setInterval(refreshUpdateState, 3000);
+      }
+      if (pollTimer && state.status === 'downloaded') {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+
+      const ready = state.status === 'downloaded';
+      const downloading = state.status === 'downloading';
+      const title = ready ? 'Update ready' : 'Update available';
+      const sub = ready
+        ? `v${state.latestVersion} — restart to install`
+        : downloading
+          ? `v${state.latestVersion} · downloading ${state.percent || 0}%`
+          : `v${state.currentVersion} → v${state.latestVersion}`;
+
+      if (!toastEl) {
+        toastEl = document.createElement('div');
+        toastEl.className = 'ff-update-toast';
+        toastEl.setAttribute('role', 'status');
+        toastEl.setAttribute('aria-live', 'polite');
+        document.body.appendChild(toastEl);
+      }
+
+      toastEl.innerHTML =
+        '<div class="ff-update-toast__content">' +
+        '<strong class="ff-update-toast__title">' + title + '</strong>' +
+        '<span class="ff-update-toast__sub">' + sub + '</span>' +
+        (downloading
+          ? '<div class="ff-update-toast__bar"><div class="ff-update-toast__bar-fill" style="width:' +
+            (state.percent || 0) +
+            '%"></div></div>'
+          : '') +
+        '</div>' +
+        '<div class="ff-update-toast__actions">' +
+        '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--ghost">Later</button>' +
+        '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--primary"' +
+        (ready ? '' : ' disabled') +
+        '>Update Now</button>' +
+        '</div>';
+
+      toastEl.querySelector('.ff-update-toast__btn--ghost').addEventListener('click', () => {
+        setDismissedVersion(state.latestVersion || state.currentVersion || '1');
+        removeToast();
+      });
+
+      toastEl.querySelector('.ff-update-toast__btn--primary').addEventListener('click', async () => {
+        if (!ready) return;
+        const btn = toastEl.querySelector('.ff-update-toast__btn--primary');
+        btn.disabled = true;
+        btn.textContent = 'Installing…';
+        try {
+          await apiJson('/api/update/install', { method: 'POST' });
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = 'Update Now';
+          const subEl = toastEl.querySelector('.ff-update-toast__sub');
+          if (subEl) subEl.textContent = err.message || 'Install failed';
+        }
+      });
+    }
+
+    async function refreshUpdateState() {
+      try {
+        const state = await apiJson('/api/update');
+        renderToast(state);
+      } catch { /* API offline */ }
+    }
+
+    async function checkForUpdate() {
+      try {
+        await fetch(`${API}/api/update/check`, { method: 'POST' });
+      } catch { /* noop */ }
+      await refreshUpdateState();
+    }
+
+    return { refreshUpdateState, checkForUpdate };
+  }
+
+  /** Re-check when app window becomes visible (complements Electron scheduler) */
+  function setupAutoUpdatePolling() {
+    const CHECK_MS = 4 * 60 * 60 * 1000;
+    const updateUi = setupUpdateCornerToast();
+
+    async function fetchUpdate() {
+      await updateUi.checkForUpdate();
+    }
+
+    updateUi.refreshUpdateState();
     setInterval(fetchUpdate, CHECK_MS);
 
     document.addEventListener('visibilitychange', () => {

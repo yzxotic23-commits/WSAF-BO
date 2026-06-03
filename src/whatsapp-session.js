@@ -27,14 +27,20 @@ class WhatsAppSession extends EventEmitter {
     this.sessionName = sessionName;
     this.socket = null;
     this.isConnected = false;
+    /** True while socket is opening or auto-reconnect is in progress (desktop UI "connecting"). */
+    this.isLinking = false;
     this.qrCount = 0;
     this.maxQrRetries = 10;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
     this.proxyUrl = null;
-    this.authDir = path.join(process.cwd(), 'auth', sessionName);
+    const { getAuthDir } = require('./app-root');
+    this.authDir = getAuthDir(sessionName);
     this.isLoggedOut = false;
     this.isShuttingDown = false;
+    this.isLoggingOut = false;
+    /** Set false on shutdown() so delayed reconnect timers cannot reopen the socket. */
+    this.autoReconnectAllowed = true;
     this.reconnectTimer = null;
     this.loginMethod = 'qr';
     this.pairingPhone = null;
@@ -48,6 +54,123 @@ class WhatsAppSession extends EventEmitter {
     this.linkedViaDirect = false;
     /** Parent rotates proxies; skip internal retry / proxyLinkFailed. */
     this.linkControlMode = false;
+    this.displayName = null;
+    this.profileProbeTimers = [];
+  }
+
+  extractProfileNameFromMe(me) {
+    if (!me) return null;
+    const name = (me.notify || me.name || me.verifiedName || '').trim();
+    return name || null;
+  }
+
+  clearProfileProbeTimers() {
+    if (!this.profileProbeTimers?.length) return;
+    for (const timer of this.profileProbeTimers) clearTimeout(timer);
+    this.profileProbeTimers = [];
+  }
+
+  scheduleProfileNameCapture() {
+    this.clearProfileProbeTimers();
+    for (const ms of [1500, 4000, 9000, 20000, 45000]) {
+      const timer = setTimeout(() => {
+        if (!this.isConnected || this.isShuttingDown) return;
+        this.syncProfileNameFromDisk();
+        this.captureProfileName(`wait-${ms}ms`);
+      }, ms);
+      this.profileProbeTimers.push(timer);
+    }
+  }
+
+  /** Read push name from creds.json on disk (CLI feeding updates this file). */
+  syncProfileNameFromDisk() {
+    const credsPath = path.join(this.authDir, 'creds.json');
+    if (!fs.existsSync(credsPath)) return this.loadProfileName();
+    try {
+      const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+      const fromCreds = this.extractProfileNameFromMe(creds?.me);
+      if (fromCreds) {
+        const previous = this.loadProfileName();
+        if (previous !== fromCreds) this.saveProfileName(fromCreds);
+        return fromCreds;
+      }
+    } catch {
+      /* ignore */
+    }
+    return this.loadProfileName();
+  }
+
+  /** Save push name when Baileys provides it (often after connection open). */
+  captureProfileName(source = 'update') {
+    const me = this.socket?.authState?.creds?.me || this.socket?.user;
+    let profileName = this.extractProfileNameFromMe(me);
+    if (!profileName) profileName = this.syncProfileNameFromDisk();
+    if (!profileName) return false;
+
+    const previous = this.displayName || this.loadProfileName();
+    if (previous === profileName) return false;
+
+    this.saveProfileName(profileName);
+    const phone = me?.id ? String(me.id).split(':')[0].split('@')[0] : null;
+    console.log(`[${this.sessionName}] Profile name (${source}): ${profileName}`);
+    this.emit('profileName', { profileName, phone, source });
+    return true;
+  }
+
+  handleContactsProfileUpdate(contacts) {
+    const myJid = this.socket?.user?.id;
+    if (!myJid || !Array.isArray(contacts)) return;
+    const myNorm = jidNormalizedUser(myJid);
+    for (const c of contacts) {
+      if (!c?.id || jidNormalizedUser(c.id) !== myNorm) continue;
+      const profileName = this.extractProfileNameFromMe(c);
+      if (!profileName) continue;
+      const previous = this.displayName || this.loadProfileName();
+      if (previous === profileName) continue;
+      this.saveProfileName(profileName);
+      console.log(`[${this.sessionName}] Profile name (contacts): ${profileName}`);
+      this.emit('profileName', { profileName, source: 'contacts' });
+      return;
+    }
+  }
+
+  getProfileNamePath() {
+    return path.join(this.authDir, 'profile-name.json');
+  }
+
+  loadProfileName() {
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.getProfileNamePath(), 'utf8'));
+      const name = (raw?.name || '').trim();
+      return name || null;
+    } catch {
+      return null;
+    }
+  }
+
+  saveProfileName(name) {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return;
+    this.displayName = trimmed;
+    try {
+      fs.mkdirSync(this.authDir, { recursive: true });
+      fs.writeFileSync(
+        this.getProfileNamePath(),
+        JSON.stringify({ name: trimmed, updatedAt: new Date().toISOString() }, null, 2)
+      );
+    } catch (err) {
+      console.error(`[${this.sessionName}] Failed to save profile name: ${err.message}`);
+    }
+  }
+
+  /** WhatsApp profile name (saved after connect), else null. */
+  getDisplayName() {
+    if (this.displayName) return this.displayName;
+    if (this.socket?.user) {
+      const live = this.extractProfileNameFromMe(this.socket.user);
+      if (live) return live;
+    }
+    return this.loadProfileName();
   }
 
   getPartnerLidStorePath() {
@@ -118,10 +241,17 @@ class WhatsAppSession extends EventEmitter {
 
   scheduleReconnect(fn, delayMs) {
     this.clearReconnectTimer();
-    if (this.isShuttingDown) return;
+    if (this.isShuttingDown || !this.autoReconnectAllowed) return;
+    this.isLinking = true;
+    this.emit('linkState');
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      if (!this.isShuttingDown) fn();
+      if (!this.isShuttingDown && !this.isLoggingOut && this.autoReconnectAllowed) {
+        Promise.resolve(fn()).catch((err) => {
+          const msg = err?.message || err?.output?.payload?.message || String(err);
+          console.log(`[${this.sessionName}] Reconnect error: ${msg}`);
+        });
+      }
     }, delayMs);
   }
 
@@ -153,7 +283,7 @@ class WhatsAppSession extends EventEmitter {
   getAuthStatus() {
     const credsPath = path.join(this.authDir, 'creds.json');
     if (!fs.existsSync(credsPath)) {
-      return { saved: false, valid: false, registered: false, phone: null, lid: null };
+      return { saved: false, valid: false, registered: false, phone: null, lid: null, profileName: null };
     }
 
     try {
@@ -164,9 +294,19 @@ class WhatsAppSession extends EventEmitter {
       const valid = Boolean(meId && meId.includes('@'));
       const rawLid = creds?.me?.lid || '';
       const lid = rawLid ? jidNormalizedUser(rawLid) : null;
-      return { saved: true, valid, registered, phone, lid };
+      const fromCreds = this.extractProfileNameFromMe(creds?.me);
+      const fromFile = this.loadProfileName();
+      const profileName = fromFile || fromCreds;
+      if (fromCreds && !fromFile) {
+        try {
+          this.saveProfileName(fromCreds);
+        } catch {
+          /* ignore */
+        }
+      }
+      return { saved: true, valid, registered, phone, lid, profileName };
     } catch {
-      return { saved: true, valid: false, registered: false, phone: null, lid: null };
+      return { saved: true, valid: false, registered: false, phone: null, lid: null, profileName: null };
     }
   }
 
@@ -204,8 +344,60 @@ class WhatsAppSession extends EventEmitter {
     }
   }
 
+  /** Hapus sisa metadata sesi (login prefs, proxy cache) di folder auth/. */
+  clearSessionSidecars() {
+    const { getAppRoot } = require('./app-root');
+    const authRoot = path.join(getAppRoot(), 'auth');
+
+    const loginPrefsPath = path.join(authRoot, '_login-prefs.json');
+    if (fs.existsSync(loginPrefsPath)) {
+      try {
+        const prefs = JSON.parse(fs.readFileSync(loginPrefsPath, 'utf8'));
+        if (prefs[this.sessionName]) {
+          delete prefs[this.sessionName];
+          if (Object.keys(prefs).length === 0) {
+            fs.unlinkSync(loginPrefsPath);
+          } else {
+            fs.writeFileSync(loginPrefsPath, JSON.stringify(prefs, null, 2));
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const proxyStorePath = path.join(authRoot, '_proxy-working.json');
+    if (fs.existsSync(proxyStorePath)) {
+      try {
+        const store = JSON.parse(fs.readFileSync(proxyStorePath, 'utf8'));
+        if (store[this.sessionName]) {
+          delete store[this.sessionName];
+          if (Object.keys(store).length === 0) {
+            fs.unlinkSync(proxyStorePath);
+          } else {
+            fs.writeFileSync(proxyStorePath, JSON.stringify(store, null, 2));
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  /** Hapus semua data sesi lokal untuk akun ini (folder auth + metadata). */
+  purgeLocalSession() {
+    this.deleteAuthFolder();
+    this.clearSessionSidecars();
+    this.displayName = null;
+    this.partnerLidJid = null;
+    this.expectedPartnerJid = null;
+    console.log(`[${this.sessionName}] Local session data fully removed`);
+  }
+
   async disconnect() {
+    this.clearProfileProbeTimers();
     this.clearReconnectTimer();
+    this.isLinking = false;
     if (this.socket) {
       this.socket.ev.removeAllListeners();
       try {
@@ -214,10 +406,12 @@ class WhatsAppSession extends EventEmitter {
       this.socket = null;
       this.isConnected = false;
     }
+    this.emit('linkState');
   }
 
   async shutdown() {
     this.isShuttingDown = true;
+    this.autoReconnectAllowed = false;
     this.clearReconnectTimer();
     await this.disconnect();
     console.log(`[${this.sessionName}] Connection closed (auth saved, not logged out).`);
@@ -230,26 +424,88 @@ class WhatsAppSession extends EventEmitter {
     this.qrCount = 0;
   }
 
-  async logoutAndClear() {
-    this.isShuttingDown = true;
-    this.clearReconnectTimer();
+  /** Connect briefly with saved creds so WhatsApp receives a remote logout. */
+  async openSocketForLogout(timeoutMs = 25000) {
+    if (this.socket || !this.hasSavedAuth()) return;
 
-    if (this.socket) {
-      try {
-        await this.socket.logout();
-        console.log(`[${this.sessionName}] Logged out from WhatsApp device.`);
-      } catch (err) {
-        console.log(`[${this.sessionName}] Logout: ${err.message}`);
-      }
-      try {
-        this.socket.ev.removeAllListeners();
-      } catch (_) {}
-      this.socket = null;
+    const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
+    const { version } = await fetchLatestBaileysVersion();
+    const logger = pino({ level: 'silent' });
+    const agent = this.createProxyAgent(this.proxyUrl);
+
+    const socketOptions = {
+      version,
+      auth: state,
+      logger,
+      printQRInTerminal: false,
+      browser: ['Chrome', 'Windows', '10.0'],
+      connectTimeoutMs: 60000,
+    };
+    if (agent) {
+      socketOptions.agent = agent;
+      socketOptions.fetchAgent = agent;
     }
 
-    this.isConnected = false;
-    this.isLoggedOut = true;
-    this.deleteAuthFolder();
+    this.socket = makeWASocket(socketOptions);
+    this.socket.ev.on('creds.update', saveCreds);
+
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Connection timeout')), timeoutMs);
+      const onUpdate = (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'open') {
+          clearTimeout(timer);
+          this.socket.ev.off('connection.update', onUpdate);
+          resolve();
+        }
+        if (connection === 'close') {
+          const code = lastDisconnect?.error?.output?.statusCode;
+          if (code === DisconnectReason.loggedOut) {
+            clearTimeout(timer);
+            this.socket.ev.off('connection.update', onUpdate);
+            resolve();
+          }
+        }
+      };
+      this.socket.ev.on('connection.update', onUpdate);
+    });
+  }
+
+  async logoutAndClear() {
+    this.isShuttingDown = true;
+    this.isLoggingOut = true;
+    this.clearReconnectTimer();
+
+    try {
+      if (!this.socket && this.hasSavedAuth()) {
+        try {
+          console.log(`[${this.sessionName}] Connecting to send logout to WhatsApp...`);
+          await this.openSocketForLogout();
+        } catch (err) {
+          console.log(`[${this.sessionName}] Remote logout skipped: ${err.message}`);
+        }
+      }
+
+      if (this.socket) {
+        try {
+          await this.socket.logout();
+          console.log(`[${this.sessionName}] Logged out from WhatsApp device.`);
+        } catch (err) {
+          console.log(`[${this.sessionName}] Logout: ${err.message}`);
+        }
+        try {
+          this.socket.ev.removeAllListeners();
+        } catch (_) {}
+        this.socket = null;
+      }
+
+      this.isConnected = false;
+      this.isLoggedOut = true;
+      this.purgeLocalSession();
+    } finally {
+      this.isLoggingOut = false;
+      this.isShuttingDown = false;
+    }
   }
 
   async reconnectWithProxy(proxyUrl, loginOptions = null) {
@@ -285,6 +541,7 @@ class WhatsAppSession extends EventEmitter {
     console.log('='.repeat(50));
     console.log('');
 
+    this.emit('pairingCode', { code: display, phone: cleaned });
     return display;
   }
 
@@ -292,7 +549,10 @@ class WhatsAppSession extends EventEmitter {
    * @param {{ method?: 'qr'|'pairing', phoneNumber?: string }} loginOptions
    */
   async connect(loginOptions = {}) {
-    if (this.isShuttingDown) return;
+    if (this.isShuttingDown || !this.autoReconnectAllowed) return;
+
+    this.isLinking = true;
+    this.emit('linkState');
 
     if (this.socket) {
       this.socket.ev.removeAllListeners();
@@ -347,7 +607,19 @@ class WhatsAppSession extends EventEmitter {
 
     this.socket = makeWASocket(socketOptions);
 
-    this.socket.ev.on('creds.update', saveCreds);
+    this.socket.ev.on('creds.update', async (update) => {
+      await saveCreds(update);
+      if (!this.isShuttingDown) {
+        this.captureProfileName('creds.update');
+      }
+    });
+
+    this.socket.ev.on('contacts.update', (contacts) => {
+      this.handleContactsProfileUpdate(contacts);
+    });
+    this.socket.ev.on('contacts.upsert', (contacts) => {
+      this.handleContactsProfileUpdate(contacts);
+    });
 
     this.socket.ev.on('chats.phoneNumberShare', ({ lid, jid }) => {
       if (!lid || !jid || !this.expectedPartnerJid) return;
@@ -358,7 +630,7 @@ class WhatsAppSession extends EventEmitter {
     });
 
     this.socket.ev.on('connection.update', (update) => {
-      if (this.isShuttingDown) return;
+      if (this.isShuttingDown || this.isLoggingOut) return;
 
       const { connection, lastDisconnect, qr } = update;
 
@@ -378,10 +650,16 @@ class WhatsAppSession extends EventEmitter {
         qrcode.generate(qr, { small: true });
         console.log('-'.repeat(40));
         console.log(`Waiting for scan... (auto-refresh on expire)`);
-        this.emit('qr');
+        this.emit('qr', qr);
+      }
+
+      if (connection === 'connecting') {
+        this.isLinking = true;
+        this.emit('linkState');
       }
 
       if (connection === 'open') {
+        this.isLinking = false;
         this.isConnected = true;
         this.isLoggedOut = false;
         this.qrCount = 0;
@@ -390,13 +668,19 @@ class WhatsAppSession extends EventEmitter {
         this.linkedViaDirect = !this.proxyUrl;
         const user = this.socket.user;
         const phone = user.id.split(':')[0];
-        console.log(`[${this.sessionName}] Connected as: ${user.name || phone}`);
+        const profileName = this.extractProfileNameFromMe(user);
+        if (profileName) this.saveProfileName(profileName);
+        console.log(`[${this.sessionName}] Connected as: ${profileName || phone}`);
         console.log(`[${this.sessionName}] JID: ${jidNormalizedUser(user.id)}`);
-        this.emit('connected', user);
+        this.emit('connected', { user, profileName: profileName || null, phone });
+        this.scheduleProfileNameCapture();
       }
 
       if (connection === 'close') {
         this.isConnected = false;
+        this.isLinking = false;
+        this.emit('linkState');
+        if (this.isLoggingOut) return;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
         const isReplaced = statusCode === DisconnectReason.connectionReplaced;
@@ -423,20 +707,57 @@ class WhatsAppSession extends EventEmitter {
         const authValid = this.getAuthStatus().valid;
         const isForbidden = statusCode === DisconnectReason.forbidden;
 
-        if (isLoggedOut || isReplaced || isForbidden) {
+        if (isReplaced) {
           this.isLoggedOut = true;
-          if (isReplaced) {
-            console.log(`[${this.sessionName}] Session opened on another device. Pair stopped.`);
-          } else if (isLoggedOut) {
+          console.log(
+            `[${this.sessionName}] Session opened elsewhere (440). Auth kept — close other clients, then reconnect.`
+          );
+          this.reconnectAttempts = 0;
+          this.emit('loggedOut');
+        } else if (isLoggedOut || isForbidden) {
+          const errMsg = lastDisconnect?.error?.message || '';
+          const transient401 =
+            isLoggedOut
+            && /connection\s*failure|connection\s*closed|connection\s*lost|timed\s*out|econnreset|network|stream\s*errored/i.test(
+              errMsg
+            );
+          if (transient401 && hadAuth && authValid) {
+            console.log(
+              `[${this.sessionName}] Temporary disconnect (401: ${errMsg || 'unknown'}) — auth kept, will retry`
+            );
+            if (this.reconnectAttempts < this.maxReconnectAttempts) {
+              this.reconnectAttempts++;
+              const delay = Math.min(3000 * this.reconnectAttempts, 15000);
+              this.scheduleReconnect(() => this.connect(), delay);
+            }
+            return;
+          }
+          this.isLoggedOut = true;
+          if (isLoggedOut) {
             console.log(`[${this.sessionName}] Logged out (401). Auth cleared.`);
             console.log(`[${this.sessionName}] Check phone: if you see a strict scan / temporary limit notice → wait ~6h before re-linking.`);
           } else {
             console.log(`[${this.sessionName}] Forbidden (403). Auth cleared.`);
           }
-          this.deleteAuthFolder();
+          this.purgeLocalSession();
           this.reconnectAttempts = 0;
           this.qrCount = 0;
           this.proxyFallbackAttempts = 0;
+          this.emit('strictLogout', {
+            alert:
+              policyAlert
+              || {
+                type: isForbidden ? 'BAN_OR_FORBIDDEN' : 'LOGGED_OUT_OR_RESTRICTED',
+                severity: 'critical',
+                title: isForbidden
+                  ? 'Account forbidden (403) — session removed'
+                  : 'Logged out (401) — session removed',
+                detail: errMsg || 'WhatsApp ended this session.',
+                strictScanPossible: true,
+                action:
+                  'Open WhatsApp on your phone. If you see a strict scan or temporary limit, wait ~6 hours. Then use Settings → Session → Clear all sessions before re-linking.',
+              },
+          });
           this.emit('loggedOut');
         } else if (isBadSession && !hadAuth) {
             if (this.linkControlMode) {
@@ -507,7 +828,7 @@ class WhatsAppSession extends EventEmitter {
           }
         } else if (isBadSession && hadAuth && !authValid) {
           console.log(`[${this.sessionName}] Invalid saved session — auth cleared`);
-          this.deleteAuthFolder();
+          this.purgeLocalSession();
           this.reconnectAttempts = 0;
           this.emit('loggedOut');
         } else if (this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -721,6 +1042,15 @@ class WhatsAppSession extends EventEmitter {
       const policyAlert = classifySendError(error);
       if (policyAlert) {
         this.emitPolicyAlert(policyAlert);
+        if (policyAlert.strictScanPossible && policyAlert.severity === 'critical') {
+          this.isLoggedOut = true;
+          this.autoReconnectAllowed = false;
+          this.clearReconnectTimer();
+          await this.disconnect();
+          this.purgeLocalSession();
+          this.emit('strictLogout', { alert: policyAlert });
+          this.emit('loggedOut');
+        }
       } else {
         console.error(`[${this.sessionName}] Failed to send: ${error.message}`);
       }

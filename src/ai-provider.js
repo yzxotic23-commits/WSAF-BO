@@ -127,32 +127,42 @@ class AIProvider {
     if (aiInitLogged) return;
     aiInitLogged = true;
 
-    const parts = [];
     if (this.openaiReady) {
       const label = this.openaiAuthMode === 'codex'
-        ? `Codex OAuth ${this.openaiModel}`
-        : `OpenAI ${this.openaiModel}`;
-      parts.push(label);
+        ? `Codex OAuth (${this.openaiModel})`
+        : `OpenAI API (${this.openaiModel})`;
+      const fb = this.ollamaReady ? ` · fallback: Ollama ${this.ollamaModel}` : '';
+      console.log(`[OK] AI active: ${label}${fb}`);
+      return;
     }
     if (this.ollamaReady) {
-      const ollama = this.ollamaModels.length > 1
-        ? `Ollama ${this.ollamaModel} (+${this.ollamaModels.length - 1})`
-        : `Ollama ${this.ollamaModel}`;
-      parts.push(ollama);
+      console.log(`[OK] AI active: Ollama ${this.ollamaModel} (OpenAI/Codex unavailable)`);
+      return;
     }
-    console.log(`[OK] AI: ${parts.join(' | ')}`);
+    console.log('[WARN] AI: no provider ready');
   }
 
   async initialize() {
     if (aiInitPromise) {
-      const shared = await aiInitPromise;
-      this.applySharedInit(shared);
-      return;
+      try {
+        const shared = await aiInitPromise;
+        this.applySharedInit(shared);
+        return;
+      } catch {
+        aiInitPromise = null;
+        aiInitLogged = false;
+      }
     }
 
     aiInitPromise = this._initializeFirst();
-    const shared = await aiInitPromise;
-    this.applySharedInit(shared);
+    try {
+      const shared = await aiInitPromise;
+      this.applySharedInit(shared);
+    } catch (err) {
+      aiInitPromise = null;
+      aiInitLogged = false;
+      throw err;
+    }
   }
 
   async _initializeFirst() {
@@ -176,10 +186,14 @@ class AIProvider {
 
     if (!this.openaiReady && !this.ollamaReady) {
       const codex = require('./codex-oauth');
-      console.error('[ERROR] No AI provider available.');
-      console.error(codex.getCodexLoginHint());
-      console.error('Or start Ollama: ollama serve');
-      process.exit(1);
+      const hint = codex.getCodexLoginHint();
+      const msg = `No AI provider available. ${hint.replace(/\n/g, ' ')} Or start Ollama (ollama serve).`;
+      console.error(`[ERROR] ${msg}`);
+      if (!process.versions?.electron && process.env.DESKTOP_FEEDING !== '1') {
+        console.error(hint);
+        console.error('Or start Ollama: ollama serve');
+      }
+      throw new Error(msg);
     }
 
     this.activeProvider = this.openaiReady ? 'openai' : 'ollama';
@@ -276,9 +290,10 @@ class AIProvider {
 
     try {
       const OpenAI = require('openai');
+      const baseURL = codex.normalizeBaseURL(result.baseURL);
       this.openaiClient = new OpenAI({
         apiKey: 'codex-oauth',
-        baseURL: result.baseURL,
+        baseURL,
       });
       const model = await this.detectOpenAIModel(this.openaiClient, { codex: true });
       if (!model) return;
@@ -286,7 +301,11 @@ class AIProvider {
       this.openaiModel = model;
       this.openaiAuthMode = 'codex';
       this.openaiReady = true;
-      logOnce(`[OK] Codex OAuth proxy ${result.baseURL} (auth: ${result.authFile})`);
+      if (result.external) {
+        logOnce(`[OK] Codex OAuth via shared proxy ${baseURL}`);
+      } else {
+        logOnce(`[OK] Codex OAuth proxy ${baseURL} (auth: ${result.authFile})`);
+      }
     } catch (err) {
       logOnce(`[WARN] Codex OAuth init failed: ${err.message}`);
     }
@@ -428,18 +447,30 @@ class AIProvider {
     return false;
   }
 
+  isOpenAIRetryableError(error) {
+    const status = error?.status || error?.response?.status;
+    const code = error?.code || error?.error?.code;
+    const message = (error?.message || '').toLowerCase();
+
+    if (status === 429 || status === 408) return true;
+    if (status >= 500 && status < 600) return true;
+    if (code === 'rate_limit_exceeded') return true;
+    return message.includes('rate limit') || message.includes('timeout') || message.includes('econnreset');
+  }
+
   isOpenAIFallbackError(error) {
     const status = error?.status || error?.response?.status;
     const code = error?.code || error?.error?.code;
     const message = (error?.message || '').toLowerCase();
 
-    if (status === 400 || status === 401 || status === 402 || status === 403 || status === 404 || status === 429) return true;
-    if (status >= 500) return true;
+    if (this.isOpenAIRetryableError(error)) return true;
+
+    if (status === 401 || status === 402 || status === 403) return true;
+    if (status === 400 || status === 404) return true;
 
     const fallbackCodes = [
       'insufficient_quota',
       'billing_hard_limit_reached',
-      'rate_limit_exceeded',
       'invalid_api_key',
       'model_not_found',
       'invalid_model',
@@ -449,17 +480,21 @@ class AIProvider {
     const fallbackMessages = [
       'insufficient_quota',
       'quota',
-      'rate limit',
       'billing',
-      'exceeded',
       'invalid api key',
       'incorrect api key',
-      'token',
       'unauthorized',
       'invalid model',
       'model_not_found',
     ];
     return fallbackMessages.some((kw) => message.includes(kw));
+  }
+
+  formatOpenAIError(error) {
+    const status = error?.status || error?.response?.status;
+    const code = error?.code || error?.error?.code;
+    const msg = error?.message || String(error);
+    return [status && `HTTP ${status}`, code, msg].filter(Boolean).join(' — ');
   }
 
   formatFallbackReason(reason) {
@@ -471,20 +506,18 @@ class AIProvider {
     return reason;
   }
 
-  switchToFallback(reason) {
+  switchToFallback(reason, error = null) {
     if (!this.ollamaReady) {
-      if (!openaiFallbackLogged) {
-        console.error(`[AI] Cannot fallback to Ollama: ${this.formatFallbackReason(reason)}`);
-      }
+      console.error(`[AI] OpenAI failed and Ollama is off: ${this.formatFallbackReason(reason)}`);
+      if (error) console.error(`[AI] Detail: ${this.formatOpenAIError(error)}`);
       return false;
     }
     if (this.activeProvider !== 'ollama') {
       this.activeProvider = 'ollama';
     }
-    if (!openaiFallbackLogged) {
-      openaiFallbackLogged = true;
-      console.log(`[AI] Switching OpenAI → Ollama (${this.formatFallbackReason(reason)})`);
-    }
+    console.warn(`[AI] OpenAI failed — using Ollama for this session (${this.formatFallbackReason(reason)})`);
+    if (error) console.warn(`[AI] OpenAI error: ${this.formatOpenAIError(error)}`);
+    openaiFallbackLogged = true;
     return true;
   }
 
@@ -698,32 +731,51 @@ ${rule}${pingNote}`;
       this.conversationHistory = this.conversationHistory.slice(-10);
     }
 
-    try {
-      if (this.activeProvider === 'openai' && this.openaiReady) {
-        return await this.generateOpenAI(systemPrompt);
-      }
-      if (this.ollamaReady) {
-        return await this.generateOllama(systemPrompt);
-      }
-      throw new Error('No AI provider available');
-    } catch (error) {
-      if (this.activeProvider === 'openai' && this.isOpenAIFallbackError(error)) {
-        const switched = this.switchToFallback(error.message);
-        if (switched) {
-          try {
-            return await this.generateOllama(systemPrompt);
-          } catch (ollamaErr) {
-            console.error(`[AI Error] All Ollama models failed: ${ollamaErr.message}`);
-          }
+    const openaiAttempts = this.openaiReady ? 2 : 0;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= openaiAttempts; attempt++) {
+      try {
+        if (this.activeProvider === 'openai' && this.openaiReady) {
+          return await this.generateOpenAI(systemPrompt);
         }
+        if (this.ollamaReady) {
+          return await this.generateOllama(systemPrompt);
+        }
+        throw new Error('No AI provider available');
+      } catch (error) {
+        lastError = error;
+
+        if (
+          this.activeProvider === 'openai'
+          && this.openaiReady
+          && attempt < openaiAttempts
+          && this.isOpenAIRetryableError(error)
+        ) {
+          console.log(`[AI] OpenAI retry (${attempt + 2}/${openaiAttempts + 1}): ${error.message}`);
+          await new Promise((r) => setTimeout(r, 1200));
+          continue;
+        }
+
+        if (this.activeProvider === 'openai' && this.isOpenAIFallbackError(error)) {
+          const switched = this.switchToFallback(error.message, error);
+          if (switched) {
+            try {
+              return await this.generateOllama(systemPrompt);
+            } catch (ollamaErr) {
+              console.error(`[AI Error] Ollama also failed: ${ollamaErr.message}`);
+            }
+          }
+          return this.getFallbackReply();
+        }
+
+        console.error(`[AI Error] ${this.formatOpenAIError(error)}`);
         return this.getFallbackReply();
       }
-
-      if (!openaiFallbackLogged || !this.isOpenAIFallbackError(error)) {
-        console.error(`[AI Error] ${error.message}`);
-      }
-      return this.getFallbackReply();
     }
+
+    if (lastError) console.error(`[AI Error] ${this.formatOpenAIError(lastError)}`);
+    return this.getFallbackReply();
   }
 
   async generateOpenAI(systemPrompt) {
