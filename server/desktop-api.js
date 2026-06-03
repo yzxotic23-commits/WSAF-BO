@@ -4,6 +4,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const DesktopBridge = require('./bridge');
+const { normalizePairingPhone } = require('../src/login-prefs');
 
 const PORT = parseInt(process.env.DESKTOP_API_PORT || '47821', 10);
 const PKG = require('../package.json');
@@ -183,11 +184,21 @@ function createDesktopApi(options = {}) {
     try {
       const slot = parseInt(req.params.slot, 10);
       const method = req.body?.method || 'qr';
-      const phoneNumber = req.body?.phoneNumber || null;
-      res.json(await bridge.connectAccount(slot, {
-        method: method === 'pairing' ? 'pairing' : 'qr',
-        phoneNumber: method === 'pairing' ? phoneNumber : undefined,
-      }));
+      if (method === 'pairing') {
+        const phoneNumber = normalizePairingPhone(req.body?.phoneNumber);
+        if (phoneNumber.length < 8 || phoneNumber.length > 15) {
+          res.status(400).json({
+            error:
+              'Invalid phone number — use country code + number without + (e.g. 60123456789)',
+          });
+          return;
+        }
+        res.json(
+          await bridge.connectAccount(slot, { method: 'pairing', phoneNumber })
+        );
+        return;
+      }
+      res.json(await bridge.connectAccount(slot, { method: 'qr' }));
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

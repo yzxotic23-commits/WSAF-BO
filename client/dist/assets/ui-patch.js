@@ -4,6 +4,41 @@
 (function () {
   'use strict';
 
+  /** Normalize pairing phone before /api/connect (leading 0 after country code). */
+  function normalizePairingPhoneInput(phoneNumber) {
+    let p = String(phoneNumber || '').replace(/\D/g, '');
+    if (!p) return p;
+    if (p.startsWith('00')) p = p.slice(2);
+    const m = p.match(
+      /^(1\d{2}|2\d{1,2}|3\d{2}|4\d{2}|5\d{2}|6\d{1,2}|7\d{1,2}|8\d{2}|9\d{1,2})(0+)(\d{6,})$/
+    );
+    if (m) p = m[1] + m[3];
+    return p;
+  }
+
+  (function patchConnectFetchEarly() {
+    const orig = window.fetch;
+    if (!orig || orig.__ffPairingPatch) return;
+    function wrappedFetch(input, init) {
+      try {
+        const url = typeof input === 'string' ? input : input?.url || '';
+        const method = (init?.method || 'GET').toUpperCase();
+        if (method === 'POST' && /\/api\/connect\/\d+/.test(url) && init?.body) {
+          const body = JSON.parse(init.body);
+          if (body?.method === 'pairing' && body.phoneNumber) {
+            body.phoneNumber = normalizePairingPhoneInput(body.phoneNumber);
+            init = { ...init, body: JSON.stringify(body) };
+          }
+        }
+      } catch {
+        /* keep original request */
+      }
+      return orig.call(this, input, init);
+    }
+    wrappedFetch.__ffPairingPatch = true;
+    window.fetch = wrappedFetch;
+  })();
+
   const API = (() => {
     try {
       if (window.desktop?.apiUrl) return window.desktop.apiUrl.replace(/\/$/, '');

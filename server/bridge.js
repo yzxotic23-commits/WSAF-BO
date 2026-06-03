@@ -942,6 +942,25 @@ class DesktopBridge {
       this.sessions[slotIndex] = session;
     }
 
+    const isPairing = plan.method === 'pairing';
+    if (isPairing) {
+      const { normalizePairingPhone, saveLoginPref } = require('../src/login-prefs');
+      const phoneNumber = normalizePairingPhone(plan.phoneNumber);
+      if (phoneNumber.length < 8 || phoneNumber.length > 15) {
+        throw new Error(
+          'Phone number required for pairing login (country code + number, digits only)'
+        );
+      }
+      plan = { method: 'pairing', phoneNumber };
+      saveLoginPref(sessionName, plan);
+      this.log('info', `[${sessionName}] Pairing login (${phoneNumber})…`);
+      this.attachSessionEvents(session, slotIndex);
+      session.setProxy(null);
+      session.linkedViaDirect = true;
+      session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
+      return { ok: true, mode: 'direct', pending: true, method: 'pairing' };
+    }
+
     const proxyUrl = this.hasProxies ? this.accountProxies[slotIndex] : null;
     const qrMode = this.getProxyQrLinkMode();
 
@@ -958,7 +977,7 @@ class DesktopBridge {
     session.setProxy(proxyUrl);
     const outcome = await session.connectUntilReady(plan, 22000);
 
-    if (outcome === 'qr_waiting' || outcome === 'connected') {
+    if (outcome === 'qr_waiting' || outcome === 'connected' || outcome === 'pairing_waiting') {
       return { ok: true, outcome, proxy: proxyUrl };
     }
 

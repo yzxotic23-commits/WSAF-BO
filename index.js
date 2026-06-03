@@ -208,7 +208,13 @@ function ask(question) {
   });
 }
 
-const LOGIN_PREFS_PATH = path.join(getAppRoot(), 'auth', '_login-prefs.json');
+const {
+  getPrefsPath,
+  normalizePairingPhone,
+  readLoginPrefs,
+  saveLoginPref,
+} = require('./src/login-prefs');
+const LOGIN_PREFS_PATH = getPrefsPath();
 
 function isDesktopFeeding() {
   return process.env.DESKTOP_FEEDING === '1' || !process.stdin.isTTY;
@@ -220,25 +226,6 @@ function attachDesktopProfileSync(session) {
   session.on('profileName', () => {
     reportProfileRefresh().catch(() => {});
   });
-}
-
-function readLoginPrefs() {
-  if (!fs.existsSync(LOGIN_PREFS_PATH)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(LOGIN_PREFS_PATH, 'utf8'));
-  } catch {
-    return {};
-  }
-}
-
-function saveLoginPref(sessionName, loginOptions) {
-  const prefs = readLoginPrefs();
-  prefs[sessionName] = {
-    method: loginOptions.method,
-    phoneNumber: loginOptions.phoneNumber || null,
-  };
-  fs.mkdirSync(path.dirname(LOGIN_PREFS_PATH), { recursive: true });
-  fs.writeFileSync(LOGIN_PREFS_PATH, JSON.stringify(prefs, null, 2));
 }
 
 function clearLoginPrefs() {
@@ -277,8 +264,9 @@ async function askPairingPhone(sessionName) {
 async function resolveLoginOptions(sessionName, prefs, defaultMethod) {
   const saved = prefs[sessionName];
   if (saved?.method === 'pairing' && saved.phoneNumber) {
-    console.log(`[LOGIN] ${sessionName}: reuse pairing (${saved.phoneNumber})`);
-    return { method: 'pairing', phoneNumber: saved.phoneNumber };
+    const phoneNumber = normalizePairingPhone(saved.phoneNumber);
+    console.log(`[LOGIN] ${sessionName}: reuse pairing (${phoneNumber})`);
+    return { method: 'pairing', phoneNumber };
   }
   if (saved?.method === 'qr' && defaultMethod !== 'pairing') {
     console.log(`[LOGIN] ${sessionName}: reuse QR preference`);
