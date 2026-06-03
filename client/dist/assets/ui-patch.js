@@ -101,7 +101,7 @@
 
   /** FeedFlow logo — user's PNG asset (transparent background) */
   function syncOfficialLogo() {
-    const LOGO_SRC = './assets/feedflow-logo.png';
+    const LOGO_SRC = './assets/xchat-logo.webp';
     document.querySelectorAll('.wa-app-logo').forEach((el) => {
       if (el.querySelector('img.ff-logo-img')) {
         const size = el.classList.contains('wa-app-logo--header')
