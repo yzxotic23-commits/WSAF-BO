@@ -51,9 +51,15 @@ function writeYml(name, fileName) {
   return true;
 }
 
-const winExe =
-  findFile(/Setup.*\.exe$/i) ||
-  findFile(/\.exe$/i);
+function pickWinSetupExe() {
+  const setups = listArtifacts().filter((f) => /\.exe$/i.test(f) && /setup/i.test(f));
+  if (setups.length === 0) return findFile(/\.exe$/i);
+  return setups.sort(
+    (a, b) => fs.statSync(path.join(releaseDir, b)).size - fs.statSync(path.join(releaseDir, a)).size
+  )[0];
+}
+
+const winExe = pickWinSetupExe();
 
 function findMacZip() {
   const zips = listArtifacts().filter((f) => /\.zip$/i.test(f));
@@ -83,4 +89,15 @@ if (!ok) {
   console.error(`[manifest] No ${platform} artifacts in ${releaseDir}`);
   console.error('[manifest] Files:', listArtifacts().join(', ') || '(empty)');
   process.exit(1);
+}
+
+if (platform === 'win' || platform === 'all') {
+  const ymlPath = path.join(releaseDir, 'latest.yml');
+  const ymlText = fs.readFileSync(ymlPath, 'utf8');
+  const pathMatch = ymlText.match(/^path:\s*(.+)$/m);
+  const installer = pathMatch?.[1]?.trim();
+  if (installer && !fs.existsSync(path.join(releaseDir, installer))) {
+    console.error(`[manifest] latest.yml path not on disk: ${installer}`);
+    process.exit(1);
+  }
 }

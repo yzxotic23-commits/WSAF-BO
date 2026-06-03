@@ -7,7 +7,7 @@ if (process.env.AI_SDK_LOG_WARNINGS === undefined) {
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn, fork } = require('child_process');
+const { spawn, fork, spawnSync } = require('child_process');
 const WhatsAppSession = require('../src/whatsapp-session');
 const ProxyManager = require('../src/proxy-manager');
 const { probeProxy } = require('../src/proxy-probe');
@@ -1180,6 +1180,20 @@ class DesktopBridge {
     this.emit('status', this.getStatus());
   }
 
+  /** Stop feeding + sessions before installer runs (Windows may spawn extra app.exe children). */
+  async shutdownForUpdate() {
+    this.stopFeeding(true);
+    try {
+      await Promise.race([
+        this.disconnectAll(),
+        new Promise((resolve) => setTimeout(resolve, 2500)),
+      ]);
+    } catch {
+      /* ignore */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+
   /**
    * Delete all local WhatsApp session data (auth/account*, prefs, proxy cache).
    * Use when sessions are corrupted or stuck — does not call WhatsApp remote logout.
@@ -1249,11 +1263,19 @@ class DesktopBridge {
     return { ok: true, removed, authDir: authRoot, accounts: status.accounts };
   }
 
-  stopFeeding() {
+  stopFeeding(force = false) {
     this.feedingStarting = false;
     if (!this.feedingProcess) return { ok: true, wasRunning: false };
+    const child = this.feedingProcess;
     try {
-      this.feedingProcess.kill('SIGTERM');
+      if (process.platform === 'win32' && force && child.pid) {
+        spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], {
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+      } else {
+        child.kill(force ? 'SIGKILL' : 'SIGTERM');
+      }
     } catch {
       /* ignore */
     }

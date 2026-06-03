@@ -587,7 +587,7 @@
       if (!state?.enabled) return false;
       if (state.status === 'disabled' || state.status === 'idle' || state.status === 'checking') return false;
       if (state.status === 'not-available') return false;
-      if (state.status === 'error') return false;
+      if (state.status === 'error') return true;
       if (state.status === 'downloaded') return true;
       const ver = state.latestVersion || '';
       return getDismissedVersion() !== ver;
@@ -642,12 +642,19 @@
 
       const ready = state.status === 'downloaded';
       const downloading = state.status === 'downloading';
-      const title = ready ? 'Update ready' : 'Update available';
-      const sub = ready
-        ? `v${state.latestVersion} — restart to install`
-        : downloading
-          ? `v${state.latestVersion} · downloading ${state.percent || 0}%`
-          : `v${state.currentVersion} → v${state.latestVersion}`;
+      const errored = state.status === 'error';
+      const title = errored
+        ? 'Update check failed'
+        : ready
+          ? 'Update ready'
+          : 'Update available';
+      const sub = errored
+        ? (state.error || 'Could not reach update server')
+        : ready
+          ? `v${state.latestVersion} — restart to install`
+          : downloading
+            ? `v${state.latestVersion} · downloading ${state.percent || 0}%`
+            : `v${state.currentVersion} → v${state.latestVersion}`;
 
       if (!toastEl) {
         toastEl = document.createElement('div');

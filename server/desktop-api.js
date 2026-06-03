@@ -42,14 +42,15 @@ function createDesktopApi(options = {}) {
     }
   });
 
-  app.post('/api/update/install', (_req, res) => {
+  app.post('/api/update/install', async (_req, res) => {
     try {
       if (!updater) return res.status(400).json({ error: 'Updater not available' });
       if (updater.getState().status !== 'downloaded') {
         return res.status(400).json({ error: 'No update downloaded yet' });
       }
+      await bridge.shutdownForUpdate();
       res.json({ ok: true });
-      setTimeout(() => updater.quitAndInstall(), 400);
+      setTimeout(() => updater.quitAndInstall(), 600);
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

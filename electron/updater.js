@@ -116,13 +116,29 @@ class AppUpdater {
     return this.feed.enabled;
   }
 
+  ensureAppUpdateConfigFile(url) {
+    const ymlPath = path.join(app.getPath('userData'), 'app-update.yml');
+    const content = [
+      'provider: generic',
+      `url: ${url.replace(/\/?$/, '/')}`,
+      'updaterCacheDirName: whatsapp-auto-feeding-updater',
+      '',
+    ].join('\n');
+    fs.mkdirSync(path.dirname(ymlPath), { recursive: true });
+    fs.writeFileSync(ymlPath, content, 'utf8');
+    autoUpdater._appUpdateConfigPath = ymlPath;
+    return ymlPath;
+  }
+
   configureFeed() {
     this.feed = resolveUpdateConfig();
     if (!this.feed.enabled || !this.feed.url) {
       throw new Error('Auto-update is not configured');
     }
-    autoUpdater.setFeedURL({ provider: 'generic', url: this.feed.url });
-    return this.feed.url;
+    const url = this.feed.url.replace(/\/?$/, '/');
+    this.ensureAppUpdateConfigFile(url);
+    autoUpdater.setFeedURL({ provider: 'generic', url });
+    return url;
   }
 
   getState() {

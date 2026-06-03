@@ -246,10 +246,9 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', async () => {
+app.on('before-quit', () => {
   if (updateCheckTimer) clearInterval(updateCheckTimer);
   if (api?.bridge) {
-    api.bridge.stopFeeding();
-    await api.bridge.disconnectAll();
+    api.bridge.stopFeeding(true);
   }
 });
