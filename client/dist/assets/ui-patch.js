@@ -43,11 +43,39 @@
     }
   }
 
-  /** Keep stat pills on one row after dynamic pair-count changes */
+  /** Satu baris: stats kiri, tombol refresh/+ kanan — tanpa wrap */
+  function fixListHeaderLayout() {
+    document.querySelectorAll('.wa-list-header').forEach((header) => {
+      const top = header.querySelector('.wa-list-header-top');
+      const stats = header.querySelector('.wa-list-header-stats');
+      const toolbar = header.querySelector('.wa-list-header-toolbar');
+      if (!top || !stats || !toolbar) return;
+
+      let actions = header.querySelector('.ff-list-header-actions');
+      if (!actions) {
+        actions = document.createElement('div');
+        actions.className = 'ff-list-header-actions';
+        actions.setAttribute('role', 'group');
+        actions.setAttribute('aria-label', 'Sidebar status and actions');
+        header.insertBefore(actions, toolbar);
+      }
+
+      if (stats.parentElement !== actions) {
+        actions.insertBefore(stats, actions.firstChild);
+      }
+      if (toolbar.parentElement !== actions) {
+        actions.appendChild(toolbar);
+      }
+    });
+  }
+
+  /** Stat pills satu baris — scroll halus jika sidebar sangat sempit */
   function stabilizeStatPills() {
     document.querySelectorAll('.wa-list-header-stats').forEach((el) => {
       el.style.flexWrap = 'nowrap';
       el.style.alignItems = 'center';
+      el.style.overflowX = 'auto';
+      el.style.overflowY = 'hidden';
     });
   }
 
@@ -104,6 +132,7 @@
     if (isModalOpen()) return;
 
     hideDuplicateTopbarTitle();
+    fixListHeaderLayout();
     stabilizeStatPills();
     fixToolbarButtons();
     syncOfficialLogo();

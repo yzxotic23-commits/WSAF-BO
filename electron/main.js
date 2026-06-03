@@ -65,6 +65,20 @@ function resolveIndexHtml() {
   return candidates[1];
 }
 
+function resolveAppIcon() {
+  if (process.platform === 'win32') {
+    const ico = path.join(__dirname, 'icons', 'icon.ico');
+    if (fs.existsSync(ico)) return ico;
+  }
+  if (process.platform === 'darwin') {
+    const icns = path.join(__dirname, 'icons', 'icon.icns');
+    if (fs.existsSync(icns)) return icns;
+  }
+  const png = path.join(__dirname, 'icons', 'icon.png');
+  if (fs.existsSync(png)) return png;
+  return undefined;
+}
+
 const ZOOM_MIN = -2;
 const ZOOM_MAX = 2;
 
@@ -119,6 +133,7 @@ function createWindow(port) {
     minWidth: 1024,
     minHeight: 700,
     title: 'WhatsApp Auto Feeding',
+    icon: resolveAppIcon(),
     backgroundColor: '#f0f2f5',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
