@@ -29,14 +29,20 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npm run build:mac
 
+      - name: List release artifacts (debug)
+        if: always()
+        run: ls -la release || true
+
       - name: Generate update manifest (macOS)
-        run: node scripts/generate-update-manifest.js release
+        run: node scripts/generate-update-manifest.js release mac
 
       - name: Ad-hoc sign (unsigned build, helps Gatekeeper)
+        continue-on-error: true
         run: |
           APP=$(find release -name "*.app" -maxdepth 4 | head -1)
           if [ -n "$APP" ]; then
-            codesign --force --deep --sign - "$APP"
+            xattr -cr "$APP" || true
+            codesign --force --sign - "$APP" || codesign --force --deep --sign - "$APP" || true
             echo "Signed: $APP"
           fi
 
@@ -68,8 +74,13 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npm run build:win
 
+      - name: List release artifacts (debug)
+        if: always()
+        shell: pwsh
+        run: Get-ChildItem -Path release -ErrorAction SilentlyContinue
+
       - name: Generate update manifest (Windows)
-        run: node scripts/generate-update-manifest.js release
+        run: node scripts/generate-update-manifest.js release win
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4

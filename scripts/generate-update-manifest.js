@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
- * Generate electron-updater manifests (latest.yml + latest-mac.yml) from release/ artifacts.
- * Usage: node scripts/generate-update-manifest.js [releaseDir]
+ * Generate electron-updater manifests from release/ artifacts.
+ * Usage: node scripts/generate-update-manifest.js [releaseDir] [win|mac|all]
  */
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
 const releaseDir = path.resolve(process.argv[2] || 'release');
+const platform = (process.argv[3] || 'all').toLowerCase();
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 const version = pkg.version;
 
@@ -17,9 +18,14 @@ function sha512(filePath) {
   return hash.digest('base64');
 }
 
+function listArtifacts() {
+  if (!fs.existsSync(releaseDir)) return [];
+  return fs.readdirSync(releaseDir).filter((f) => !f.startsWith('.'));
+}
+
 function findFile(re) {
-  if (!fs.existsSync(releaseDir)) return null;
-  return fs.readdirSync(releaseDir).find((f) => re.test(f)) || null;
+  const files = listArtifacts();
+  return files.find((f) => re.test(f)) || null;
 }
 
 function writeYml(name, fileName) {
@@ -45,16 +51,36 @@ function writeYml(name, fileName) {
   return true;
 }
 
-const winExe = findFile(/Setup.*\.exe$/i) || findFile(/\.exe$/i);
-const macZip = findFile(/\.zip$/i);
+const winExe =
+  findFile(/Setup.*\.exe$/i) ||
+  findFile(/\.exe$/i);
+
+function findMacZip() {
+  const zips = listArtifacts().filter((f) => /\.zip$/i.test(f));
+  return (
+    zips.find((f) => /mac|arm64|darwin/i.test(f)) ||
+    zips.find((f) => !/uninstaller/i.test(f)) ||
+    zips[0] ||
+    null
+  );
+}
+
+const macZip = findMacZip();
 const macDmg = findFile(/\.dmg$/i);
 const macFile = macZip || macDmg;
 
 let ok = false;
-if (winExe) ok = writeYml('latest.yml', winExe) || ok;
-if (macFile) ok = writeYml('latest-mac.yml', macFile) || ok;
+
+if (platform === 'win' || platform === 'all') {
+  if (winExe) ok = writeYml('latest.yml', winExe) || ok;
+}
+
+if (platform === 'mac' || platform === 'all') {
+  if (macFile) ok = writeYml('latest-mac.yml', macFile) || ok;
+}
 
 if (!ok) {
-  console.error('No release artifacts found in', releaseDir);
+  console.error(`[manifest] No ${platform} artifacts in ${releaseDir}`);
+  console.error('[manifest] Files:', listArtifacts().join(', ') || '(empty)');
   process.exit(1);
 }
