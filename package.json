@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-auto-feeding",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
   "main": "electron/main.js",
   "author": "",
@@ -13,9 +13,9 @@
     "codex-proxy": "npx openai-oauth",
     "build:win": "node scripts/build-win.js",
     "build:win:fresh": "node scripts/build-win.js --output=release-build",
-    "build:mac": "electron-builder --mac",
-    "build:mac:arm": "electron-builder --mac --arm64",
-    "build:mac:intel": "electron-builder --mac --x64",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:mac:arm": "electron-builder --mac --arm64 --publish never",
+    "build:mac:intel": "electron-builder --mac --x64 --publish never",
     "build:all": "electron-builder -mwl",
     "update:manifest": "node scripts/generate-update-manifest.js"
   },
