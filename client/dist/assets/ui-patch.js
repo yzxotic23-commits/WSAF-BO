@@ -436,7 +436,7 @@
         const results = await apiJson('/api/proxies/probe', { method: 'POST' });
         const ok = (results || []).filter((r) => r.ok).length;
         const total = (results || []).length;
-        showSettingsToast(modal, 'success', `Probe selesai — ${ok}/${total} proxy OK`);
+        showSettingsToast(modal, 'success', `Probe complete — ${ok}/${total} proxies OK`);
       } catch (err) {
         showSettingsToast(modal, 'error', err.message || 'Probe failed');
       } finally {
@@ -525,10 +525,10 @@
     lastCompleteShownAt = data.at;
 
     const success = data.success !== false && !data.manualStop;
-    const title = success ? 'Feeding selesai' : 'Feeding dihentikan';
+    const title = success ? 'Feeding complete' : 'Feeding stopped';
     const subtitle = success
-      ? 'Semua pair AI chat telah selesai. Sesi tersimpan di PC ini.'
-      : 'Feeding berhenti sebelum selesai. Anda bisa mulai lagi kapan saja.';
+      ? 'All AI chat pairs have finished. Sessions remain saved on this device.'
+      : 'Feeding ended before all pairs finished. You can start again anytime.';
 
     const overlay = document.createElement('div');
     overlay.className = 'ff-feeding-complete';
@@ -541,9 +541,9 @@
       '<h2 class="ff-feeding-complete-title">' + title + '</h2>' +
       '<p class="ff-feeding-complete-sub">' + subtitle + '</p>' +
       '<div class="ff-feeding-complete-stats">' +
-      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.completed ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Pair selesai</span></div>' +
-      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.messagesSent ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Pesan terkirim</span></div>' +
-      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.totalPairs ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Total pair</span></div>' +
+      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.completed ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Pairs done</span></div>' +
+      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.messagesSent ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Messages sent</span></div>' +
+      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.totalPairs ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Total pairs</span></div>' +
       '</div>' +
       '<button type="button" class="btn btn-primary ff-feeding-complete-ok">OK</button>' +
       '</div>';
