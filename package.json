@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-auto-feeding",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
   "main": "electron/main.js",
   "author": "",
@@ -40,7 +40,8 @@
   },
   "devDependencies": {
     "electron": "^42.3.2",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "rcedit": "^5.0.2"
   },
   "build": {
     "appId": "com.whatsapp.autofeeding",
@@ -72,8 +73,7 @@
     "win": {
       "icon": "electron/icons/icon.ico",
       "artifactName": "WhatsApp.Auto.Feeding.Setup.${version}.${ext}",
-      "signAndEditExecutable": true,
-      "signExecutable": false,
+      "signAndEditExecutable": false,
       "target": [
         {
           "target": "nsis",

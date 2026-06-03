@@ -58,7 +58,7 @@ function resolveOutputDir() {
   return 'release-build';
 }
 
-function main() {
+async function main() {
   const output = resolveOutputDir();
   const outPath = path.join(root, output);
   const winUnpacked = path.join(outPath, 'win-unpacked');
@@ -74,6 +74,8 @@ function main() {
 
   if (result.status !== 0) process.exit(result.status || 1);
 
+  applyWindowsIcons(outPath);
+
   const setup = fs
     .readdirSync(outPath)
     .find((f) => f.endsWith('.exe') && f.includes('Setup'));
@@ -82,4 +84,42 @@ function main() {
   }
 }
 
-main();
+/** Embed custom icon (signAndEditExecutable:false skips rcedit in electron-builder). */
+async function applyWindowsIcons(outPath) {
+  const iconIco = path.join(root, 'electron', 'icons', 'icon.ico');
+  if (!fs.existsSync(iconIco)) {
+    console.warn('[build:win] Skip icon embed — missing', iconIco);
+    return;
+  }
+  let rceditFn;
+  try {
+    ({ rcedit: rceditFn } = await import('rcedit'));
+  } catch {
+    console.warn('[build:win] Skip icon embed — rcedit not installed');
+    return;
+  }
+
+  const version = require(path.join(root, 'package.json')).version;
+  const targets = [];
+  const unpackedExe = path.join(outPath, 'win-unpacked', 'WhatsApp Auto Feeding.exe');
+  if (fs.existsSync(unpackedExe)) targets.push(unpackedExe);
+  for (const f of fs.readdirSync(outPath)) {
+    if (new RegExp(`Setup.*${version.replace(/\./g, '\\.')}\\.exe$`, 'i').test(f)) {
+      targets.push(path.join(outPath, f));
+    }
+  }
+
+  for (const exe of targets) {
+    try {
+      await rceditFn(exe, { icon: iconIco });
+      console.log('[build:win] Icon applied:', path.basename(exe));
+    } catch (err) {
+      console.warn('[build:win] Icon embed failed for', path.basename(exe), err.message);
+    }
+  }
+}
+
+main().catch((err) => {
+  console.error('[build:win]', err);
+  process.exit(1);
+});
