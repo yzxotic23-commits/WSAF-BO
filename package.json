@@ -1,0 +1,28 @@
+{
+  "name": "whatsapp-auto-chat",
+  "version": "1.0.0",
+  "description": "Auto chat between 2 WhatsApp accounts powered by OpenAI ChatGPT",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev:mac": "bash scripts/dev-mac.sh",
+    "setup:mac": "bash scripts/setup-env.sh",
+    "pull-ollama:mac": "bash scripts/ollama-mac.sh pull qwen2.5:7b",
+    "codex-login": "npx @openai/codex login",
+    "codex-login:mac": "npx @openai/codex login",
+    "codex-proxy": "npx openai-oauth"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "chalk": "^4.1.2",
+    "cli-table3": "^0.6.5",
+    "dotenv": "^16.4.5",
+    "https-proxy-agent": "^9.0.0",
+    "openai": "^4.73.0",
+    "openai-oauth": "^1.0.2",
+    "ora": "^5.4.1",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0",
+    "socks-proxy-agent": "^10.0.0"
+  }
+}

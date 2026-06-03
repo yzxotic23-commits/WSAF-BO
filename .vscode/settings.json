@@ -1,0 +1,8 @@
+{
+  "terminal.integrated.env.windows": {
+    "Path": "C:\\Program Files\\nodejs;${env:LOCALAPPDATA}\\Programs\\Ollama;${env:Path}"
+  },
+  "terminal.integrated.env.osx": {
+    "PATH": "/opt/homebrew/bin:/usr/local/bin:${env:PATH}"
+  }
+}

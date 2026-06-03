@@ -1,0 +1,24 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "WhatsApp Auto Chat (start)",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["index.js"],
+      "port": null
+    },
+    {
+      "name": "WhatsApp Auto Chat (dev:mac)",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["index.js"],
+      "port": null,
+      "autoPort": true
+    },
+    {
+      "name": "Codex OAuth Proxy",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["openai-oauth"],
+      "port": 10531
+    }
+  ]
+}
