@@ -493,6 +493,10 @@
       apiJson('/api/feeding/complete/dismiss', { method: 'POST' }).catch(() => {});
       overlay.remove();
     });
+
+    overlay.querySelector('.ff-feeding-complete-backdrop').addEventListener('click', () => {
+      overlay.querySelector('.ff-feeding-complete-ok').click();
+    });
   }
 
   async function pollFeedingComplete() {
@@ -560,6 +564,34 @@
       return getDismissedVersion() !== ver;
     }
 
+    function bindToastActions(state) {
+      const ghost = toastEl.querySelector('.ff-update-toast__btn--ghost');
+      const primary = toastEl.querySelector('.ff-update-toast__btn--primary');
+      if (!ghost || !primary || ghost.dataset.ffBound) return;
+      ghost.dataset.ffBound = '1';
+      primary.dataset.ffBound = '1';
+
+      ghost.addEventListener('click', () => {
+        setDismissedVersion(state.latestVersion || state.currentVersion || '1');
+        removeToast();
+      });
+
+      primary.addEventListener('click', async () => {
+        const current = lastState;
+        if (!current || current.status !== 'downloaded') return;
+        primary.disabled = true;
+        primary.textContent = 'Installing…';
+        try {
+          await apiJson('/api/update/install', { method: 'POST' });
+        } catch (err) {
+          primary.disabled = false;
+          primary.textContent = 'Update Now';
+          const subEl = toastEl.querySelector('.ff-update-toast__sub');
+          if (subEl) subEl.textContent = err.message || 'Install failed';
+        }
+      });
+    }
+
     function renderToast(state) {
       lastState = state;
       if (!shouldShow(state)) {
@@ -596,42 +628,50 @@
         document.body.appendChild(toastEl);
       }
 
-      toastEl.innerHTML =
-        '<div class="ff-update-toast__content">' +
-        '<strong class="ff-update-toast__title">' + title + '</strong>' +
-        '<span class="ff-update-toast__sub">' + sub + '</span>' +
-        (downloading
-          ? '<div class="ff-update-toast__bar"><div class="ff-update-toast__bar-fill" style="width:' +
-            (state.percent || 0) +
-            '%"></div></div>'
-          : '') +
-        '</div>' +
-        '<div class="ff-update-toast__actions">' +
-        '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--ghost">Later</button>' +
-        '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--primary"' +
-        (ready ? '' : ' disabled') +
-        '>Update Now</button>' +
-        '</div>';
+      let titleEl = toastEl.querySelector('.ff-update-toast__title');
+      let subEl = toastEl.querySelector('.ff-update-toast__sub');
+      let barFill = toastEl.querySelector('.ff-update-toast__bar-fill');
+      let primary = toastEl.querySelector('.ff-update-toast__btn--primary');
 
-      toastEl.querySelector('.ff-update-toast__btn--ghost').addEventListener('click', () => {
-        setDismissedVersion(state.latestVersion || state.currentVersion || '1');
-        removeToast();
-      });
+      if (!titleEl) {
+        toastEl.innerHTML =
+          '<div class="ff-update-toast__content">' +
+          '<strong class="ff-update-toast__title"></strong>' +
+          '<span class="ff-update-toast__sub"></span>' +
+          '</div>' +
+          '<div class="ff-update-toast__actions">' +
+          '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--ghost">Later</button>' +
+          '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--primary">Update Now</button>' +
+          '</div>';
+        titleEl = toastEl.querySelector('.ff-update-toast__title');
+        subEl = toastEl.querySelector('.ff-update-toast__sub');
+        primary = toastEl.querySelector('.ff-update-toast__btn--primary');
+        bindToastActions(state);
+      }
 
-      toastEl.querySelector('.ff-update-toast__btn--primary').addEventListener('click', async () => {
-        if (!ready) return;
-        const btn = toastEl.querySelector('.ff-update-toast__btn--primary');
-        btn.disabled = true;
-        btn.textContent = 'Installing…';
-        try {
-          await apiJson('/api/update/install', { method: 'POST' });
-        } catch (err) {
-          btn.disabled = false;
-          btn.textContent = 'Update Now';
-          const subEl = toastEl.querySelector('.ff-update-toast__sub');
-          if (subEl) subEl.textContent = err.message || 'Install failed';
+      titleEl.textContent = title;
+      subEl.textContent = sub;
+
+      let bar = toastEl.querySelector('.ff-update-toast__bar');
+      if (downloading) {
+        if (!bar) {
+          bar = document.createElement('div');
+          bar.className = 'ff-update-toast__bar';
+          bar.innerHTML = '<div class="ff-update-toast__bar-fill"></div>';
+          toastEl.querySelector('.ff-update-toast__content').appendChild(bar);
         }
-      });
+        barFill = bar.querySelector('.ff-update-toast__bar-fill');
+        if (barFill) barFill.style.width = (state.percent || 0) + '%';
+      } else if (bar) {
+        bar.remove();
+      }
+
+      if (primary) {
+        primary.disabled = !ready;
+        if (primary.textContent === 'Installing…' && !ready) {
+          primary.textContent = 'Update Now';
+        }
+      }
     }
 
     async function refreshUpdateState() {
