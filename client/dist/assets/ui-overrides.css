@@ -1551,3 +1551,105 @@
 .wa-spinner {
   animation-timing-function: var(--ff-ease-soft);
 }
+
+/* Pairing code overlay — main login area (WhatsApp Web style) */
+.wa-web-login-center,
+.wa-web-login,
+.wa-main {
+  position: relative;
+}
+
+.ff-pairing-code-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  pointer-events: none;
+}
+
+.ff-pairing-code-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(240, 242, 245, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.ff-pairing-code-card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 420px);
+  padding: 28px 26px 24px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid rgba(233, 237, 239, 0.95);
+  box-shadow: var(--ff-shadow-lg);
+  text-align: center;
+  pointer-events: auto;
+  animation: ff-fade-up 0.35s var(--ff-ease-out);
+}
+
+.ff-pairing-code-kicker {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--wa-text-secondary);
+}
+
+.ff-pairing-code-title {
+  margin: 0 0 10px;
+  font-family: var(--font-display, inherit);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--wa-text);
+}
+
+.ff-pairing-code-sub {
+  margin: 0 0 18px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--wa-text-secondary);
+}
+
+.ff-pairing-code-digits {
+  margin: 0 auto 12px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f7f8fa 0%, #eef1f4 100%);
+  border: 1px solid var(--wa-border);
+  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+  font-size: clamp(1.75rem, 6vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--wa-teal-dark, #006d5b);
+  user-select: all;
+}
+
+.ff-pairing-code-phone {
+  margin: 0 0 14px;
+  font-size: 0.82rem;
+  color: var(--wa-text-secondary);
+}
+
+.ff-pairing-code-steps {
+  margin: 0;
+  padding-left: 1.15rem;
+  text-align: left;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--wa-text-secondary);
+}
+
+.ff-pairing-code-steps li + li {
+  margin-top: 6px;
+}
+
+.wa-web-login-center--phone .ff-pairing-code-overlay {
+  align-items: flex-start;
+  padding-top: 12px;
+}

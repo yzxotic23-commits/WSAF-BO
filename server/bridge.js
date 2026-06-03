@@ -443,7 +443,7 @@ class DesktopBridge {
       const partnerSession = this.sessions[partnerSlot];
       const partnerProbe = new WhatsAppSession(getAccountName(partnerSlot));
       const partnerAuth = partnerProbe.getAuthStatus();
-      const hasSaved = auth.saved && !this.logoutSlots.has(i);
+      const hasSaved = auth.saved && auth.valid && auth.registered && !this.logoutSlots.has(i);
       const partnerHasSaved = partnerAuth.saved && !this.logoutSlots.has(partnerSlot);
       const displayName = hasSaved
         ? session?.getDisplayName?.() || auth.profileName || null
@@ -481,6 +481,9 @@ class DesktopBridge {
         logoutPhase: this.logoutPhase.get(i) || null,
         authValid: auth.valid,
         chatCount: this.getChatHistory(i).length,
+        loginMethod: session?.loginMethod || null,
+        pairingCode: session?.lastPairingCode || null,
+        pairingPhone: session?.lastPairingPhone || null,
       });
     }
 
@@ -785,6 +788,7 @@ class DesktopBridge {
     });
 
     session.on('profileName', (payload) => {
+      if (!session.isConnected) return;
       if (payload?.profileName) {
         this.log('info', `[${name}] Profile name synced: ${payload.profileName}`);
       }
@@ -950,6 +954,20 @@ class DesktopBridge {
         throw new Error(
           'Phone number required for pairing login (country code + number, digits only)'
         );
+      }
+      if (
+        session.isLinking
+        && session.loginMethod === 'pairing'
+        && session.lastPairingPhone === phoneNumber
+      ) {
+        return {
+          ok: true,
+          mode: 'direct',
+          pending: true,
+          method: 'pairing',
+          deduped: true,
+          pairingCode: session.lastPairingCode || null,
+        };
       }
       plan = { method: 'pairing', phoneNumber };
       saveLoginPref(sessionName, plan);

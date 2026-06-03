@@ -23,11 +23,25 @@
       try {
         const url = typeof input === 'string' ? input : input?.url || '';
         const method = (init?.method || 'GET').toUpperCase();
-        if (method === 'POST' && /\/api\/connect\/\d+/.test(url) && init?.body) {
+        if (method === 'POST' && /\/api\/connect\/(\d+)/.test(url) && init?.body) {
+          const slot = url.match(/\/api\/connect\/(\d+)/)[1];
           const body = JSON.parse(init.body);
           if (body?.method === 'pairing' && body.phoneNumber) {
             body.phoneNumber = normalizePairingPhoneInput(body.phoneNumber);
+            sessionStorage.setItem('ff-pairing-slot', slot);
+            sessionStorage.setItem('ff-pairing-until', String(Date.now() + 15 * 60 * 1000));
             init = { ...init, body: JSON.stringify(body) };
+          } else if (body?.method === 'qr') {
+            const activeSlot = sessionStorage.getItem('ff-pairing-slot');
+            const until = parseInt(sessionStorage.getItem('ff-pairing-until') || '0', 10);
+            if (activeSlot === slot && until > Date.now()) {
+              return Promise.resolve(
+                new Response(
+                  JSON.stringify({ ok: true, pending: true, method: 'qr', suppressed: true }),
+                  { status: 200, headers: { 'Content-Type': 'application/json' } }
+                )
+              );
+            }
           }
         }
       } catch {
@@ -593,6 +607,95 @@
     setInterval(pollFeedingComplete, 1500);
   }
 
+  /** Pairing code popup in main login area (WhatsApp Web style) — not only System log */
+  let lastShownPairingKey = null;
+
+  function removePairingCodeOverlay() {
+    document.querySelectorAll('.ff-pairing-code-overlay').forEach((el) => el.remove());
+  }
+
+  function switchToPhoneLoginView() {
+    if (document.querySelector('.wa-web-card--phone')) return;
+    const link = [...document.querySelectorAll('.wa-web-text-link--foot, .wa-web-text-link--center')].find(
+      (el) => /phone number/i.test(el.textContent || '')
+    );
+    if (link) link.click();
+  }
+
+  function showPairingCodeOverlay(acc) {
+    const key = `${acc.slot}:${acc.pairingCode}`;
+    if (lastShownPairingKey === key && document.querySelector('.ff-pairing-code-overlay')) return;
+    lastShownPairingKey = key;
+    switchToPhoneLoginView();
+    removePairingCodeOverlay();
+
+    const host =
+      document.querySelector('.wa-web-login-center')
+      || document.querySelector('.wa-web-login')
+      || document.querySelector('.wa-main');
+    if (!host) return;
+
+    const raw = String(acc.pairingCode || '').replace(/-/g, '');
+    const formatted =
+      raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : acc.pairingCode;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ff-pairing-code-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'WhatsApp pairing code');
+    overlay.innerHTML =
+      '<div class="ff-pairing-code-backdrop"></div>' +
+      '<div class="ff-pairing-code-card">' +
+      '<p class="ff-pairing-code-kicker">WhatsApp · Link this account</p>' +
+      '<h2 class="ff-pairing-code-title">Enter this code on your phone</h2>' +
+      '<p class="ff-pairing-code-sub">On your phone: <strong>Settings → Linked devices → Link a device → Link with phone number instead</strong></p>' +
+      `<div class="ff-pairing-code-digits" aria-live="polite">${formatted}</div>` +
+      (acc.pairingPhone
+        ? `<p class="ff-pairing-code-phone">+${acc.pairingPhone}</p>`
+        : '') +
+      '<ol class="ff-pairing-code-steps">' +
+      '<li>Open WhatsApp on your phone</li>' +
+      '<li>Go to Settings → Linked devices</li>' +
+      '<li>Tap Link a device → Link with phone number instead</li>' +
+      '<li>Type the 8-digit code above (expires in a few minutes)</li>' +
+      '</ol>' +
+      '</div>';
+    host.appendChild(overlay);
+
+    const nativeDigits = document.querySelector('.wa-web-pairing-digits');
+    if (nativeDigits) nativeDigits.textContent = formatted;
+  }
+
+  async function pollPairingCodeOverlay() {
+    try {
+      const status = await apiJson('/api/status');
+      let anyPairing = false;
+      for (const acc of status.accounts || []) {
+        if (acc.linking && acc.pairingCode && acc.loginMethod === 'pairing') {
+          anyPairing = true;
+          showPairingCodeOverlay(acc);
+        }
+      }
+      if (!anyPairing) {
+        lastShownPairingKey = null;
+        removePairingCodeOverlay();
+        const stillLinking = (status.accounts || []).some((a) => a.linking);
+        if (!stillLinking) {
+          sessionStorage.removeItem('ff-pairing-slot');
+          sessionStorage.removeItem('ff-pairing-until');
+        }
+      }
+    } catch {
+      /* API not ready */
+    }
+  }
+
+  function setupPairingCodeOverlay() {
+    pollPairingCodeOverlay();
+    setInterval(pollPairingCodeOverlay, 900);
+  }
+
   /** Corner update toast — Later / Update Now */
   function setupUpdateCornerToast() {
     let toastEl = null;
@@ -826,6 +929,7 @@
     applyDomFixes();
     setupAutoUpdatePolling();
     setupFeedingCompleteWatcher();
+    setupPairingCodeOverlay();
     setupSessionsClearAutoClose();
 
     document.documentElement.style.zoom = '1';
