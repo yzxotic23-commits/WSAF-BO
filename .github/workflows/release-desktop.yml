@@ -35,6 +35,21 @@ jobs:
       - name: Generate update manifest (macOS)
         run: node scripts/generate-update-manifest.js release mac
 
+      - name: Fix latest-mac.yml from actual zip filename
+        run: node scripts/fix-latest-mac-yml.js release
+
+      - name: Verify local latest-mac.yml matches zip
+        run: |
+          ZIP=$(ls release/*arm64-mac.zip 2>/dev/null | head -1)
+          if [ -z "$ZIP" ]; then echo "No arm64-mac zip found"; exit 1; fi
+          BASENAME=$(basename "$ZIP")
+          if ! grep -Fq "$BASENAME" release/latest-mac.yml; then
+            echo "latest-mac.yml does not reference $BASENAME"
+            cat release/latest-mac.yml
+            exit 1
+          fi
+          echo "OK latest-mac.yml -> $BASENAME"
+
       - name: Ad-hoc sign (unsigned build, helps Gatekeeper)
         continue-on-error: true
         run: |

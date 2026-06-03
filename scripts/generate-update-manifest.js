@@ -62,13 +62,18 @@ function pickWinSetupExe() {
 const winExe = pickWinSetupExe();
 
 function findMacZip() {
-  const zips = listArtifacts().filter((f) => /\.zip$/i.test(f));
-  return (
-    zips.find((f) => /mac|arm64|darwin/i.test(f)) ||
-    zips.find((f) => !/uninstaller/i.test(f)) ||
-    zips[0] ||
-    null
+  const zips = listArtifacts().filter((f) => /\.zip$/i.test(f) && !/uninstaller/i.test(f));
+  const macZips = zips.filter((f) => /arm64-mac|arm64\.mac|mac|arm64|darwin/i.test(f));
+  const pool = macZips.length ? macZips : zips;
+  if (pool.length === 0) return null;
+
+  const dotted = pool.filter((f) => /^WhatsApp\.Auto\.Feeding-/i.test(f));
+  const ranked = (dotted.length ? dotted : pool).sort(
+    (a, b) => fs.statSync(path.join(releaseDir, b)).size - fs.statSync(path.join(releaseDir, a)).size
   );
+  const picked = ranked[0];
+  if (!fs.existsSync(path.join(releaseDir, picked))) return null;
+  return picked;
 }
 
 const macZip = findMacZip();
@@ -83,6 +88,20 @@ if (platform === 'win' || platform === 'all') {
 
 if (platform === 'mac' || platform === 'all') {
   if (macFile) ok = writeYml('latest-mac.yml', macFile) || ok;
+}
+
+if (platform === 'mac' || platform === 'all') {
+  const ymlPath = path.join(releaseDir, 'latest-mac.yml');
+  if (fs.existsSync(ymlPath)) {
+    const ymlText = fs.readFileSync(ymlPath, 'utf8');
+    const pathMatch = ymlText.match(/^path:\s*(.+)$/m);
+    const installer = pathMatch?.[1]?.trim();
+    if (installer && !fs.existsSync(path.join(releaseDir, installer))) {
+      console.error(`[manifest] latest-mac.yml path not on disk: ${installer}`);
+      console.error('[manifest] Files:', listArtifacts().join(', ') || '(empty)');
+      process.exit(1);
+    }
+  }
 }
 
 if (!ok) {

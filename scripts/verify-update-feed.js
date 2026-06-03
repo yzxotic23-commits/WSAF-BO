@@ -6,6 +6,7 @@
 const https = require('https');
 
 const feed = (process.argv[2] || process.env.APP_UPDATE_URL || 'https://github.com/yzxotic23-commits/WSAF-BO/releases/latest/download/').replace(/\/?$/, '/');
+const manifestName = (process.argv[3] || process.env.UPDATE_MANIFEST || 'latest.yml').trim();
 
 function get(url) {
   return new Promise((resolve, reject) => {
@@ -47,9 +48,10 @@ function parseYml(text) {
 
 (async () => {
   console.log('[verify] feed:', feed);
-  const ymlRes = await get(feed + 'latest.yml');
+  console.log('[verify] manifest:', manifestName);
+  const ymlRes = await get(feed + manifestName);
   if (ymlRes.status !== 200) {
-    console.error('[verify] latest.yml HTTP', ymlRes.status);
+    console.error(`[verify] ${manifestName} HTTP`, ymlRes.status);
     process.exit(1);
   }
   const yml = ymlRes.body.toString('utf8');
@@ -57,17 +59,17 @@ function parseYml(text) {
   console.log('[verify] version:', meta.version);
   console.log('[verify] path:', meta.path);
   if (!meta.path) {
-    console.error('[verify] path: missing in latest.yml');
+    console.error(`[verify] path: missing in ${manifestName}`);
     process.exit(1);
   }
-  const exeUrl = feed + encodeURIComponent(meta.path).replace(/%20/g, '%20');
-  const status = await head(exeUrl);
+  const assetUrl = feed + encodeURIComponent(meta.path);
+  const status = await head(assetUrl);
   if (status !== 200) {
-    console.error('[verify] installer HTTP', status, '—', meta.path);
-    console.error('[verify] FIX: regenerate latest.yml from the real .exe filename on the release.');
+    console.error('[verify] asset HTTP', status, '—', meta.path);
+    console.error(`[verify] FIX: regenerate ${manifestName} from the real installer filename on the release.`);
     process.exit(1);
   }
-  console.log('[verify] installer OK (200)');
+  console.log('[verify] asset OK (200)');
   console.log('[verify] Feed is valid for electron-updater.');
 })().catch((e) => {
   console.error('[verify]', e.message);
