@@ -198,7 +198,12 @@ function createDesktopApi(options = {}) {
         );
         return;
       }
-      res.json(await bridge.connectAccount(slot, { method: 'qr' }));
+      res.json(
+        await bridge.connectAccount(slot, {
+          method: 'qr',
+          clearIncomplete: Boolean(req.body?.clearIncomplete),
+        })
+      );
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

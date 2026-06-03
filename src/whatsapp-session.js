@@ -22,6 +22,14 @@ const {
 } = require('./wa-policy-detector');
 const { normalizePairingPhone } = require('./login-prefs');
 
+/** QR ASCII art belongs in a terminal only — desktop UI renders QR separately. */
+function shouldPrintQrAscii() {
+  if (process.env.DESKTOP_FEEDING === '1') return false;
+  if (process.env.DESKTOP_BRIDGE === '1') return false;
+  if (process.versions?.electron) return false;
+  return Boolean(process.stdout?.isTTY);
+}
+
 class WhatsAppSession extends EventEmitter {
   constructor(sessionName) {
     super();
@@ -61,6 +69,10 @@ class WhatsAppSession extends EventEmitter {
     this.lastOpenAt = null;
     this.lastPairingCode = null;
     this.lastPairingPhone = null;
+    /** Set after QR scan (restartRequired) — keep partial creds for one reconnect. */
+    this.resumeAfterRestart = false;
+    /** True while a QR link attempt is active (showing QR or finishing registration). */
+    this.qrLinkActive = false;
   }
 
   extractProfileNameFromMe(me) {
@@ -70,12 +82,17 @@ class WhatsAppSession extends EventEmitter {
     return name;
   }
 
-  /** True only after QR scan or pairing code confirmed on phone (creds.registered). */
+  /** True after QR scan / pairing confirmed — live connect counts even if creds.registered lags on disk. */
   isRegistrationComplete() {
     try {
+      if (
+        this.isConnected
+        && (this.socket?.user?.id || this.socket?.authState?.creds?.me?.id)
+      ) {
+        return true;
+      }
       const live = this.socket?.authState?.creds?.registered;
       if (live === true) return true;
-      if (live === false) return false;
       return this.getAuthStatus().registered;
     } catch {
       return false;
@@ -83,8 +100,13 @@ class WhatsAppSession extends EventEmitter {
   }
 
   finalizeSuccessfulLogin() {
-    if (this.isShuttingDown || !this.socket?.user) return;
-    if (this.isConnected && this.isRegistrationComplete()) return;
+    if (this.isShuttingDown || this.isConnected) return;
+
+    const user = this.socket?.user || this.socket?.authState?.creds?.me;
+    if (!user?.id) return;
+
+    // Pairing must wait until phone confirms (creds.registered).
+    if (this.loginMethod === 'pairing' && !this.isRegistrationComplete()) return;
 
     this.isLinking = false;
     this.isConnected = true;
@@ -93,17 +115,19 @@ class WhatsAppSession extends EventEmitter {
     this.lastPairingCode = null;
     this.lastPairingPhone = null;
     this.pairingCodeRequested = false;
+    this.qrLinkActive = false;
+    this.resumeAfterRestart = false;
     this.qrCount = 0;
     this.reconnectAttempts = 0;
     this.proxyFallbackAttempts = 0;
     this.linkedViaDirect = !this.proxyUrl;
 
-    const user = this.socket.user;
     const phone = user.id.split(':')[0];
     const profileName = this.extractProfileNameFromMe(user);
     if (profileName) this.saveProfileName(profileName);
     console.log(`[${this.sessionName}] Connected as: ${profileName || phone}`);
     console.log(`[${this.sessionName}] JID: ${jidNormalizedUser(user.id)}`);
+    this.captureProfileName('login');
     this.emit('connected', { user, profileName: profileName || null, phone });
     this.scheduleProfileNameCapture();
     this.emit('linkState');
@@ -441,6 +465,8 @@ class WhatsAppSession extends EventEmitter {
     this.expectedPartnerJid = null;
     this.lastPairingCode = null;
     this.lastPairingPhone = null;
+    this.qrLinkActive = false;
+    this.resumeAfterRestart = false;
     console.log(`[${this.sessionName}] Local session data fully removed`);
   }
 
@@ -570,6 +596,38 @@ class WhatsAppSession extends EventEmitter {
     return code;
   }
 
+  /** Pairing code sent; waiting for user to enter it on phone before creds.registered. */
+  isPairingAwaitingPhone() {
+    return (
+      this.loginMethod === 'pairing'
+      && this.pairingCodeRequested
+      && !this.isRegistrationComplete()
+    );
+  }
+
+  shouldPreservePairingSession(explicitPairing) {
+    return Boolean(
+      explicitPairing
+      && this.isPairingAwaitingPhone()
+      && this.pairingPhone === explicitPairing
+      && this.socket
+    );
+  }
+
+  /** Avoid duplicate connect() killing an active QR socket mid-scan (not post-scan restart). */
+  shouldPreserveQrLinkSession(explicitPairing) {
+    if (explicitPairing || this.resumeAfterRestart) return false;
+    if (this.loginMethod !== 'qr' || !this.socket) return false;
+    const auth = this.getAuthStatus();
+    if (auth.valid && auth.registered) return false;
+    return this.isLinking || this.qrLinkActive;
+  }
+
+  reemitActivePairingCode() {
+    if (!this.lastPairingCode || !this.pairingPhone) return;
+    this.emit('pairingCode', { code: this.lastPairingCode, phone: this.pairingPhone });
+  }
+
   waitForPairingSocketReady(timeoutMs = 20000) {
     if (!this.socket) {
       return Promise.reject(new Error('Socket not ready for pairing'));
@@ -627,6 +685,26 @@ class WhatsAppSession extends EventEmitter {
   async connect(loginOptions = {}) {
     if (this.isShuttingDown || !this.autoReconnectAllowed) return;
 
+    const explicitPairing =
+      loginOptions.method === 'pairing' && normalizePairingPhone(loginOptions.phoneNumber);
+
+    if (this.shouldPreservePairingSession(explicitPairing)) {
+      this.isLinking = true;
+      this.emit('linkState');
+      console.log(
+        `[${this.sessionName}] Waiting for pairing code on phone — do not reconnect (${this.lastPairingCode})`
+      );
+      this.reemitActivePairingCode();
+      return;
+    }
+
+    if (this.shouldPreserveQrLinkSession(explicitPairing)) {
+      this.isLinking = true;
+      this.emit('linkState');
+      console.log(`[${this.sessionName}] QR link in progress — please wait…`);
+      return;
+    }
+
     this.isLinking = true;
     this.emit('linkState');
 
@@ -636,8 +714,6 @@ class WhatsAppSession extends EventEmitter {
       this.socket = null;
     }
 
-    const explicitPairing =
-      loginOptions.method === 'pairing' && normalizePairingPhone(loginOptions.phoneNumber);
     const prevPairingPhone = this.pairingPhone;
 
     if (explicitPairing) {
@@ -648,9 +724,23 @@ class WhatsAppSession extends EventEmitter {
       }
     }
 
-    const hasAuth = this.hasSavedAuth();
+    const authBeforeConnect = this.getAuthStatus();
+    if (authBeforeConnect.saved && !authBeforeConnect.registered && !explicitPairing) {
+      if (this.resumeAfterRestart) {
+        this.resumeAfterRestart = false;
+      } else if (!this.qrLinkActive) {
+        this.purgeLocalSession();
+        console.log(`[${this.sessionName}] Incomplete login cleared — scan QR to link`);
+      }
+    }
+
+    const authNow = this.getAuthStatus();
+    const hasAuth = authNow.valid && authNow.registered;
+    const completingQrLink = authNow.valid && !authNow.registered && this.loginMethod === 'qr';
     if (hasAuth && !explicitPairing) {
       this.loginMethod = 'qr';
+      this.pairingPhone = null;
+      this.pendingLoginPlan = { method: 'qr', phoneNumber: null };
     } else if (explicitPairing) {
       this.loginMethod = 'pairing';
       this.pairingPhone = explicitPairing;
@@ -672,10 +762,13 @@ class WhatsAppSession extends EventEmitter {
 
     if (hasAuth) {
       console.log(`[${this.sessionName}] Saved session found — connecting...`);
+    } else if (completingQrLink || this.qrLinkActive) {
+      console.log(`[${this.sessionName}] Completing QR link — please wait…`);
     } else if (this.loginMethod === 'pairing') {
       console.log(`[${this.sessionName}] No session — login via pairing code (${this.pairingPhone})`);
     } else {
       console.log(`[${this.sessionName}] No session — scan QR to link`);
+      this.qrLinkActive = true;
     }
 
     const logger = pino({ level: 'silent' });
@@ -692,6 +785,8 @@ class WhatsAppSession extends EventEmitter {
       connectTimeoutMs: 60000,
       keepAliveIntervalMs: 30000,
       retryRequestDelayMs: 2000,
+      markOnlineOnConnect: this.loginMethod !== 'pairing',
+      syncFullHistory: false,
     };
 
     if (agent) {
@@ -704,7 +799,12 @@ class WhatsAppSession extends EventEmitter {
     this.socket.ev.on('creds.update', async (update) => {
       await saveCreds(update);
       if (this.isShuttingDown) return;
+      if (this.loginMethod === 'qr' && !this.isRegistrationComplete()) {
+        this.qrLinkActive = true;
+      }
       if (this.isRegistrationComplete() && !this.isConnected) {
+        this.finalizeSuccessfulLogin();
+      } else if (this.loginMethod === 'qr' && this.socket?.user && !this.isConnected) {
         this.finalizeSuccessfulLogin();
       } else if (this.isRegistrationComplete()) {
         this.captureProfileName('creds.update');
@@ -740,13 +840,18 @@ class WhatsAppSession extends EventEmitter {
 
         if (this.qrCount > 1) {
           console.log(`\n[${this.sessionName}] QR expired, auto-refreshing... (${this.qrCount}/${this.maxQrRetries})`);
-        } else {
+        } else if (shouldPrintQrAscii()) {
           console.log(`\n[${this.sessionName}] Scan this QR Code:`);
+        } else {
+          console.log(`[${this.sessionName}] QR ready — scan in the app`);
         }
-        console.log('-'.repeat(40));
-        qrcode.generate(qr, { small: true });
-        console.log('-'.repeat(40));
+        if (shouldPrintQrAscii()) {
+          console.log('-'.repeat(40));
+          qrcode.generate(qr, { small: true });
+          console.log('-'.repeat(40));
+        }
         console.log(`Waiting for scan... (auto-refresh on expire)`);
+        this.qrLinkActive = true;
         this.emit('qr', qr);
       }
 
@@ -756,13 +861,11 @@ class WhatsAppSession extends EventEmitter {
       }
 
       if (connection === 'open') {
-        if (!this.isRegistrationComplete()) {
+        if (this.loginMethod === 'pairing' && !this.isRegistrationComplete()) {
           this.isLinking = true;
           this.isConnected = false;
           this.emit('linkState');
-          console.log(
-            `[${this.sessionName}] Waiting for login to finish — enter pairing code on phone or scan QR`
-          );
+          console.log(`[${this.sessionName}] Waiting for pairing code on phone…`);
           return;
         }
         this.finalizeSuccessfulLogin();
@@ -872,6 +975,14 @@ class WhatsAppSession extends EventEmitter {
           });
           this.emit('loggedOut');
         } else if (isBadSession && !hadAuth) {
+            if (this.isPairingAwaitingPhone()) {
+              console.log(
+                `[${this.sessionName}] Pairing in progress — enter code ${this.lastPairingCode} on phone (no auto-retry)`
+              );
+              this.isLinking = true;
+              this.emit('linkState');
+              return;
+            }
             if (this.linkControlMode) {
               this.emit('linkAttemptFailed');
               return;
@@ -943,7 +1054,23 @@ class WhatsAppSession extends EventEmitter {
           this.purgeLocalSession();
           this.reconnectAttempts = 0;
           this.emit('loggedOut');
+        } else if (statusCode === DisconnectReason.restartRequired) {
+          console.log(`[${this.sessionName}] Restart required — reconnecting with saved credentials…`);
+          this.reconnectAttempts = 0;
+          this.isLinking = true;
+          this.resumeAfterRestart = true;
+          this.qrLinkActive = true;
+          this.emit('linkState');
+          this.scheduleReconnect(
+            () => this.connect(this.pendingLoginPlan || { method: 'qr' }),
+            500
+          );
         } else if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          if (this.isPairingAwaitingPhone()) {
+            this.isLinking = true;
+            this.emit('linkState');
+            return;
+          }
           this.reconnectAttempts++;
           const delay = Math.min(3000 * this.reconnectAttempts, 15000);
           console.log(`[${this.sessionName}] Connection lost. Reconnecting in ${delay / 1000}s... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);

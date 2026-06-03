@@ -1,4 +1,5 @@
 require('dotenv').config();
+process.env.DESKTOP_BRIDGE = '1';
 require('../src/silence-libsignal-logs');
 if (process.env.AI_SDK_LOG_WARNINGS === undefined) {
   process.env.AI_SDK_LOG_WARNINGS = 'false';
@@ -26,6 +27,18 @@ const MAX_CHAT_PER_ACCOUNT = 400;
 function getPartnerSlot(slot) {
   const pairBase = Math.floor(slot / 2) * 2;
   return slot % 2 === 0 ? pairBase + 1 : pairBase;
+}
+
+const QR_ASCII_CHARS = /[█▀▄▌▐░▒▓■□▪▫●○◼◻⬛⬜]/;
+
+/** Feeding CLI stdout must not dump qrcode-terminal art into the UI log drawer. */
+function shouldSkipFeedingCliLogLine(line) {
+  const s = String(line || '').trim();
+  if (!s) return true;
+  if (s.length >= 24 && /^[-─═]{24,}$/.test(s)) return true;
+  const blocks = (s.match(QR_ASCII_CHARS) || []).length;
+  if (blocks >= 3) return true;
+  return s.length >= 10 && blocks / s.length > 0.12;
 }
 
 const AI_ENV_DEFAULTS = {
@@ -443,13 +456,28 @@ class DesktopBridge {
       const partnerSession = this.sessions[partnerSlot];
       const partnerProbe = new WhatsAppSession(getAccountName(partnerSlot));
       const partnerAuth = partnerProbe.getAuthStatus();
-      const hasSaved = auth.saved && auth.valid && auth.registered && !this.logoutSlots.has(i);
-      const partnerHasSaved = partnerAuth.saved && !this.logoutSlots.has(partnerSlot);
+      const sessionLive =
+        session?.isConnected
+        && !session?.isLoggedOut
+        && !session?.isLoggingOut
+        && auth.saved
+        && auth.valid;
+      const hasSaved =
+        !this.logoutSlots.has(i)
+        && ((auth.saved && auth.valid && auth.registered) || sessionLive);
+      const partnerSessionLive =
+        partnerSession?.isConnected
+        && !partnerSession?.isLoggedOut
+        && partnerAuth.saved
+        && partnerAuth.valid;
+      const partnerHasSaved =
+        !this.logoutSlots.has(partnerSlot)
+        && ((partnerAuth.saved && partnerAuth.valid && partnerAuth.registered) || partnerSessionLive);
       const displayName = hasSaved
-        ? session?.getDisplayName?.() || auth.profileName || null
+        ? session?.getDisplayName?.() || auth.profileName || auth.phone || null
         : null;
       const partnerDisplayName = partnerHasSaved
-        ? partnerSession?.getDisplayName?.() || partnerAuth.profileName || null
+        ? partnerSession?.getDisplayName?.() || partnerAuth.profileName || partnerAuth.phone || null
         : null;
       const slotLabel = getAccountLabel(i);
       const partnerSlotLabel = getAccountLabel(partnerSlot);
@@ -979,6 +1007,37 @@ class DesktopBridge {
       return { ok: true, mode: 'direct', pending: true, method: 'pairing' };
     }
 
+    if (
+      !plan.clearIncomplete
+      && session?.isLinking
+      && session.loginMethod === 'qr'
+    ) {
+      return { ok: true, mode: 'direct', pending: true, method: 'qr', deduped: true };
+    }
+
+    const authProbe = new WhatsAppSession(sessionName);
+    const partialAuth = authProbe.getAuthStatus();
+    if (plan.clearIncomplete && partialAuth.saved && !partialAuth.registered) {
+      if (session) {
+        session.autoReconnectAllowed = false;
+        try {
+          await session.shutdown();
+        } catch {
+          /* ignore */
+        }
+        this.sessions[slotIndex] = null;
+        session = null;
+      }
+      authProbe.purgeLocalSession();
+      this.log('info', `[${sessionName}] Incomplete pairing cleared — starting QR link`);
+    }
+
+    if (!session) {
+      session = new WhatsAppSession(sessionName);
+      session.autoReconnectAllowed = true;
+      this.sessions[slotIndex] = session;
+    }
+
     const proxyUrl = this.hasProxies ? this.accountProxies[slotIndex] : null;
     const qrMode = this.getProxyQrLinkMode();
 
@@ -1402,6 +1461,10 @@ class DesktopBridge {
     }
 
     this.setFeedingLaunchPhase('disconnect');
+    this.log(
+      'info',
+      '[FEEDING] Closing preview connections — auth stays saved; CLI will reconnect both accounts'
+    );
     await this.disconnectAll();
     await new Promise((r) => setTimeout(r, 2500));
 
@@ -1444,6 +1507,7 @@ class DesktopBridge {
         .filter(Boolean)
         .forEach((line) => {
           if (this.tryParseFeedingChatLog(line)) return;
+          if (shouldSkipFeedingCliLogLine(line)) return;
           this.log(level, line);
           if (
             !cliReady

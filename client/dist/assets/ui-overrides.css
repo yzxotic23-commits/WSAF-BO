@@ -1552,104 +1552,194 @@
   animation-timing-function: var(--ff-ease-soft);
 }
 
-/* Pairing code overlay — main login area (WhatsApp Web style) */
+/* Pairing screen — WhatsApp Web “Enter code on phone” layout */
 .wa-web-login-center,
 .wa-web-login,
 .wa-main {
   position: relative;
 }
 
-.ff-pairing-code-overlay {
+body.ff-pairing-active .wa-web-card--qr,
+body.ff-pairing-active .wa-web-card--phone {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.ff-pairing-active .wa-web-login-footer {
+  position: relative;
+  z-index: 45;
+}
+
+.ff-pairing-code-overlay--wa {
   position: absolute;
   inset: 0;
   z-index: 40;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 24px 16px;
+  padding: 8px 12px 24px;
+  background: transparent;
   pointer-events: none;
 }
 
-.ff-pairing-code-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(240, 242, 245, 0.82);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-.ff-pairing-code-card {
+.ff-pairing-code-card--wa {
   position: relative;
   z-index: 1;
-  width: min(100%, 420px);
-  padding: 28px 26px 24px;
+  width: min(100%, 560px);
+  padding: 32px 36px 28px;
   border-radius: 20px;
   background: #fff;
   border: 1px solid rgba(233, 237, 239, 0.95);
   box-shadow: var(--ff-shadow-lg);
-  text-align: center;
   pointer-events: auto;
   animation: ff-fade-up 0.35s var(--ff-ease-out);
-}
-
-.ff-pairing-code-kicker {
-  margin: 0 0 8px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--wa-text-secondary);
+  text-align: left;
 }
 
 .ff-pairing-code-title {
-  margin: 0 0 10px;
+  margin: 0 0 14px;
   font-family: var(--font-display, inherit);
-  font-size: 1.35rem;
+  font-size: 1.75rem;
   font-weight: 700;
+  line-height: 1.2;
   color: var(--wa-text);
 }
 
-.ff-pairing-code-sub {
-  margin: 0 0 18px;
-  font-size: 0.86rem;
-  line-height: 1.45;
-  color: var(--wa-text-secondary);
-}
-
-.ff-pairing-code-digits {
-  margin: 0 auto 12px;
-  padding: 16px 20px;
-  border-radius: 14px;
-  background: linear-gradient(180deg, #f7f8fa 0%, #eef1f4 100%);
-  border: 1px solid var(--wa-border);
-  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
-  font-size: clamp(1.75rem, 6vw, 2.25rem);
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  color: var(--wa-teal-dark, #006d5b);
-  user-select: all;
-}
-
-.ff-pairing-code-phone {
-  margin: 0 0 14px;
-  font-size: 0.82rem;
-  color: var(--wa-text-secondary);
-}
-
-.ff-pairing-code-steps {
-  margin: 0;
-  padding-left: 1.15rem;
-  text-align: left;
-  font-size: 0.82rem;
+.ff-pairing-code-account {
+  margin: 0 0 22px;
+  font-size: 0.95rem;
   line-height: 1.5;
   color: var(--wa-text-secondary);
 }
 
-.ff-pairing-code-steps li + li {
-  margin-top: 6px;
+.ff-pairing-code-account strong {
+  color: var(--wa-text);
+  font-weight: 600;
 }
 
-.wa-web-login-center--phone .ff-pairing-code-overlay {
+.ff-pairing-edit {
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #008069;
+  font: inherit;
+  font-size: 0.92rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.ff-pairing-edit:hover {
+  text-decoration: underline;
+}
+
+.ff-pairing-code-boxes {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  margin: 0 0 28px;
+  flex-wrap: nowrap;
+}
+
+.ff-pairing-code-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 52px;
+  border-radius: 10px;
+  border: 1px solid #d1d7db;
+  background: #fff;
+  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--wa-text);
+  letter-spacing: 0.02em;
+  user-select: all;
+}
+
+.ff-pairing-code-sep {
+  margin: 0 4px;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--wa-text-secondary);
+  line-height: 1;
+}
+
+.ff-pairing-code-timeline {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ff-pairing-code-timeline li {
+  display: flex;
   align-items: flex-start;
-  padding-top: 12px;
+  gap: 14px;
+}
+
+.ff-pairing-step-num {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #f0f2f5;
+  color: var(--wa-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ff-pairing-step-text {
+  flex: 1;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--wa-text-secondary);
+  padding-top: 3px;
+}
+
+.ff-pairing-step-text strong {
+  color: var(--wa-text);
+  font-weight: 600;
+}
+
+.ff-pairing-switch-qr {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #008069;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ff-pairing-switch-qr:hover {
+  text-decoration: underline;
+}
+
+.ff-pairing-switch-qr span {
+  font-size: 1.1em;
+}
+
+@media (max-width: 520px) {
+  .ff-pairing-code-card--wa {
+    padding: 24px 18px 20px;
+  }
+
+  .ff-pairing-code-box {
+    width: 36px;
+    height: 44px;
+    font-size: 1.1rem;
+  }
 }

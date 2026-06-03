@@ -7,13 +7,26 @@ function getPrefsPath() {
 }
 
 /**
- * E.164-style digits only (no +). Strips 00 prefix and trunk 0 after country code.
+ * E.164-style digits only (no +). Handles country code + local with leading 0.
  */
 function normalizePairingPhone(phoneNumber) {
   let p = String(phoneNumber || '').replace(/\D/g, '');
   if (!p) return '';
   if (p.startsWith('00')) p = p.slice(2);
-  // Strip trunk 0 only after a 2–3 digit country code (e.g. 60 + 0 + local), not "6" + "0" + …
+
+  if (p.startsWith('62')) {
+    const local = p.slice(2).replace(/^0+/, '');
+    if (local.length >= 9 && local.length <= 13) return `62${local}`;
+  }
+  if (p.startsWith('60')) {
+    const local = p.slice(2).replace(/^0+/, '');
+    if (local.length >= 8 && local.length <= 12) return `60${local}`;
+  }
+  if (p.startsWith('65')) {
+    const local = p.slice(2).replace(/^0+/, '');
+    if (local.length >= 8 && local.length <= 10) return `65${local}`;
+  }
+
   const m = p.match(
     /^(1\d{2}|2\d{1,2}|3\d{2}|4\d{2}|5\d{2}|6\d{1,2}|7\d{1,2}|8\d{2}|9\d{1,2})(0+)(\d{6,})$/
   );

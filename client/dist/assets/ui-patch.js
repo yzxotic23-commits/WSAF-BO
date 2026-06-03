@@ -4,11 +4,19 @@
 (function () {
   'use strict';
 
-  /** Normalize pairing phone before /api/connect (leading 0 after country code). */
+  /** Normalize pairing phone before /api/connect (country code + local number). */
   function normalizePairingPhoneInput(phoneNumber) {
     let p = String(phoneNumber || '').replace(/\D/g, '');
     if (!p) return p;
     if (p.startsWith('00')) p = p.slice(2);
+    if (p.startsWith('62')) {
+      const local = p.slice(2).replace(/^0+/, '');
+      if (local.length >= 9) return `62${local}`;
+    }
+    if (p.startsWith('60')) {
+      const local = p.slice(2).replace(/^0+/, '');
+      if (local.length >= 8) return `60${local}`;
+    }
     const m = p.match(
       /^(1\d{2}|2\d{1,2}|3\d{2}|4\d{2}|5\d{2}|6\d{1,2}|7\d{1,2}|8\d{2}|9\d{1,2})(0+)(\d{6,})$/
     );
@@ -31,17 +39,6 @@
             sessionStorage.setItem('ff-pairing-slot', slot);
             sessionStorage.setItem('ff-pairing-until', String(Date.now() + 15 * 60 * 1000));
             init = { ...init, body: JSON.stringify(body) };
-          } else if (body?.method === 'qr') {
-            const activeSlot = sessionStorage.getItem('ff-pairing-slot');
-            const until = parseInt(sessionStorage.getItem('ff-pairing-until') || '0', 10);
-            if (activeSlot === slot && until > Date.now()) {
-              return Promise.resolve(
-                new Response(
-                  JSON.stringify({ ok: true, pending: true, method: 'qr', suppressed: true }),
-                  { status: 200, headers: { 'Content-Type': 'application/json' } }
-                )
-              );
-            }
           }
         }
       } catch {
@@ -607,11 +604,103 @@
     setInterval(pollFeedingComplete, 1500);
   }
 
-  /** Pairing code popup in main login area (WhatsApp Web style) — not only System log */
+  /** Pairing code screen — WhatsApp Web layout with QR fallback link */
   let lastShownPairingKey = null;
+  let pairingSwitchInProgress = false;
 
   function removePairingCodeOverlay() {
     document.querySelectorAll('.ff-pairing-code-overlay').forEach((el) => el.remove());
+    document.body.classList.remove('ff-pairing-active');
+  }
+
+  async function getActivePairingSlot() {
+    const overlay = document.querySelector('.ff-pairing-code-overlay');
+    if (overlay?.dataset?.slot !== undefined && overlay.dataset.slot !== '') {
+      return parseInt(overlay.dataset.slot, 10);
+    }
+    const stored = sessionStorage.getItem('ff-pairing-slot');
+    if (stored !== null && stored !== '') {
+      return parseInt(stored, 10);
+    }
+    try {
+      const status = await apiJson('/api/status');
+      const acc = (status.accounts || []).find(
+        (a) => a.linking && a.loginMethod === 'pairing' && a.pairingCode
+      );
+      return acc?.slot ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function cancelActivePairing() {
+    const slot = await getActivePairingSlot();
+    sessionStorage.removeItem('ff-pairing-slot');
+    sessionStorage.removeItem('ff-pairing-until');
+    lastShownPairingKey = null;
+    removePairingCodeOverlay();
+    if (slot !== null && !Number.isNaN(slot)) {
+      try {
+        await apiJson(`/api/disconnect/${slot}`, { method: 'POST' });
+      } catch {
+        /* session may already be closed */
+      }
+    }
+    return slot;
+  }
+
+  function clickNativeQrLoginLink() {
+    const qrLink = [...document.querySelectorAll('.wa-web-text-link--center, .wa-web-text-link')].find(
+      (el) => /log in with qr code/i.test(el.textContent || '')
+    );
+    if (qrLink) {
+      qrLink.click();
+      return true;
+    }
+    const footPhone = [...document.querySelectorAll('.wa-web-text-link--foot')].find(
+      (el) => /phone number/i.test(el.textContent || '')
+    );
+    if (footPhone && document.querySelector('.wa-web-card--qr')) {
+      return true;
+    }
+    if (footPhone) {
+      footPhone.click();
+      requestAnimationFrame(() => clickNativeQrLoginLink());
+    }
+    return false;
+  }
+
+  function formatPhoneForDisplay(phone) {
+    const p = String(phone || '').replace(/\D/g, '');
+    if (!p) return '';
+    if (p.startsWith('62') && p.length >= 11) {
+      const rest = p.slice(2).replace(/^0+/, '');
+      if (rest.length >= 10) {
+        return `+62 ${rest.slice(0, 3)}-${rest.slice(3, 7)}-${rest.slice(7)}`;
+      }
+      return `+62 ${rest}`;
+    }
+    if (p.startsWith('60') && p.length >= 10) {
+      const rest = p.slice(2).replace(/^0+/, '');
+      if (rest.length >= 9) {
+        return `+60 ${rest.slice(0, 2)}-${rest.slice(2, 6)}-${rest.slice(6)}`;
+      }
+      return `+60 ${rest}`;
+    }
+    return `+${p}`;
+  }
+
+  function buildPairingCodeBoxes(code) {
+    const raw = String(code || '').replace(/-/g, '').toUpperCase().slice(0, 8);
+    let html = '<div class="ff-pairing-code-boxes" aria-live="polite">';
+    for (let i = 0; i < 8; i += 1) {
+      if (i === 4) {
+        html += '<span class="ff-pairing-code-sep" aria-hidden="true">-</span>';
+      }
+      html += `<span class="ff-pairing-code-box">${raw[i] || ''}</span>`;
+    }
+    html += '</div>';
+    return html;
   }
 
   function switchToPhoneLoginView() {
@@ -620,6 +709,40 @@
       (el) => /phone number/i.test(el.textContent || '')
     );
     if (link) link.click();
+  }
+
+  async function switchToQrLoginView() {
+    if (pairingSwitchInProgress) return;
+    pairingSwitchInProgress = true;
+    const btn = document.querySelector('.ff-pairing-switch-qr');
+    const btnHtml = btn?.innerHTML;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Switching to QR…';
+    }
+    try {
+      const slot = await cancelActivePairing();
+      if (slot !== null && !Number.isNaN(slot)) {
+        try {
+          await apiJson(`/api/connect/${slot}`, {
+            method: 'POST',
+            body: JSON.stringify({ method: 'qr', clearIncomplete: true }),
+          });
+        } catch (err) {
+          console.warn('[FeedFlow] QR connect after pairing cancel:', err.message || err);
+        }
+      }
+      requestAnimationFrame(() => {
+        clickNativeQrLoginLink();
+      });
+    } finally {
+      pairingSwitchInProgress = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML =
+          btnHtml || 'Log in with QR code <span aria-hidden="true">›</span>';
+      }
+    }
   }
 
   function showPairingCodeOverlay(acc) {
@@ -635,39 +758,62 @@
       || document.querySelector('.wa-main');
     if (!host) return;
 
-    const raw = String(acc.pairingCode || '').replace(/-/g, '');
+    const raw = String(acc.pairingCode || '').replace(/-/g, '').toUpperCase();
     const formatted =
       raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : acc.pairingCode;
+    const phoneDisplay = formatPhoneForDisplay(acc.pairingPhone);
 
     const overlay = document.createElement('div');
-    overlay.className = 'ff-pairing-code-overlay';
+    overlay.className = 'ff-pairing-code-overlay ff-pairing-code-overlay--wa';
+    overlay.dataset.slot = String(acc.slot);
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-label', 'WhatsApp pairing code');
+    overlay.setAttribute('aria-label', 'Enter code on phone');
     overlay.innerHTML =
-      '<div class="ff-pairing-code-backdrop"></div>' +
-      '<div class="ff-pairing-code-card">' +
-      '<p class="ff-pairing-code-kicker">WhatsApp · Link this account</p>' +
-      '<h2 class="ff-pairing-code-title">Enter this code on your phone</h2>' +
-      '<p class="ff-pairing-code-sub">On your phone: <strong>Settings → Linked devices → Link a device → Link with phone number instead</strong></p>' +
-      `<div class="ff-pairing-code-digits" aria-live="polite">${formatted}</div>` +
-      (acc.pairingPhone
-        ? `<p class="ff-pairing-code-phone">+${acc.pairingPhone}</p>`
+      '<div class="ff-pairing-code-card ff-pairing-code-card--wa">' +
+      '<h2 class="ff-pairing-code-title">Enter code on phone</h2>' +
+      (phoneDisplay
+        ? `<p class="ff-pairing-code-account">Linking WhatsApp account <strong>${phoneDisplay}</strong> <button type="button" class="ff-pairing-edit">edit</button></p>`
         : '') +
-      '<ol class="ff-pairing-code-steps">' +
-      '<li>Open WhatsApp on your phone</li>' +
-      '<li>Go to Settings → Linked devices</li>' +
-      '<li>Tap Link a device → Link with phone number instead</li>' +
-      '<li>Type the 8-digit code above (expires in a few minutes)</li>' +
+      buildPairingCodeBoxes(formatted) +
+      '<ol class="ff-pairing-code-timeline">' +
+      '<li><span class="ff-pairing-step-num">1</span><span class="ff-pairing-step-text">Open <strong>WhatsApp</strong> on your phone</span></li>' +
+      '<li><span class="ff-pairing-step-num">2</span><span class="ff-pairing-step-text">On Android tap <strong>Menu</strong> · On iPhone tap <strong>Settings</strong></span></li>' +
+      '<li><span class="ff-pairing-step-num">3</span><span class="ff-pairing-step-text">Tap <strong>Linked devices</strong>, then <strong>Link device</strong></span></li>' +
+      '<li><span class="ff-pairing-step-num">4</span><span class="ff-pairing-step-text">Tap <strong>Link with phone number instead</strong> and enter this code on your phone</span></li>' +
       '</ol>' +
+      '<button type="button" class="ff-pairing-switch-qr">Log in with QR code <span aria-hidden="true">›</span></button>' +
       '</div>';
     host.appendChild(overlay);
+    document.body.classList.add('ff-pairing-active');
+
+    overlay.querySelector('.ff-pairing-switch-qr')?.addEventListener('click', () => {
+      switchToQrLoginView().catch((err) => {
+        console.warn('[FeedFlow] switchToQrLoginView:', err);
+      });
+    });
+
+    overlay.querySelector('.ff-pairing-edit')?.addEventListener('click', () => {
+      pairingSwitchInProgress = true;
+      cancelActivePairing()
+        .catch(() => {})
+        .finally(() => {
+          pairingSwitchInProgress = false;
+          switchToPhoneLoginView();
+          const input = document.querySelector('.wa-web-pill-input');
+          if (input) {
+            input.focus();
+            input.select?.();
+          }
+        });
+    });
 
     const nativeDigits = document.querySelector('.wa-web-pairing-digits');
     if (nativeDigits) nativeDigits.textContent = formatted;
   }
 
   async function pollPairingCodeOverlay() {
+    if (pairingSwitchInProgress) return;
     try {
       const status = await apiJson('/api/status');
       let anyPairing = false;
@@ -680,11 +826,8 @@
       if (!anyPairing) {
         lastShownPairingKey = null;
         removePairingCodeOverlay();
-        const stillLinking = (status.accounts || []).some((a) => a.linking);
-        if (!stillLinking) {
-          sessionStorage.removeItem('ff-pairing-slot');
-          sessionStorage.removeItem('ff-pairing-until');
-        }
+        sessionStorage.removeItem('ff-pairing-slot');
+        sessionStorage.removeItem('ff-pairing-until');
       }
     } catch {
       /* API not ready */
