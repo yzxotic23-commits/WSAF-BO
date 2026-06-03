@@ -1,37 +1,47 @@
 # Update Server — Auto-update FeedFlow Desktop
 
-Upload isi folder ini ke web server HTTPS (atau GitHub Releases raw URL).
+**Mode otomatis (default):** app installer cek **GitHub Releases**  
+`https://github.com/yzxotic23-commits/WSAF-BO/releases/latest/download/`
 
-## File yang dibutuhkan
+Setiap push tag `v*` → GitHub Actions build + upload ke Releases → user dapat update tanpa upload manual.
 
-| Platform | Manifest | Installer |
-|----------|----------|-----------|
-| Windows  | `latest.yml` | `WhatsApp Setup X.X.X.exe` |
-| macOS    | `latest-mac.yml` | `.zip` (preferred) atau `.dmg` |
+## Alur otomatis
 
-Generate manifest setelah build:
+1. Kamu push tag: `git tag v1.0.22 && git push origin v1.0.22`
+2. Actions: build Windows + Mac → job **publish-github-release**
+3. File di GitHub Release: `.exe`, `.zip`, `.dmg`, `latest.yml`, `latest-mac.yml`
+4. User buka app versi lama → toast update → download → **Update Now** → restart
+
+## File di setiap GitHub Release
+
+| Platform | File |
+|----------|------|
+| Windows  | `WhatsApp Auto Feeding Setup X.X.X.exe`, `latest.yml`, `.blockmap` |
+| macOS    | `.zip` (utama untuk updater), `.dmg`, `latest-mac.yml` |
+
+Generate manifest lokal (opsional):
 
 ```bash
 npm run build:win
-npm run update:manifest
-
-npm run build:mac
-npm run update:manifest
+node scripts/generate-update-manifest.js release win
 ```
 
-## Konfigurasi di `.env` (folder install app)
+## Konfigurasi `.env` (opsional)
+
+Default sudah di kode — kosongkan pun update jalan (repo public).
 
 ```env
-APP_UPDATE_URL=https://your-domain.com/updates/
+APP_UPDATE_GITHUB_OWNER=yzxotic23-commits
+APP_UPDATE_GITHUB_REPO=WSAF-BO
 APP_UPDATE_CHECK_HOURS=4
 ```
 
-App akan:
-- Cek update ~4 detik setelah startup
-- Cek ulang saat window difokuskan
-- Download otomatis (minor & bugfix)
-- Tampilkan banner hijau → restart untuk install
+CDN sendiri (override):
 
-## CI (GitHub Actions)
+```env
+APP_UPDATE_URL=https://your-domain.com/updates/
+```
 
-Workflow **Release Desktop** otomatis menghasilkan `latest.yml` dan `latest-mac.yml` di artifact `windows-installer` / `macos-dmg`.
+## CI
+
+Workflow **Release Desktop** → artifact + **GitHub Release** otomatis pada tag `v*`.

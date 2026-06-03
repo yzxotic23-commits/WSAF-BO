@@ -1,6 +1,7 @@
 const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { resolveUpdateConfig } = require('./update-config');
 
 let autoUpdater = null;
 try {
@@ -21,6 +22,7 @@ function readPackageVersion() {
 class AppUpdater {
   constructor(onChange) {
     this.onChange = onChange || (() => {});
+    this.feed = resolveUpdateConfig();
     this.state = {
       enabled: false,
       status: 'idle',
@@ -32,6 +34,7 @@ class AppUpdater {
       total: 0,
       error: null,
       updateUrl: null,
+      updateMode: null,
       lastChecked: null,
     };
 
@@ -94,28 +97,32 @@ class AppUpdater {
   }
 
   refreshConfig() {
-    const url = (process.env.APP_UPDATE_URL || '').trim();
-    const enabled = this.isRuntimeEnabled(url);
+    this.feed = resolveUpdateConfig();
+    const enabled = this.isRuntimeEnabled();
     this.patch({
       enabled,
-      updateUrl: url || null,
+      updateUrl: this.feed.url,
+      updateMode: this.feed.mode,
       currentVersion: readPackageVersion(),
       status: enabled ? this.state.status : 'disabled',
     });
     return enabled;
   }
 
-  isRuntimeEnabled(url = process.env.APP_UPDATE_URL) {
+  isRuntimeEnabled() {
     if (process.env.ELECTRON_DEV === '1') return false;
+    if (process.env.APP_UPDATE_DISABLED === '1') return false;
     if (!autoUpdater) return false;
-    return Boolean(String(url || '').trim());
+    return this.feed.enabled;
   }
 
   configureFeed() {
-    const url = String(process.env.APP_UPDATE_URL || '').trim().replace(/\/?$/, '/');
-    if (!url) throw new Error('APP_UPDATE_URL is not set in .env');
-    autoUpdater.setFeedURL({ provider: 'generic', url });
-    return url;
+    this.feed = resolveUpdateConfig();
+    if (!this.feed.enabled || !this.feed.url) {
+      throw new Error('Auto-update is not configured');
+    }
+    autoUpdater.setFeedURL({ provider: 'generic', url: this.feed.url });
+    return this.feed.url;
   }
 
   getState() {

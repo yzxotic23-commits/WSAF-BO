@@ -1,0 +1,8 @@
+# Sample manifest macOS (electron-updater)
+version: 1.0.20
+files:
+  - url: WhatsApp Auto Feeding-1.0.20-arm64-mac.zip
+    sha512: PASTE_SHA512_BASE64_HERE==
+path: WhatsApp Auto Feeding-1.0.20-arm64-mac.zip
+sha512: PASTE_SHA512_BASE64_HERE==
+releaseDate: '2026-06-03T12:00:00.000Z'

@@ -1,0 +1,9 @@
+# Sample manifest Windows (electron-updater / generic provider)
+# Ganti sha512 dengan hasil build asli: npm run update:manifest
+version: 1.0.20
+files:
+  - url: WhatsApp Auto Feeding Setup 1.0.20.exe
+    sha512: PASTE_SHA512_BASE64_HERE==
+path: WhatsApp Auto Feeding Setup 1.0.20.exe
+sha512: PASTE_SHA512_BASE64_HERE==
+releaseDate: '2026-06-03T12:00:00.000Z'

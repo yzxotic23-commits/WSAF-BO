@@ -717,13 +717,53 @@
       await refreshUpdateState();
     }
 
-    return { refreshUpdateState, checkForUpdate };
+    return {
+      refreshUpdateState,
+      checkForUpdate,
+      /** Dev preview: ffPreviewUpdate('available'|'downloading'|'ready') */
+      showPreview(mode) {
+        const samples = {
+          available: {
+            enabled: true,
+            status: 'available',
+            currentVersion: '1.0.18',
+            latestVersion: '1.0.20',
+          },
+          downloading: {
+            enabled: true,
+            status: 'downloading',
+            currentVersion: '1.0.18',
+            latestVersion: '1.0.20',
+            percent: 62,
+          },
+          ready: {
+            enabled: true,
+            status: 'downloaded',
+            currentVersion: '1.0.18',
+            latestVersion: '1.0.20',
+          },
+          downloaded: {
+            enabled: true,
+            status: 'downloaded',
+            currentVersion: '1.0.18',
+            latestVersion: '1.0.20',
+          },
+        };
+        const key = String(mode || 'ready').toLowerCase();
+        const state = samples[key] || samples.ready;
+        try {
+          sessionStorage.removeItem('ff-update-dismissed');
+        } catch { /* noop */ }
+        renderToast(state);
+      },
+    };
   }
 
   /** Re-check when app window becomes visible (complements Electron scheduler) */
   function setupAutoUpdatePolling() {
     const CHECK_MS = 4 * 60 * 60 * 1000;
     const updateUi = setupUpdateCornerToast();
+    window.ffPreviewUpdate = (mode) => updateUi.showPreview(mode);
 
     async function fetchUpdate() {
       await updateUi.checkForUpdate();
