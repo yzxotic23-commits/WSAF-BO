@@ -1,0 +1,32 @@
+WhatsApp Auto Feeding - Paket macOS v1.0.10
+==========================================
+
+File DMG/ZIP TIDAK bisa dibuat di PC Windows.
+Gunakan salah satu cara di bawah untuk mendapatkan installer siap share.
+
+CARA 1 — GitHub Actions (disarankan, gratis, tanpa Mac)
+-------------------------------------------------------
+1. Push project ini ke GitHub (repo private/public).
+2. Buka tab Actions → workflow "Release Desktop" → Run workflow.
+3. Tunggu ~10–15 menit.
+4. Unduh artifact "macos-dmg" (berisi .dmg dan .zip).
+5. Share file .dmg ke pengguna Mac.
+
+CARA 2 — Build di Mac sendiri
+-----------------------------
+  cd "/path/to/Whatsapp Auto Feeding"
+  ./scripts/macos-setup.sh
+  npm run build:mac
+
+Hasil: folder release/WhatsApp Auto Feeding-1.0.10.dmg
+
+ISI PAKET UNTUK USER MAC (setelah punya DMG)
+--------------------------------------------
+- Install: buka .dmg → drag app ke Applications
+- Data app: ~/Library/Application Support/whatsapp-auto-chat/
+- Codex login (sekali): Terminal → npm run codex-login
+- Ollama (opsional): brew install ollama && ollama pull qwen2.5:7b
+
+Pertama buka: klik kanan app → Open (jika Gatekeeper memblokir unsigned app).
+
+Docs: .env.example, proxies.txt ada di folder Docs/
