@@ -344,8 +344,12 @@ function createDesktopApi(options = {}) {
     updater,
     port: PORT,
     start: () =>
-      new Promise((resolve) => {
+      new Promise((resolve, reject) => {
         process.env.DESKTOP_API_PORT = String(PORT);
+        server.once('error', (err) => {
+          console.error('[API] listen failed:', err.message);
+          reject(err);
+        });
         server.listen(PORT, '127.0.0.1', () => {
           console.log(`[API] Desktop API http://127.0.0.1:${PORT}`);
           resolve(PORT);
