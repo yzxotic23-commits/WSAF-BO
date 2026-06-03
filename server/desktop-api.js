@@ -46,7 +46,18 @@ function createDesktopApi(options = {}) {
   app.post('/api/update/install', async (_req, res) => {
     try {
       if (!updater) return res.status(400).json({ error: 'Updater not available' });
-      if (updater.getState().status !== 'downloaded') {
+      const state = updater.getState();
+      if (state.manualInstall && state.status === 'available') {
+        if (!updater.openDownloadPage()) {
+          return res.status(400).json({ error: 'No download URL for this update' });
+        }
+        return res.json({
+          ok: true,
+          mode: 'mac-dmg-manual',
+          downloadUrl: state.downloadUrl,
+        });
+      }
+      if (state.status !== 'downloaded') {
         return res.status(400).json({ error: 'No update downloaded yet' });
       }
       await bridge.shutdownForUpdate();

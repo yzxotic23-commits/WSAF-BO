@@ -888,6 +888,28 @@
 
       primary.addEventListener('click', async () => {
         const current = lastState;
+        if (!current) return;
+
+        if (current.manualInstall && current.status === 'available') {
+          primary.disabled = true;
+          primary.textContent = 'Opening…';
+          try {
+            await apiJson('/api/update/install', { method: 'POST' });
+            const subEl = toastEl && toastEl.querySelector('.ff-update-toast__sub');
+            if (subEl) {
+              subEl.textContent =
+                'DMG opened in browser — drag the app to Applications, then reopen FeedFlow.';
+            }
+          } catch (err) {
+            const subEl = toastEl && toastEl.querySelector('.ff-update-toast__sub');
+            if (subEl) subEl.textContent = err.message || 'Could not open download';
+          } finally {
+            primary.disabled = false;
+            primary.textContent = 'Download DMG';
+          }
+          return;
+        }
+
         if (!current || current.status !== 'downloaded') return;
         primary.disabled = true;
         primary.textContent = 'Installing…';
@@ -921,21 +943,26 @@
         pollTimer = null;
       }
 
-      const ready = state.status === 'downloaded';
+      const ready = state.status === 'downloaded' || (state.manualInstall && state.status === 'available');
       const downloading = state.status === 'downloading';
       const errored = state.status === 'error';
+      const manualReady = state.manualInstall && state.status === 'available';
       const title = errored
         ? 'Update check failed'
-        : ready
+        : ready && !manualReady
           ? 'Update ready'
-          : 'Update available';
+          : manualReady
+            ? 'Update available'
+            : 'Update available';
       const sub = errored
         ? (state.error || 'Could not reach update server')
-        : ready
-          ? `v${state.latestVersion} — restart to install`
-          : downloading
-            ? `v${state.latestVersion} · downloading ${state.percent || 0}%`
-            : `v${state.currentVersion} → v${state.latestVersion}`;
+        : manualReady
+          ? `v${state.latestVersion} — download DMG, replace app in Applications`
+          : ready
+            ? `v${state.latestVersion} — restart to install`
+            : downloading
+              ? `v${state.latestVersion} · downloading ${state.percent || 0}%`
+              : `v${state.currentVersion} → v${state.latestVersion}`;
 
       if (!toastEl) {
         toastEl = document.createElement('div');
@@ -985,7 +1012,9 @@
 
       if (primary) {
         primary.disabled = !ready;
-        if (primary.textContent === 'Installing…' && !ready) {
+        if (state.manualInstall) {
+          primary.textContent = manualReady ? 'Download DMG' : 'Update Now';
+        } else if (primary.textContent === 'Installing…' && !ready) {
           primary.textContent = 'Update Now';
         }
       }
