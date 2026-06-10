@@ -1008,6 +1008,10 @@ class DesktopBridge {
     if (plan.method === 'pairing') {
       session.setProxy(null);
       session.linkedViaDirect = true;
+      if (authProbe.saved && !authProbe.registered) {
+        session.purgeLocalSession();
+        this.log('info', `[${sessionName}] Cleared incomplete session before phone pairing`);
+      }
       this.log('info', `[${sessionName}] Phone pairing — using direct connection (no proxy)`);
       session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
       return { ok: true, mode: 'direct', pending: true };

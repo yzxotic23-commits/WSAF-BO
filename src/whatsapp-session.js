@@ -314,6 +314,32 @@ class WhatsAppSession extends EventEmitter {
     }
   }
 
+  /** Phone pairing in progress — not yet fully connected. */
+  isPairingLinkActive() {
+    if (this.loginMethod !== 'pairing' || !this.pairingPhone) return false;
+    if (this.isConnected || this.isShuttingDown || this.isLoggingOut) return false;
+    return true;
+  }
+
+  /** Transient WA disconnects during pairing — not a ban/logout. */
+  isTransientPairingDisconnect(lastDisconnect) {
+    const statusCode = lastDisconnect?.error?.output?.statusCode;
+    const errMsg = lastDisconnect?.error?.message || '';
+    if (statusCode === DisconnectReason.forbidden) return false;
+    if (statusCode === DisconnectReason.connectionReplaced) return false;
+    if (statusCode === DisconnectReason.restartRequired) return false;
+    const softMsg = /connection\s*failure|connection\s*closed|connection\s*lost|timed\s*out|econnreset|network|stream\s*errored|conflict/i.test(
+      errMsg
+    );
+    return (
+      softMsg
+      || statusCode === DisconnectReason.badSession
+      || statusCode === DisconnectReason.loggedOut
+      || statusCode === DisconnectReason.connectionClosed
+      || statusCode === DisconnectReason.connectionLost
+    );
+  }
+
   /** Returns this account's own LID from creds (available after connect). */
   getMyLid() {
     try {
@@ -603,7 +629,10 @@ class WhatsAppSession extends EventEmitter {
     }
 
     const authStatus = this.getAuthStatus();
-    const hasCompleteAuth = authStatus.valid && authStatus.registered;
+    const wantsPairing =
+      loginOptions.method === 'pairing'
+      || (this.loginMethod === 'pairing' && this.pairingPhone);
+    const hasCompleteAuth = authStatus.valid && authStatus.registered && !wantsPairing;
 
     if (hasCompleteAuth) {
       this.loginMethod = 'qr';
@@ -624,6 +653,8 @@ class WhatsAppSession extends EventEmitter {
       }
     }
     if (this.loginMethod !== 'pairing') {
+      this.pairingCodeRequested = false;
+    } else if (!this.pairingCodeDisplay) {
       this.pairingCodeRequested = false;
     }
 
@@ -663,7 +694,7 @@ class WhatsAppSession extends EventEmitter {
 
     this.socket.ev.on('creds.update', async (update) => {
       await saveCreds(update);
-      if (!this.isShuttingDown) {
+      if (!this.isShuttingDown && !this.isPairingLinkActive()) {
         this.captureProfileName('creds.update');
       }
     });
@@ -741,8 +772,6 @@ class WhatsAppSession extends EventEmitter {
 
       if (connection === 'close') {
         this.isConnected = false;
-        this.isLinking = false;
-        this.emit('linkState');
         if (this.isLoggingOut) return;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
@@ -762,9 +791,24 @@ class WhatsAppSession extends EventEmitter {
         const reasonText = reasonLabels[statusCode] || `code ${statusCode}`;
         console.log(`[${this.sessionName}] Disconnected: ${reasonText}`);
 
+        const pairingActive = this.isPairingLinkActive();
+        if (pairingActive) {
+          this.isLinking = true;
+          this.isLoggedOut = false;
+        } else {
+          this.isLinking = false;
+        }
+        this.emit('linkState');
+
         const policyAlert = classifyDisconnect(lastDisconnect);
-        if (policyAlert) {
+        const suppressPolicyAlert =
+          pairingActive && this.isTransientPairingDisconnect(lastDisconnect);
+        if (policyAlert && !suppressPolicyAlert) {
           this.emitPolicyAlert(policyAlert);
+        } else if (suppressPolicyAlert) {
+          console.log(
+            `[${this.sessionName}] Pairing handshake pause (${policyAlert?.detail || reasonText}) — session kept, waiting`
+          );
         }
 
         const hadAuth = this.hasSavedAuth();
@@ -787,12 +831,7 @@ class WhatsAppSession extends EventEmitter {
           return;
         }
 
-        const pairingInProgress =
-          this.loginMethod === 'pairing'
-          && (this.pairingAwaitingUser || this.pairingCodeDisplay)
-          && !authSnapshot.registered;
-
-        if (pairingInProgress && !isForbidden && !isRestartRequired) {
+        if (pairingActive && !isForbidden && !isRestartRequired) {
           if (isReplaced) {
             this.isLinking = true;
             this.isLoggedOut = false;
@@ -805,15 +844,29 @@ class WhatsAppSession extends EventEmitter {
             }
             return;
           }
-          if (isLoggedOut || isBadSession) {
+
+          if (this.pairingCodeDisplay) {
+            console.log(
+              `[${this.sessionName}] Pairing code active — enter ${this.pairingCodeDisplay} on your phone (brief disconnect is normal)`
+            );
             this.isLinking = true;
             this.isLoggedOut = false;
             this.emit('linkState');
-            if (this.pairingReconnectAttempts < 3) {
+            this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
+            return;
+          }
+
+          if (this.isTransientPairingDisconnect(lastDisconnect) || isLoggedOut || isBadSession) {
+            this.isLinking = true;
+            this.isLoggedOut = false;
+            this.emit('linkState');
+            const maxPreCodeRetries = 2;
+            if (this.pairingReconnectAttempts < maxPreCodeRetries) {
               this.pairingReconnectAttempts += 1;
-              const delay = Math.min(6000 * this.pairingReconnectAttempts, 18000);
+              const delay = 8000 + this.pairingReconnectAttempts * 4000;
+              this.pairingCodeRequested = false;
               console.log(
-                `[${this.sessionName}] Pairing in progress — waiting for code on phone (retry ${this.pairingReconnectAttempts}/3 in ${delay / 1000}s)`
+                `[${this.sessionName}] Requesting pairing code (attempt ${this.pairingReconnectAttempts}/${maxPreCodeRetries} in ${delay / 1000}s)...`
               );
               this.scheduleReconnect(
                 () => this.connect(
@@ -821,18 +874,18 @@ class WhatsAppSession extends EventEmitter {
                 ),
                 delay
               );
-            } else if (this.pairingCodeDisplay) {
-              this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
+            } else {
+              console.log(
+                `[${this.sessionName}] Pairing code request stalled — cancel link and retry, or use QR login.`
+              );
+              this.emit('linkAttemptFailed');
             }
             return;
           }
-          // Keep socket alive while user types code — do not reconnect (invalidates code).
+
           this.isLinking = true;
           this.isLoggedOut = false;
           this.emit('linkState');
-          if (this.pairingCodeDisplay) {
-            this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
-          }
           return;
         }
 
@@ -850,7 +903,7 @@ class WhatsAppSession extends EventEmitter {
             && /connection\s*failure|connection\s*closed|connection\s*lost|timed\s*out|econnreset|network|stream\s*errored/i.test(
               errMsg
             );
-          if (transient401 && hadAuth && authValid) {
+          if (transient401 && ((hadAuth && authValid) || this.pairingPhone)) {
             console.log(
               `[${this.sessionName}] Temporary disconnect (401: ${errMsg || 'unknown'}) — auth kept, will retry`
             );
