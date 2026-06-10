@@ -45,6 +45,10 @@ class WhatsAppSession extends EventEmitter {
     this.loginMethod = 'qr';
     this.pairingPhone = null;
     this.pairingCodeRequested = false;
+    this.pairingCodeDisplay = null;
+    /** True after pairing code is shown — waiting for user to enter it on phone. */
+    this.pairingAwaitingUser = false;
+    this.pairingReconnectAttempts = 0;
     this.expectedPartnerJid = null;
     this.partnerLidJid = null;
     this.proxyFallbackAttempts = 0;
@@ -541,6 +545,9 @@ class WhatsAppSession extends EventEmitter {
     console.log('='.repeat(50));
     console.log('');
 
+    this.pairingCodeDisplay = display;
+    this.pairingAwaitingUser = true;
+    this.pairingReconnectAttempts = 0;
     this.emit('pairingCode', { code: display, phone: cleaned });
     return display;
   }
@@ -560,23 +567,33 @@ class WhatsAppSession extends EventEmitter {
       this.socket = null;
     }
 
-    const hasAuth = this.hasSavedAuth();
-    if (hasAuth) {
+    const authStatus = this.getAuthStatus();
+    const hasCompleteAuth = authStatus.valid && authStatus.registered;
+
+    if (hasCompleteAuth) {
       this.loginMethod = 'qr';
+      this.pairingAwaitingUser = false;
+      this.pairingCodeDisplay = null;
     } else {
       this.loginMethod = loginOptions.method === 'pairing' ? 'pairing' : 'qr';
-      this.pairingPhone = loginOptions.phoneNumber || null;
+      this.pairingPhone = loginOptions.phoneNumber || this.pairingPhone || null;
       this.pendingLoginPlan = {
         method: this.loginMethod,
         phoneNumber: this.pairingPhone,
       };
+      if (this.loginMethod !== 'pairing') {
+        this.pairingAwaitingUser = false;
+        this.pairingCodeDisplay = null;
+      }
     }
-    this.pairingCodeRequested = false;
+    if (this.loginMethod !== 'pairing') {
+      this.pairingCodeRequested = false;
+    }
 
     const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
     const { version } = await fetchLatestBaileysVersion();
 
-    if (hasAuth) {
+    if (hasCompleteAuth) {
       console.log(`[${this.sessionName}] Saved session found — connecting...`);
     } else if (this.loginMethod === 'pairing') {
       console.log(`[${this.sessionName}] No session — login via pairing code (${this.pairingPhone})`);
@@ -662,6 +679,10 @@ class WhatsAppSession extends EventEmitter {
         this.isLinking = false;
         this.isConnected = true;
         this.isLoggedOut = false;
+        this.pairingAwaitingUser = false;
+        this.pairingCodeDisplay = null;
+        this.pairingCodeRequested = false;
+        this.pairingReconnectAttempts = 0;
         this.qrCount = 0;
         this.reconnectAttempts = 0;
         this.proxyFallbackAttempts = 0;
@@ -704,8 +725,61 @@ class WhatsAppSession extends EventEmitter {
         }
 
         const hadAuth = this.hasSavedAuth();
-        const authValid = this.getAuthStatus().valid;
+        const authSnapshot = this.getAuthStatus();
+        const authValid = authSnapshot.valid;
         const isForbidden = statusCode === DisconnectReason.forbidden;
+        const pairingInProgress =
+          this.loginMethod === 'pairing'
+          && (this.pairingAwaitingUser || this.pairingCodeDisplay)
+          && !authSnapshot.registered;
+
+        if (pairingInProgress && !isForbidden) {
+          if (isReplaced) {
+            this.isLinking = true;
+            this.isLoggedOut = false;
+            console.log(
+              `[${this.sessionName}] Pairing paused — another client took the session. Close it, then enter the code on your phone.`
+            );
+            this.emit('linkState');
+            if (this.pairingCodeDisplay) {
+              this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
+            }
+            return;
+          }
+          if (isLoggedOut || isBadSession) {
+            this.isLinking = true;
+            this.isLoggedOut = false;
+            this.emit('linkState');
+            if (this.pairingReconnectAttempts < 3) {
+              this.pairingReconnectAttempts += 1;
+              const delay = Math.min(6000 * this.pairingReconnectAttempts, 18000);
+              console.log(
+                `[${this.sessionName}] Pairing in progress — waiting for code on phone (retry ${this.pairingReconnectAttempts}/3 in ${delay / 1000}s)`
+              );
+              this.scheduleReconnect(
+                () => this.connect(
+                  this.pendingLoginPlan || { method: 'pairing', phoneNumber: this.pairingPhone }
+                ),
+                delay
+              );
+            } else if (this.pairingCodeDisplay) {
+              this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
+            }
+            return;
+          }
+          if (this.pairingReconnectAttempts < 2) {
+            this.isLinking = true;
+            this.pairingReconnectAttempts += 1;
+            this.emit('linkState');
+            this.scheduleReconnect(
+              () => this.connect(
+                this.pendingLoginPlan || { method: 'pairing', phoneNumber: this.pairingPhone }
+              ),
+              8000
+            );
+            return;
+          }
+        }
 
         if (isReplaced) {
           this.isLoggedOut = true;
@@ -888,11 +962,15 @@ class WhatsAppSession extends EventEmitter {
     });
 
     if (!state.creds.registered && this.loginMethod === 'pairing' && this.pairingPhone) {
-      this.pairingCodeRequested = true;
-      this.requestPairingLogin(this.pairingPhone).catch((err) => {
-        console.log(`[${this.sessionName}] Pairing code error: ${err.message}`);
-        this.pairingCodeRequested = false;
-      });
+      if (this.pairingCodeDisplay) {
+        this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
+      } else if (!this.pairingCodeRequested) {
+        this.pairingCodeRequested = true;
+        this.requestPairingLogin(this.pairingPhone).catch((err) => {
+          console.log(`[${this.sessionName}] Pairing code error: ${err.message}`);
+          this.pairingCodeRequested = false;
+        });
+      }
     }
 
     return connectPromise;

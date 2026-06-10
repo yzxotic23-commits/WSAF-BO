@@ -1,131 +1,119 @@
-# WhatsApp Auto Feeding — Desktop (Windows & macOS)
+# FeedFlow — Panduan Aplikasi Desktop
 
-## Audit singkat (status repo)
+Panduan untuk pengguna dan tim yang memakai **WhatsApp Auto Feeding** (FeedFlow) di **Windows** dan **Mac**.
 
-| Area | Status | Catatan |
-|------|--------|---------|
-| Core bot (Baileys + AI) | Ada | `index.js`, `src/*` — stabil di CLI |
-| Paket Windows v1.0.10 | Ada | Folder `WhatsApp-Auto-Feeding-Windows-v1.0.10/` (installer/docs), **tanpa source Electron di repo** |
-| Source Electron (FeedFlow) | **Dipulihkan** | `electron/`, `client/dist/`, `server/` (dari app terinstall) |
-| Path lintas OS | **Diperbaiki** | `src/app-paths.js` + `WA_APP_DATA` |
-| Build macOS | **Siap** | `npm run build:mac` (harus dijalankan di Mac) |
-| Auto-update macOS | Belum | `latest.yml` di paket Windows; perlu channel DMG/ZIP terpisah untuk Mac |
-
-### Fitur desktop (baru di repo)
-
-- Connect akun via **QR** di jendela app
-- Edit **.env** dan **proxies.txt** dari UI
-- **Start / Stop feeding** (menjalankan `index.js` non-interaktif, log di panel)
-- Data disimpan di folder user (bukan folder install):
-  - **macOS:** `~/Library/Application Support/whatsapp-auto-chat/`
-  - **Windows:** `%APPDATA%/whatsapp-auto-chat/`
-
-### Yang masih via terminal
-
-- **Codex login:** `npm run codex-login` (browser OAuth)
-- Pairing code penuh / beberapa flow advanced — bisa ditambah di UI berikutnya
+**Versi yang dipakai:** 1.0.21  
+**Unduhan:** [v1.0.21-restored](https://github.com/yzxotic23-commits/WSAF-BO/releases/tag/v1.0.21-restored)
 
 ---
 
-## macOS — development
+## Status aplikasi (Juni 2026)
 
-### Syarat
-
-- macOS 12+
-- [Node.js](https://nodejs.org) 20+ (atau `brew install node`)
-- Opsional: [Ollama](https://ollama.com) untuk fallback AI
-
-### Setup
-
-```bash
-cd "/path/to/Whatsapp Auto Feeding"
-chmod +x scripts/macos-setup.sh scripts/macos-start.sh
-./scripts/macos-setup.sh
-```
-
-### Login Codex (sekali)
-
-```bash
-npm run codex-login
-# Token: ~/.codex/auth.json
-```
-
-### Jalankan aplikasi GUI
-
-```bash
-npm run desktop
-# atau
-./scripts/macos-start.sh
-```
-
-### CLI feeding (tanpa GUI)
-
-```bash
-npm start
-```
+| Bagian | Kondisi |
+|--------|---------|
+| Feeding otomatis | Stabil di versi 1.0.21 |
+| Tampilan desktop | Stabil di v1.0.21-restored |
+| Hubungkan akun (QR) | Berjalan di versi stabil |
+| Login pakai nomor telepon | Masih perlu perbaikan |
+| Daftar proxy | Ada; kadang perlu disimpan ulang |
+| Update Windows | Bisa lewat aplikasi |
+| Update Mac | **Manual** — unduh DMG dari GitHub |
+| Versi 1.0.22 – 1.0.32 | **Jangan dipakai** |
 
 ---
 
-## macOS — build installer (.dmg)
+## Fitur di aplikasi desktop
 
-Build **harus di mesin Mac** (Apple Silicon atau Intel):
-
-```bash
-npm install
-npm run build:mac          # universal-ish (dmg + zip)
-npm run build:mac:arm      # Apple Silicon
-npm run build:mac:intel    # Intel
-```
-
-Output: `release/WhatsApp Auto Feeding-x.x.x.dmg`
-
-Gatekeeper: app unsigned mungkin perlu **klik kanan → Open** pertama kali, atau Developer ID + notarisasi untuk distribusi publik.
-
-### Tanpa Mac fisik — dapatkan DMG lewat GitHub (seperti CI build)
-
-File `.dmg` **tidak bisa** dibuat di PC Windows. Alternatif gratis:
-
-1. Push repo ke GitHub.
-2. **Actions** → **Release Desktop** → **Run workflow**.
-3. Unduh artifact **macos-dmg** (`.dmg` + `.zip` siap share).
-
-Lihat juga folder `WhatsApp-Auto-Feeding-macOS-v1.0.10/BACA-PAKET.txt`.
+- Hubungkan akun WhatsApp dengan **scan QR**  
+- Menu **Settings** untuk pengaturan, bahasa, proxy, dan jumlah pasang akun  
+- Tombol **Start** dan **Stop feeding**  
+- Tampilan percakapan saat feeding berjalan  
+- **Activity log** untuk melihat aktivitas di belakang layar  
+- Pengecekan versi terbaru (Windows lebih andal daripada Mac)  
 
 ---
 
-## Windows — development
+## Install pertama kali
 
-```bat
-npm install
-npm run desktop
-```
+### Windows
 
-Build:
+Unduh dan jalankan **WhatsApp Auto Feeding Setup 1.0.21** dari halaman rilis. Ikuti wizard instalasi, lalu buka aplikasi.
 
-```bat
-npm run build:win
-```
+### Mac
+
+Unduh file **DMG**, buka, lalu pindahkan aplikasi ke **Applications**. Jika Mac menolak membuka aplikasi, klik kanan → **Open**.
 
 ---
 
-## Variabel lingkungan (desktop / CLI)
+## Update aplikasi
 
-| Variable | Fungsi |
-|----------|--------|
-| `WA_APP_DATA` | Folder data (.env, auth/, proxies.txt) — di-set otomatis oleh Electron |
-| `WA_NON_INTERACTIVE` | `1` = tanpa prompt readline (feeding dari app) |
-| `WA_LANGUAGE` | Bahasa feeding: Indonesia, English, … |
-| `WA_LOGIN_METHOD` | `qr` atau `pairing` |
-| `WA_POST_FEEDING` | `exit`, `continue`, `new` (mode non-interaktif) |
+### Windows
+
+Bisa lewat menu cek update di aplikasi, atau unduh installer terbaru dari GitHub dan install di atas versi lama.
+
+### Mac
+
+Selalu unduh **DMG terbaru** dari halaman rilis GitHub, lalu ganti aplikasi di folder Applications.  
+Update otomatis di dalam app sering gagal — ini normal untuk aplikasi yang belum ditandatangani resmi oleh Apple.
+
+**Versi yang aman saat ini:** [v1.0.21-restored](https://github.com/yzxotic23-commits/WSAF-BO/releases/tag/v1.0.21-restored)
 
 ---
 
-## Struktur folder
+## Rollback (kembali ke versi stabil)
 
-```
-desktop/           # Electron main, preload, UI
-src/               # WhatsApp, proxy, AI, app-paths
-index.js           # CLI feeding loop
-auth/              # Session WA (dev; production di userData)
-release/           # Output electron-builder (gitignore disarankan)
-```
+Jika versi baru bermasalah:
+
+1. Tutup aplikasi.  
+2. Install ulang **v1.0.21-restored** (Windows: installer, Mac: DMG).  
+3. Buka aplikasi — pengaturan dan sesi WhatsApp di komputer Anda **biasanya tetap ada** setelah install ulang.
+
+---
+
+## Di mana data tersimpan?
+
+Pengaturan dan sesi WhatsApp disimpan di folder data pengguna di komputer, terpisah dari folder instalasi.
+
+- **Windows:** di area data pengguna (AppData)  
+- **Mac:** di folder dukungan aplikasi di Library pengguna  
+
+Isi umum: pengaturan aplikasi, sesi login WhatsApp, daftar proxy, cache update.
+
+Untuk reset penuh: **Settings → Clear all sessions** di aplikasi.
+
+---
+
+## Alur kerja harian
+
+1. Buka aplikasi.  
+2. Pastikan semua akun **terhubung** (nama tampil di panel samping).  
+3. Periksa pengaturan AI dan proxy jika diperlukan.  
+4. Klik **Start feeding**.  
+5. Pantau percakapan dan log.  
+6. Stop manual jika perlu, atau tunggu sampai selesai.
+
+Saat feeding dimulai, koneksi preview di layar mungkin terputus sementara — itu normal. Setelah selesai, akun biasanya muncul lagi sebagai terhubung.
+
+---
+
+## Keterbatasan yang perlu diketahui
+
+- Login dengan nomor telepon belum stabil di semua kasus  
+- Daftar proxy kadang perlu disimpan ulang agar tampil benar  
+- Mac belum mendukung install update otomatis yang andal  
+- Versi 1.0.22 sampai 1.0.32 menimbulkan banyak masalah — hindari  
+
+Daftar perbaikan direncanakan ada di folder **planning** dalam proyek ini.
+
+---
+
+## Dokumen lain
+
+- [README.md](./README.md) — ringkasan umum proyek  
+- [Halaman rilis GitHub](https://github.com/yzxotic23-commits/WSAF-BO/releases) — unduh installer  
+
+---
+
+## Untuk tim pengembang
+
+Panduan teknis (instalasi dari kode sumber, build installer, konfigurasi lanjutan) tersedia di repositori GitHub dan file contoh pengaturan di dalam proyek. Hubungi maintainer proyek jika membutuhkan akses atau dokumentasi teknis terpisah.

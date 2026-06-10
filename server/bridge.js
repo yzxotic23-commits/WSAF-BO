@@ -51,6 +51,8 @@ class DesktopBridge {
     this.logoutPhase = new Map();
     /** slot → timestamp — debounce duplicate strict-logout handling */
     this.strictLogoutAt = new Map();
+    /** Only one account may link (QR/pairing) at a time — avoids session collision. */
+    this.linkingSlot = null;
     this.codexProxyPromise = null;
     this.auditLog = new AuditLogStore(this.getAppRoot());
     this.currentFeedingRunId = null;
@@ -443,8 +445,10 @@ class DesktopBridge {
       const partnerSession = this.sessions[partnerSlot];
       const partnerProbe = new WhatsAppSession(getAccountName(partnerSlot));
       const partnerAuth = partnerProbe.getAuthStatus();
-      const hasSaved = auth.saved && !this.logoutSlots.has(i);
-      const partnerHasSaved = partnerAuth.saved && !this.logoutSlots.has(partnerSlot);
+      const hasSaved = auth.saved && auth.registered && auth.valid && !this.logoutSlots.has(i);
+      const partnerHasSaved =
+        partnerAuth.saved && partnerAuth.registered && partnerAuth.valid
+        && !this.logoutSlots.has(partnerSlot);
       const displayName = hasSaved
         ? session?.getDisplayName?.() || auth.profileName || null
         : null;
@@ -480,6 +484,10 @@ class DesktopBridge {
         loggingOut: this.logoutSlots.has(i),
         logoutPhase: this.logoutPhase.get(i) || null,
         authValid: auth.valid,
+        authRegistered: auth.registered,
+        loginMethod: session?.loginMethod || null,
+        pairingCode: session?.pairingCodeDisplay || null,
+        pairingPhone: session?.pairingPhone || null,
         chatCount: this.getChatHistory(i).length,
       });
     }
@@ -492,6 +500,7 @@ class DesktopBridge {
       authDir: path.join(appRoot, 'auth'),
       hasProxies: this.hasProxies,
       connecting: this.connecting,
+      linkingSlot: this.linkingSlot,
       feedingRunning: Boolean(this.feedingProcess && !this.feedingProcess.killed),
       feedingStarting: Boolean(this.feedingStarting),
       feedingLaunchPhase: this.feedingLaunchPhase || 'prepare',
@@ -769,6 +778,14 @@ class DesktopBridge {
       }
       this.emit('pairingCode', { account: name, slot: slotIndex, ...data });
       this.log('info', `[${name}] Pairing code: ${data.code}`);
+      this.pushChat(slotIndex, {
+        direction: 'system',
+        kind: 'pairing',
+        code: data.code,
+        phone: data.phone,
+        text: `Pairing code: ${data.code}\nOn your phone: WhatsApp → Linked devices → Link with phone number → enter this code.`,
+      });
+      this.emit('status', this.getStatus());
     });
 
     session.on('linkState', () => {
@@ -776,6 +793,9 @@ class DesktopBridge {
     });
 
     session.on('connected', (payload) => {
+      if (this.linkingSlot === slotIndex) {
+        this.linkingSlot = null;
+      }
       const profileName = payload?.profileName || session.getDisplayName?.();
       const shown = profileName ? `${name} (${profileName})` : name;
       this.log('success', `[${shown}] Connected`);
@@ -933,7 +953,39 @@ class DesktopBridge {
     if (this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed)) {
       throw new Error('Stop or wait for feeding startup to finish before linking accounts');
     }
+
     const sessionName = getAccountName(slotIndex);
+    const authProbe = new WhatsAppSession(sessionName).getAuthStatus();
+    const needsFreshLink = !authProbe.valid || !authProbe.registered;
+
+    if (needsFreshLink && this.linkingSlot !== null && this.linkingSlot !== slotIndex) {
+      throw new Error(
+        `${getAccountLabel(this.linkingSlot)} is still linking. Finish or cancel that link before starting ${getAccountLabel(slotIndex)}.`
+      );
+    }
+
+    if (plan.clearIncomplete) {
+      const existing = this.sessions[slotIndex];
+      if (existing) {
+        existing.autoReconnectAllowed = false;
+        existing.clearReconnectTimer?.();
+        try {
+          await existing.shutdown();
+        } catch {
+          /* ignore */
+        }
+      }
+      const probe = new WhatsAppSession(sessionName);
+      const partial = probe.getAuthStatus();
+      if (partial.saved && !partial.registered) {
+        probe.purgeLocalSession();
+      }
+      this.sessions[slotIndex] = null;
+      if (this.linkingSlot === slotIndex) {
+        this.linkingSlot = null;
+      }
+    }
+
     let session = this.sessions[slotIndex];
 
     if (!session) {
@@ -944,6 +996,11 @@ class DesktopBridge {
 
     const proxyUrl = this.hasProxies ? this.accountProxies[slotIndex] : null;
     const qrMode = this.getProxyQrLinkMode();
+
+    if (needsFreshLink || plan.method === 'pairing') {
+      this.linkingSlot = slotIndex;
+      this.emit('status', this.getStatus());
+    }
 
     this.log('info', `[${sessionName}] Connecting...`);
     this.attachSessionEvents(session, slotIndex);
@@ -1012,8 +1069,15 @@ class DesktopBridge {
 
   async disconnectAccount(slotIndex) {
     const session = this.sessions[slotIndex];
-    if (session) await session.shutdown();
+    if (session) {
+      session.autoReconnectAllowed = false;
+      session.clearReconnectTimer?.();
+      await session.shutdown();
+    }
     this.sessions[slotIndex] = null;
+    if (this.linkingSlot === slotIndex) {
+      this.linkingSlot = null;
+    }
     this.log('info', `[${getAccountName(slotIndex)}] Disconnected`);
     this.emit('status', this.getStatus());
   }
@@ -1304,7 +1368,7 @@ class DesktopBridge {
     let linked = 0;
     for (let i = 0; i < savedCount; i++) {
       const auth = new WhatsAppSession(getAccountName(i)).getAuthStatus();
-      if (auth.saved && auth.valid && !this.logoutSlots.has(i)) linked += 1;
+      if (auth.saved && auth.valid && auth.registered && !this.logoutSlots.has(i)) linked += 1;
     }
     if (linked < savedCount) {
       return this.failFeedingStart(

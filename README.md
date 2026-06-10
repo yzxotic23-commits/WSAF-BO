@@ -1,91 +1,111 @@
-# WhatsApp Auto Chat - Terminal Edition
+# FeedFlow — WhatsApp Auto Feeding
 
-Bot otomatis yang membuat 2 akun WhatsApp saling chat menggunakan AI (OpenAI / Claude) untuk generate percakapan yang natural.
+Aplikasi untuk Windows dan Mac yang membuat dua akun WhatsApp (atau lebih) saling mengirim pesan secara otomatis. Pesan dihasilkan oleh AI agar terlihat natural, dengan jeda waktu yang bisa diatur.
 
-## Fitur
+**Versi stabil saat ini:** 1.0.21  
+**Unduhan resmi:** [v1.0.21-restored di GitHub](https://github.com/yzxotic23-commits/WSAF-BO/releases/tag/v1.0.21-restored)
 
-- 100% terminal (tanpa browser)
-- Scan QR code di terminal
-- AI-powered conversation (OpenAI GPT atau Claude)
-- Delay random supaya terlihat natural
-- Topik percakapan bisa dikustomisasi
-- Auto-stop setelah mencapai batas pesan
+> **Penting:** Versi 1.0.22 sampai 1.0.32 tidak disarankan dipakai karena banyak masalah (login, feeding, update di Mac). Pakai **v1.0.21-restored** sampai versi baru yang sudah diuji tersedia.
 
-## Instalasi
+---
 
-```bash
-# 1. Install dependencies
-npm install
+## Apa yang bisa dilakukan aplikasi ini?
 
-# 2. Copy dan edit file environment
-copy .env.example .env
+- Menghubungkan akun WhatsApp lewat **scan QR** dari dalam aplikasi  
+- Menjalankan **feeding** — percakapan otomatis antar pasang akun  
+- Mengatur **bahasa**, **jeda antar pesan**, dan **batas jumlah pesan**  
+- Menggunakan **AI** (langganan Codex atau AI lokal Ollama)  
+- Menggunakan **proxy** jika diperlukan, lewat menu pengaturan  
+- Menyimpan sesi login agar tidak perlu scan QR setiap kali buka aplikasi  
 
-# 3. Edit .env dan isi API key + nomor target
-```
+---
 
-## Konfigurasi (.env)
+## Cara install (pengguna biasa)
 
-| Variable | Deskripsi |
-|----------|-----------|
-| `AI_PROVIDER` | `openai` atau `claude` |
-| `OPENAI_API_KEY` | API key dari OpenAI |
-| `CLAUDE_API_KEY` | API key dari Anthropic |
-| `ACCOUNT1_TARGET` | Nomor WA Account 2 (format: 628xxx) |
-| `ACCOUNT2_TARGET` | Nomor WA Account 1 (format: 628xxx) |
-| `MIN_DELAY` | Delay minimum antar pesan (detik) |
-| `MAX_DELAY` | Delay maksimum antar pesan (detik) |
-| `TOPICS` | Topik percakapan (comma separated) |
-| `MAX_MESSAGES` | Batas maksimal pesan per sesi |
-| `LANGUAGE` | Bahasa percakapan |
+### Windows
 
-## Cara Pakai
+1. Buka halaman [rilis v1.0.21-restored](https://github.com/yzxotic23-commits/WSAF-BO/releases/tag/v1.0.21-restored).  
+2. Unduh file instalasi Windows (Setup versi 1.0.21).  
+3. Jalankan instalasi, lalu buka **WhatsApp Auto Feeding**.  
+4. Hubungkan kedua akun lewat QR di panel samping.  
+5. Klik **Start feeding** setelah semua akun terhubung.
 
-```bash
-# Jalankan bot
-npm start
-```
+### Mac
 
-### Flow:
-1. Terminal akan menampilkan QR code untuk **Account 1** - scan dengan HP pertama
-2. Setelah Account 1 terhubung, muncul QR code untuk **Account 2** - scan dengan HP kedua
-3. Setelah kedua akun terhubung, bot otomatis mulai percakapan
-4. Account 1 akan mengirim pesan pembuka (topik random dari AI)
-5. Account 2 menerima pesan dan membalas otomatis
-6. Percakapan berlanjut bolak-balik sampai batas `MAX_MESSAGES`
+1. Dari halaman rilis yang sama, unduh file **DMG** untuk Mac (Apple Silicon).  
+2. Buka file DMG, lalu tarik aplikasi ke folder **Applications**.  
+3. Jika Mac memblokir aplikasi: klik kanan pada ikon app → pilih **Open**.  
+4. Hubungkan akun lewat QR, lalu **Start feeding**.
 
-### Contoh Output:
-```
-╔══════════════════════════════════════════╗
-║   WhatsApp Auto Chat - Terminal Edition  ║
-║   AI-Powered Conversation Generator     ║
-╚══════════════════════════════════════════╝
+**Update di Mac:** unduh file DMG terbaru secara manual dari halaman rilis. Update otomatis di dalam aplikasi sering gagal pada versi lama — lebih aman install manual.
 
-🤖 AI Provider: openai
-⏱️  Delay: 10s - 30s
-📨 Max messages: 50
+---
 
-📲 LANGKAH 1: Hubungkan Account 1
-▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ (QR CODE)
-✅ [account1] Terhubung sebagai: John
+## Cara pakai (singkat)
 
-📲 LANGKAH 2: Hubungkan Account 2
-▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ (QR CODE)
-✅ [account2] Terhubung sebagai: Jane
+1. **Hubungkan akun** — scan QR untuk setiap akun sampai status di panel samping menunjukkan semua sudah terhubung.  
+2. **Atur pengaturan** — bahasa percakapan, jeda pesan, proxy (jika perlu), dan sumber AI lewat menu **Settings**.  
+3. **Mulai feeding** — klik **Start feeding**. Aplikasi akan menjalankan percakapan antar akun.  
+4. **Pantau aktivitas** — lihat pesan dan catatan aktivitas di layar aplikasi.  
+5. **Selesai** — feeding berhenti sendiri sesuai batas pesan, atau klik **Stop** kapan saja.
 
-🚀 Memulai percakapan...
+Setelah feeding selesai, akun biasanya kembali online di aplikasi tanpa perlu scan QR lagi (selama sesi masih tersimpan).
 
-📤 [14:30:01] Account1 → Account2: Eh bro, lu udah nonton film baru yang rame itu belum?
-⏳ Account2 sedang mengetik... (15s)
-📤 [14:30:16] Account2 → Account1: Yang mana nih? Banyak banget film baru wkwk
-```
+---
 
-## Stop Bot
+## Di mana data disimpan?
 
-Tekan `Ctrl + C` untuk menghentikan bot.
+Data Anda (pengaturan, sesi WhatsApp, daftar proxy) disimpan di folder data pengguna di komputer, **bukan** di folder instalasi aplikasi.
 
-## Catatan
+- **Windows:** folder data aplikasi di AppData pengguna  
+- **Mac:** folder Application Support di Library pengguna  
 
-- Pastikan kedua nomor HP sudah saling save kontak
-- Jangan spam terlalu cepat (set MIN_DELAY minimal 10 detik)
-- Session tersimpan di folder `auth/` - tidak perlu scan ulang setelah pertama kali
-- Jika ingin reset session, hapus folder `auth/account1` atau `auth/account2`
+Untuk menghapus semua sesi WhatsApp dan mulai dari awal: buka **Settings → Clear all sessions** di aplikasi.
+
+---
+
+## Update aplikasi
+
+| Platform | Cara update yang disarankan |
+|----------|----------------------------|
+| **Windows** | Gunakan fitur cek update di aplikasi, atau unduh installer baru dari GitHub |
+| **Mac** | Unduh DMG terbaru dari GitHub, lalu ganti aplikasi lama di folder Applications |
+
+Jika update di Mac menampilkan error, abaikan update otomatis dan install manual dari halaman rilis **v1.0.21-restored**.
+
+---
+
+## Masalah umum & solusi
+
+| Masalah | Apa yang bisa dicoba |
+|---------|----------------------|
+| Tombol Start feeding tidak aktif | Pastikan semua akun sudah terhubung; refresh status atau hapus sesi lalu hubungkan ulang |
+| QR terus kedaluwarsa | Hapus semua sesi, hubungkan satu per satu; tutup aplikasi ganda yang berjalan bersamaan |
+| Daftar proxy tidak muncul | Simpan ulang daftar proxy di Settings dan uji koneksi proxy |
+| Update Mac gagal | Install manual dari DMG; jangan pakai versi 1.0.22–1.0.32 |
+| AI tidak merespons | Pastikan login Codex sudah dilakukan, atau AI lokal (Ollama) sudah berjalan |
+
+---
+
+## Riwayat versi (ringkas)
+
+| Versi | Keterangan |
+|-------|------------|
+| **1.0.21-restored** | Versi stabil saat ini — disarankan untuk dipakai |
+| 1.0.22 – 1.0.32 | Dibatalkan — banyak gangguan pada login, feeding, dan update |
+| 1.0.21 | Versi stabil sebelum perubahan besar |
+
+Rencana perbaikan minggu depan ada di folder **planning** di dalam proyek ini.
+
+---
+
+## Panduan tambahan
+
+- **[README-DESKTOP.md](./README-DESKTOP.md)** — detail khusus aplikasi desktop (install, update, rollback)  
+- **[Halaman rilis GitHub](https://github.com/yzxotic23-commits/WSAF-BO/releases)** — unduh installer Windows dan DMG Mac  
+
+---
+
+## Lisensi
+
+MIT

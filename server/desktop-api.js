@@ -183,9 +183,11 @@ function createDesktopApi(options = {}) {
       const slot = parseInt(req.params.slot, 10);
       const method = req.body?.method || 'qr';
       const phoneNumber = req.body?.phoneNumber || null;
+      const clearIncomplete = Boolean(req.body?.clearIncomplete);
       res.json(await bridge.connectAccount(slot, {
         method: method === 'pairing' ? 'pairing' : 'qr',
         phoneNumber: method === 'pairing' ? phoneNumber : undefined,
+        clearIncomplete,
       }));
     } catch (e) {
       res.status(500).json({ error: e.message });
