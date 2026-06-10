@@ -28,12 +28,24 @@ function findFile(re) {
   return files.find((f) => re.test(f)) || null;
 }
 
-function writeYml(name, fileName) {
+function resolveArtifactFileName(fileName) {
   const full = path.join(releaseDir, fileName);
+  if (fs.existsSync(full)) return fileName;
+  const dotted = fileName.replace(/ /g, '.');
+  if (dotted !== fileName && fs.existsSync(path.join(releaseDir, dotted))) {
+    return dotted;
+  }
+  return fileName;
+}
+
+function writeYml(name, fileName) {
+  const resolvedName = resolveArtifactFileName(fileName);
+  const full = path.join(releaseDir, resolvedName);
   if (!fs.existsSync(full)) {
     console.warn(`[skip] ${name}: ${fileName} not found`);
     return false;
   }
+  fileName = resolvedName;
   const digest = sha512(full);
   const yml = [
     `version: ${version}`,

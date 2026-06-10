@@ -93,13 +93,24 @@ function findAppBundle(rootDir) {
   return null;
 }
 
+function zipNameCandidates(zipName) {
+  const names = new Set([zipName]);
+  if (zipName.includes(' ')) names.add(zipName.replace(/ /g, '.'));
+  if (zipName.includes('.')) names.add(zipName.replace(/\./g, ' '));
+  return [...names];
+}
+
 async function resolveZipUrl(feedBase, zipName, version, owner, repo) {
   const base = feedBase.replace(/\/?$/, '/');
-  const candidates = [
-    `${base}${zipName}`,
-    `https://github.com/${owner}/${repo}/releases/download/v${version}/${zipName}`,
-    `https://github.com/${owner}/${repo}/releases/download/${version}/${zipName}`,
-  ].filter(Boolean);
+  const candidates = [];
+  for (const name of zipNameCandidates(zipName)) {
+    candidates.push(`${base}${name}`);
+    candidates.push(`${base}${encodeURIComponent(name)}`);
+    if (owner && repo) {
+      candidates.push(`https://github.com/${owner}/${repo}/releases/download/v${version}/${name}`);
+      candidates.push(`https://github.com/${owner}/${repo}/releases/download/${version}/${name}`);
+    }
+  }
 
   for (const url of candidates) {
     try {
