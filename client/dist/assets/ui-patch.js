@@ -776,9 +776,10 @@
     removePairingCodeOverlay();
 
     const host =
-      document.querySelector('.wa-web-login-center')
-      || document.querySelector('.wa-web-login')
-      || document.querySelector('.wa-main');
+      document.querySelector('.wa-main-center')
+      || document.querySelector('.wa-main')
+      || document.querySelector('.wa-web-login-center')
+      || document.querySelector('.wa-web-login');
     if (!host) return;
 
     const raw = String(acc.pairingCode || '').replace(/-/g, '').toUpperCase();
@@ -793,6 +794,7 @@
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', 'Enter code on phone');
     overlay.innerHTML =
+      '<div class="ff-pairing-code-backdrop" aria-hidden="true"></div>' +
       '<div class="ff-pairing-code-card ff-pairing-code-card--wa">' +
       '<h2 class="ff-pairing-code-title">Enter code on phone</h2>' +
       (phoneDisplay
@@ -806,7 +808,9 @@
       '<li><span class="ff-pairing-step-num">4</span><span class="ff-pairing-step-text">Tap <strong>Link with phone number instead</strong> (not “Enter code” from another device)</span></li>' +
       '<li><span class="ff-pairing-step-num">5</span><span class="ff-pairing-step-text">Type the <strong>8-digit code shown here</strong> into your phone</span></li>' +
       '</ol>' +
+      '<div class="ff-pairing-code-foot">' +
       '<button type="button" class="ff-pairing-switch-qr">Log in with QR code <span aria-hidden="true">›</span></button>' +
+      '</div>' +
       '</div>';
     host.appendChild(overlay);
     document.body.classList.add('ff-pairing-active');

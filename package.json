@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-auto-feeding",
-  "version": "1.0.46",
+  "version": "1.0.47",
   "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
   "main": "electron/main.js",
   "author": "",

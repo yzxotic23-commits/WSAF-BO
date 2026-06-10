@@ -1529,6 +1529,7 @@
 }
 
 /* Pairing screen — WhatsApp Web “Enter code on phone” layout */
+.wa-main-center,
 .wa-web-login-center,
 .wa-web-login,
 .wa-main {
@@ -1541,28 +1542,38 @@ body.ff-pairing-active .wa-web-card--phone {
   pointer-events: none;
 }
 
-body.ff-pairing-active .wa-web-login-footer {
-  position: relative;
-  z-index: 45;
+body.ff-pairing-active .wa-web-login-footer,
+body.ff-pairing-active .wa-web-text-link--foot {
+  display: none !important;
 }
 
 .ff-pairing-code-overlay--wa {
   position: absolute;
   inset: 0;
-  z-index: 40;
+  z-index: 50;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 8px 12px 24px;
-  background: transparent;
-  pointer-events: none;
+  padding: 24px 16px 32px;
+  pointer-events: auto;
+  overflow-y: auto;
+  animation: ff-complete-fade-in 0.3s ease-out;
+}
+
+.ff-pairing-code-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(233, 237, 239, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .ff-pairing-code-card--wa {
   position: relative;
   z-index: 1;
   width: min(100%, 560px);
-  padding: 32px 36px 28px;
+  padding: 32px 36px 24px;
   border-radius: 20px;
   background: #fff;
   border: 1px solid rgba(233, 237, 239, 0.95);
@@ -1570,6 +1581,7 @@ body.ff-pairing-active .wa-web-login-footer {
   pointer-events: auto;
   animation: ff-fade-up 0.35s var(--ff-ease-out);
   text-align: left;
+  margin-top: 8px;
 }
 
 .ff-pairing-code-title {
@@ -1690,7 +1702,7 @@ body.ff-pairing-active .wa-web-login-footer {
   align-items: center;
   gap: 2px;
   margin: 0;
-  padding: 0;
+  padding: 8px 0;
   border: none;
   background: none;
   color: #008069;
@@ -1698,6 +1710,14 @@ body.ff-pairing-active .wa-web-login-footer {
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
+  position: relative;
+  z-index: 2;
+}
+
+.ff-pairing-code-foot {
+  margin-top: 4px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(233, 237, 239, 0.95);
 }
 
 .ff-pairing-switch-qr:hover {
