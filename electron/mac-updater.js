@@ -100,17 +100,42 @@ function zipNameCandidates(zipName) {
   return [...names];
 }
 
-async function resolveZipUrl(feedBase, zipName, version, owner, repo) {
+function probeDownloadUrl(url) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith('https:') ? https : http;
+    const req = lib.request(
+      url,
+      {
+        method: 'GET',
+        headers: { Range: 'bytes=0-0', 'User-Agent': 'FeedFlow-Mac-Updater' },
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode === 200 || res.statusCode === 206);
+      }
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function buildZipUrlCandidates(feedBase, zipName, version, owner, repo) {
   const base = feedBase.replace(/\/?$/, '/');
   const candidates = [];
   for (const name of zipNameCandidates(zipName)) {
-    candidates.push(`${base}${name}`);
-    candidates.push(`${base}${encodeURIComponent(name)}`);
+    const encoded = encodeURIComponent(name).replace(/%20/g, '%20');
     if (owner && repo) {
       candidates.push(`https://github.com/${owner}/${repo}/releases/download/v${version}/${name}`);
-      candidates.push(`https://github.com/${owner}/${repo}/releases/download/${version}/${name}`);
+      candidates.push(`https://github.com/${owner}/${repo}/releases/download/v${version}/${encoded}`);
     }
+    candidates.push(`${base}${name}`);
+    candidates.push(`${base}${encoded}`);
   }
+  return [...new Set(candidates)];
+}
+
+async function resolveZipUrl(feedBase, zipName, version, owner, repo) {
+  const candidates = buildZipUrlCandidates(feedBase, zipName, version, owner, repo);
 
   for (const url of candidates) {
     try {
@@ -120,11 +145,30 @@ async function resolveZipUrl(feedBase, zipName, version, owner, repo) {
       /* try next */
     }
   }
-  return candidates[0];
+
+  // GitHub may reject HEAD — probe with a 1-byte range request
+  for (const url of candidates) {
+    try {
+      const ok = await probeDownloadUrl(url);
+      if (ok) return url;
+    } catch {
+      /* try next */
+    }
+  }
+
+  const fallback = candidates[0];
+  if (!/^https?:\/\//i.test(fallback)) {
+    throw new Error('Could not resolve update download URL');
+  }
+  return fallback;
 }
 
 function downloadFile(url, destPath, onProgress) {
   return new Promise((resolve, reject) => {
+    if (!url || !/^https?:\/\//i.test(String(url))) {
+      reject(new Error(`Invalid download URL: ${url || '(empty)'}`));
+      return;
+    }
     const lib = url.startsWith('https:') ? https : http;
     const file = fs.createWriteStream(destPath);
 
@@ -274,7 +318,11 @@ class MacUpdater {
 
       this.patch({ status: 'downloading', percent: 0, error: null });
 
-      await downloadFile(zipPath, zipPath, (p) => {
+      if (!zipUrl || !/^https?:\/\//i.test(zipUrl)) {
+        throw new Error(`Invalid download URL: ${zipUrl || '(empty)'}`);
+      }
+
+      await downloadFile(zipUrl, zipPath, (p) => {
         this.patch({
           status: 'downloading',
           percent: p.percent,
