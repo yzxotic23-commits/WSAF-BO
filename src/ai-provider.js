@@ -447,11 +447,26 @@ class AIProvider {
     return false;
   }
 
+  isConnectionError(error) {
+    const message = (error?.message || '').toLowerCase();
+    const code = String(error?.code || '').toLowerCase();
+    return (
+      message.includes('connection error')
+      || message.includes('econnrefused')
+      || message.includes('fetch failed')
+      || message.includes('socket hang up')
+      || message.includes('network')
+      || code === 'econnrefused'
+      || code === 'und_err_connect_timeout'
+    );
+  }
+
   isOpenAIRetryableError(error) {
     const status = error?.status || error?.response?.status;
     const code = error?.code || error?.error?.code;
     const message = (error?.message || '').toLowerCase();
 
+    if (this.isConnectionError(error)) return true;
     if (status === 429 || status === 408) return true;
     if (status >= 500 && status < 600) return true;
     if (code === 'rate_limit_exceeded') return true;
@@ -459,11 +474,7 @@ class AIProvider {
   }
 
   isOpenAIFallbackError(error) {
-    const status = error?.status || error?.response?.status;
-    const code = error?.code || error?.error?.code;
-    const message = (error?.message || '').toLowerCase();
-
-    if (this.isOpenAIRetryableError(error)) return true;
+    if (this.isConnectionError(error)) return true;
 
     if (status === 401 || status === 402 || status === 403) return true;
     if (status === 400 || status === 404) return true;
@@ -494,7 +505,28 @@ class AIProvider {
     const status = error?.status || error?.response?.status;
     const code = error?.code || error?.error?.code;
     const msg = error?.message || String(error);
-    return [status && `HTTP ${status}`, code, msg].filter(Boolean).join(' — ');
+    const base = [status && `HTTP ${status}`, code, msg].filter(Boolean).join(' — ');
+    if (this.isConnectionError(error)) {
+      return `${base} — cek Codex login (Settings → AI) atau jalankan: npm run codex-login`;
+    }
+    return base;
+  }
+
+  async refreshCodexClient() {
+    if (this.openaiAuthMode !== 'codex') return false;
+    try {
+      const codex = require('./codex-oauth');
+      const result = await codex.startCodexProxy();
+      if (!result.ok) return false;
+      const OpenAI = require('openai');
+      this.openaiClient = new OpenAI({
+        apiKey: 'codex-oauth',
+        baseURL: codex.normalizeBaseURL(result.baseURL),
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   formatFallbackReason(reason) {
@@ -750,8 +782,14 @@ ${rule}${pingNote}`;
           this.activeProvider === 'openai'
           && this.openaiReady
           && attempt < openaiAttempts
-          && this.isOpenAIRetryableError(error)
+          && (this.isOpenAIRetryableError(error) || this.isConnectionError(error))
         ) {
+          if (this.isConnectionError(error) && attempt === 0) {
+            const refreshed = await this.refreshCodexClient();
+            if (refreshed) {
+              console.log('[AI] Codex proxy refreshed — retrying…');
+            }
+          }
           console.log(`[AI] OpenAI retry (${attempt + 2}/${openaiAttempts + 1}): ${error.message}`);
           await new Promise((r) => setTimeout(r, 1200));
           continue;
