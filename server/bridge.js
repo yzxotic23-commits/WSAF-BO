@@ -33,6 +33,7 @@ const AI_ENV_DEFAULTS = {
   AI_PROVIDER_FALLBACK: 'ollama',
   OPENAI_AUTH_MODE: 'codex',
   OPENAI_MODEL: 'auto',
+  LANGUAGE: 'English',
 };
 
 class DesktopBridge {
@@ -184,7 +185,7 @@ class DesktopBridge {
 
     try {
       const AIProvider = require('../src/ai-provider');
-      const probe = new AIProvider(env.LANGUAGE || 'Indonesia');
+      const probe = new AIProvider(env.LANGUAGE || 'English');
       await probe.initialize();
       out.probe = {
         activeProvider: probe.activeProvider,
@@ -545,7 +546,7 @@ class DesktopBridge {
         maxMessages: parseInt(process.env.MAX_MESSAGES || '20', 10),
         minDelay: parseInt(process.env.MIN_DELAY || '30', 10),
         maxDelay: parseInt(process.env.MAX_DELAY || '90', 10),
-        language: process.env.LANGUAGE || 'Indonesia',
+        language: process.env.LANGUAGE || 'English',
         openaiAuthMode: process.env.OPENAI_AUTH_MODE || 'codex',
         pairCount: this.pairCount(),
         accountStart: parseInt(process.env.ACCOUNT_START || '1', 10),

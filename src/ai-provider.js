@@ -71,7 +71,7 @@ class AIProvider {
     this.primaryProvider = process.env.AI_PROVIDER_PRIMARY || 'openai';
     this.fallbackProvider = process.env.AI_PROVIDER_FALLBACK || 'ollama';
     this.activeProvider = this.primaryProvider;
-    this.language = process.env.LANGUAGE || 'Indonesia';
+    this.language = process.env.LANGUAGE || 'English';
     this.conversationHistory = [];
     this.messagesSent = 0;
     this.openaiReady = false;
