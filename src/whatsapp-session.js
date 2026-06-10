@@ -7,6 +7,7 @@ const {
   jidNormalizedUser,
   isLidUser,
   isJidGroup,
+  Browsers,
 } = require('@whiskeysockets/baileys');
 const { SocksProxyAgent } = require('socks-proxy-agent');
 const { HttpsProxyAgent } = require('https-proxy-agent');
@@ -49,6 +50,7 @@ class WhatsAppSession extends EventEmitter {
     /** True after pairing code is shown — waiting for user to enter it on phone. */
     this.pairingAwaitingUser = false;
     this.pairingReconnectAttempts = 0;
+    this.pairingCodeRequestTimer = null;
     this.expectedPartnerJid = null;
     this.partnerLidJid = null;
     this.proxyFallbackAttempts = 0;
@@ -243,6 +245,18 @@ class WhatsAppSession extends EventEmitter {
     }
   }
 
+  clearPairingCodeRequestTimer() {
+    if (this.pairingCodeRequestTimer) {
+      clearTimeout(this.pairingCodeRequestTimer);
+      this.pairingCodeRequestTimer = null;
+    }
+  }
+
+  /** Baileys expects [OS, browser, version] — wrong order breaks pairing codes. */
+  getBrowserConfig() {
+    return Browsers.windows('Chrome');
+  }
+
   scheduleReconnect(fn, delayMs) {
     this.clearReconnectTimer();
     if (this.isShuttingDown || !this.autoReconnectAllowed) return;
@@ -427,6 +441,7 @@ class WhatsAppSession extends EventEmitter {
   async disconnect() {
     this.clearProfileProbeTimers();
     this.clearReconnectTimer();
+    this.clearPairingCodeRequestTimer();
     this.isLinking = false;
     if (this.socket) {
       this.socket.ev.removeAllListeners();
@@ -443,6 +458,7 @@ class WhatsAppSession extends EventEmitter {
     this.isShuttingDown = true;
     this.autoReconnectAllowed = false;
     this.clearReconnectTimer();
+    this.clearPairingCodeRequestTimer();
     await this.disconnect();
     console.log(`[${this.sessionName}] Connection closed (auth saved, not logged out).`);
   }
@@ -468,7 +484,7 @@ class WhatsAppSession extends EventEmitter {
       auth: state,
       logger,
       printQRInTerminal: false,
-      browser: ['Chrome', 'Windows', '10.0'],
+      browser: this.getBrowserConfig(),
       connectTimeoutMs: 60000,
     };
     if (agent) {
@@ -604,13 +620,27 @@ class WhatsAppSession extends EventEmitter {
     }
     const registered = this.socket?.authState?.creds?.registered;
     if (registered) return;
-    if (connection !== 'connecting' && !qr) return;
+    if (!qr && connection !== 'connecting') return;
+    if (this.pairingCodeRequestTimer) return;
 
-    this.pairingCodeRequested = true;
-    this.requestPairingLogin(this.pairingPhone).catch((err) => {
-      console.log(`[${this.sessionName}] Pairing code error: ${err.message}`);
-      this.pairingCodeRequested = false;
-    });
+    const delayMs = qr ? 2000 : 6000;
+    console.log(
+      `[${this.sessionName}] Pairing handshake ready — requesting code in ${delayMs / 1000}s...`
+    );
+    this.emit('pairingCodePending', { phone: this.pairingPhone });
+
+    this.pairingCodeRequestTimer = setTimeout(() => {
+      this.pairingCodeRequestTimer = null;
+      if (this.isShuttingDown || !this.socket || this.pairingCodeRequested) return;
+
+      this.pairingCodeRequested = true;
+      this.requestPairingLogin(this.pairingPhone).catch((err) => {
+        const msg = err?.message || String(err);
+        console.log(`[${this.sessionName}] Pairing code error: ${msg}`);
+        this.pairingCodeRequested = false;
+        this.emit('pairingCodeFailed', { message: msg, phone: this.pairingPhone });
+      });
+    }, delayMs);
   }
 
   /**
@@ -621,6 +651,7 @@ class WhatsAppSession extends EventEmitter {
 
     this.isLinking = true;
     this.emit('linkState');
+    this.clearPairingCodeRequestTimer();
 
     if (this.socket) {
       this.socket.ev.removeAllListeners();
@@ -679,10 +710,11 @@ class WhatsAppSession extends EventEmitter {
       auth: state,
       logger,
       printQRInTerminal: false,
-      browser: ['Chrome', 'Windows', '10.0'],
+      browser: this.getBrowserConfig(),
       connectTimeoutMs: 60000,
       keepAliveIntervalMs: 30000,
       retryRequestDelayMs: 2000,
+      markOnlineOnConnect: false,
     };
 
     if (agent) {

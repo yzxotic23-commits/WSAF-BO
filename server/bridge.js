@@ -762,6 +762,9 @@ class DesktopBridge {
     session.removeAllListeners('strictLogout');
     session.removeAllListeners('profileName');
     session.removeAllListeners('policyAlert');
+    session.removeAllListeners('pairingCode');
+    session.removeAllListeners('pairingCodePending');
+    session.removeAllListeners('pairingCodeFailed');
 
     this.setupSessionChatHooks(session, slotIndex);
 
@@ -770,6 +773,16 @@ class DesktopBridge {
         return;
       }
       this.emit('qr', { account: name, slot: slotIndex, qr, method: 'qr' });
+    });
+
+    session.on('pairingCodePending', () => {
+      this.log('info', `[${name}] Requesting pairing code from WhatsApp…`);
+      this.emit('status', this.getStatus());
+    });
+
+    session.on('pairingCodeFailed', (data) => {
+      this.log('warn', `[${name}] Pairing code failed: ${data?.message || 'unknown'}`);
+      this.emit('status', this.getStatus());
     });
 
     session.on('pairingCode', (data) => {
@@ -823,6 +836,14 @@ class DesktopBridge {
     });
 
     session.on('policyAlert', (alert) => {
+      if (
+        session.isPairingLinkActive?.()
+        && alert?.type === 'LOGGED_OUT_OR_RESTRICTED'
+        && /connection\s*failure|connection\s*closed|connection\s*lost/i.test(alert?.detail || '')
+      ) {
+        this.log('info', `[${name}] Pairing handshake pause — waiting for code`);
+        return;
+      }
       this.emit('alert', { account: name, slot: slotIndex, ...alert });
       if (this.feedingProcess && !this.feedingProcess.killed) {
         const entry = this.auditLog.recordOrUpdate({
