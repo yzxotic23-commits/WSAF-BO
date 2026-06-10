@@ -1005,6 +1005,14 @@ class DesktopBridge {
     this.log('info', `[${sessionName}] Connecting...`);
     this.attachSessionEvents(session, slotIndex);
 
+    if (plan.method === 'pairing') {
+      session.setProxy(null);
+      session.linkedViaDirect = true;
+      this.log('info', `[${sessionName}] Phone pairing — using direct connection (no proxy)`);
+      session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
+      return { ok: true, mode: 'direct', pending: true };
+    }
+
     if (qrMode === 'direct' || !proxyUrl) {
       session.setProxy(null);
       session.linkedViaDirect = true;

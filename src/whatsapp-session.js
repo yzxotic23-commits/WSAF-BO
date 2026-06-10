@@ -524,13 +524,33 @@ class WhatsAppSession extends EventEmitter {
     return code;
   }
 
+  /** E.164 digits only — no +, spaces, or leading zeros after country code. */
+  normalizePairingPhone(phoneNumber) {
+    let p = String(phoneNumber || '').replace(/\D/g, '');
+    if (p.startsWith('00')) p = p.slice(2);
+    if (p.startsWith('62')) {
+      const local = p.slice(2).replace(/^0+/, '');
+      if (local.length >= 9) return `62${local}`;
+    }
+    if (p.startsWith('60')) {
+      const local = p.slice(2).replace(/^0+/, '');
+      if (local.length >= 8) return `60${local}`;
+    }
+    const m = p.match(
+      /^(1\d{2}|2\d{1,2}|3\d{2}|4\d{2}|5\d{2}|6\d{1,2}|7\d{1,2}|8\d{2}|9\d{1,2})(0+)(\d{6,})$/
+    );
+    if (m) p = m[1] + m[3];
+    return p;
+  }
+
   async requestPairingLogin(phoneNumber) {
-    const cleaned = String(phoneNumber || '').replace(/\D/g, '');
+    if (!this.socket || this.isShuttingDown) return null;
+    const cleaned = this.normalizePairingPhone(phoneNumber);
     if (cleaned.length < 8 || cleaned.length > 15) {
       throw new Error('Invalid phone — use country code + number, digits only (e.g. 628123456789)');
     }
+    this.pairingPhone = cleaned;
 
-    await new Promise((r) => setTimeout(r, 3000));
     const code = await this.socket.requestPairingCode(cleaned);
     const display = this.formatPairingCode(code);
 
@@ -550,6 +570,21 @@ class WhatsAppSession extends EventEmitter {
     this.pairingReconnectAttempts = 0;
     this.emit('pairingCode', { code: display, phone: cleaned });
     return display;
+  }
+
+  maybeRequestPairingCode(connection, qr) {
+    if (this.loginMethod !== 'pairing' || !this.pairingPhone || this.pairingCodeRequested) {
+      return;
+    }
+    const registered = this.socket?.authState?.creds?.registered;
+    if (registered) return;
+    if (connection !== 'connecting' && !qr) return;
+
+    this.pairingCodeRequested = true;
+    this.requestPairingLogin(this.pairingPhone).catch((err) => {
+      console.log(`[${this.sessionName}] Pairing code error: ${err.message}`);
+      this.pairingCodeRequested = false;
+    });
   }
 
   /**
@@ -576,7 +611,9 @@ class WhatsAppSession extends EventEmitter {
       this.pairingCodeDisplay = null;
     } else {
       this.loginMethod = loginOptions.method === 'pairing' ? 'pairing' : 'qr';
-      this.pairingPhone = loginOptions.phoneNumber || this.pairingPhone || null;
+      this.pairingPhone = loginOptions.phoneNumber
+        ? this.normalizePairingPhone(loginOptions.phoneNumber)
+        : this.pairingPhone || null;
       this.pendingLoginPlan = {
         method: this.loginMethod,
         phoneNumber: this.pairingPhone,
@@ -673,6 +710,11 @@ class WhatsAppSession extends EventEmitter {
       if (connection === 'connecting') {
         this.isLinking = true;
         this.emit('linkState');
+        this.maybeRequestPairingCode(connection, qr);
+      }
+
+      if (qr && this.loginMethod === 'pairing') {
+        this.maybeRequestPairingCode(connection, qr);
       }
 
       if (connection === 'open') {
@@ -706,6 +748,7 @@ class WhatsAppSession extends EventEmitter {
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
         const isReplaced = statusCode === DisconnectReason.connectionReplaced;
         const isBadSession = statusCode === DisconnectReason.badSession;
+        const isRestartRequired = statusCode === DisconnectReason.restartRequired;
 
         const reasonLabels = {
           [DisconnectReason.loggedOut]: 'logged out / invalid session',
@@ -728,12 +771,28 @@ class WhatsAppSession extends EventEmitter {
         const authSnapshot = this.getAuthStatus();
         const authValid = authSnapshot.valid;
         const isForbidden = statusCode === DisconnectReason.forbidden;
+        // After user enters pairing code on phone, WA sends 515 — must reconnect immediately.
+        if (isRestartRequired) {
+          this.isLinking = true;
+          this.isLoggedOut = false;
+          this.pairingAwaitingUser = false;
+          this.pairingCodeDisplay = null;
+          this.pairingCodeRequested = false;
+          this.pairingReconnectAttempts = 0;
+          this.reconnectAttempts = 0;
+          this.loginMethod = 'qr';
+          console.log(`[${this.sessionName}] Pairing code accepted — finishing link (reconnect)...`);
+          this.emit('linkState');
+          this.scheduleReconnect(() => this.connect(), 400);
+          return;
+        }
+
         const pairingInProgress =
           this.loginMethod === 'pairing'
           && (this.pairingAwaitingUser || this.pairingCodeDisplay)
           && !authSnapshot.registered;
 
-        if (pairingInProgress && !isForbidden) {
+        if (pairingInProgress && !isForbidden && !isRestartRequired) {
           if (isReplaced) {
             this.isLinking = true;
             this.isLoggedOut = false;
@@ -767,18 +826,14 @@ class WhatsAppSession extends EventEmitter {
             }
             return;
           }
-          if (this.pairingReconnectAttempts < 2) {
-            this.isLinking = true;
-            this.pairingReconnectAttempts += 1;
-            this.emit('linkState');
-            this.scheduleReconnect(
-              () => this.connect(
-                this.pendingLoginPlan || { method: 'pairing', phoneNumber: this.pairingPhone }
-              ),
-              8000
-            );
-            return;
+          // Keep socket alive while user types code — do not reconnect (invalidates code).
+          this.isLinking = true;
+          this.isLoggedOut = false;
+          this.emit('linkState');
+          if (this.pairingCodeDisplay) {
+            this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
           }
+          return;
         }
 
         if (isReplaced) {
@@ -961,16 +1016,8 @@ class WhatsAppSession extends EventEmitter {
       this.once('connected', resolve);
     });
 
-    if (!state.creds.registered && this.loginMethod === 'pairing' && this.pairingPhone) {
-      if (this.pairingCodeDisplay) {
-        this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
-      } else if (!this.pairingCodeRequested) {
-        this.pairingCodeRequested = true;
-        this.requestPairingLogin(this.pairingPhone).catch((err) => {
-          console.log(`[${this.sessionName}] Pairing code error: ${err.message}`);
-          this.pairingCodeRequested = false;
-        });
-      }
+    if (this.pairingCodeDisplay && this.loginMethod === 'pairing') {
+      this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
     }
 
     return connectPromise;
