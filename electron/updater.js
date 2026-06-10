@@ -29,6 +29,7 @@ class AppUpdater {
     this.onChange = onChange || (() => {});
     this.feed = resolveUpdateConfig();
     this.macUpdater = IS_MAC ? new MacUpdater((partial) => this.patch(partial)) : null;
+    this.checkInProgress = false;
     this.state = {
       enabled: false,
       status: 'idle',
@@ -171,6 +172,10 @@ class AppUpdater {
     if (!this.state.enabled) {
       return this.getState();
     }
+    if (this.checkInProgress) {
+      return this.getState();
+    }
+    this.checkInProgress = true;
     try {
       if (IS_MAC) {
         await this.macUpdater.check(this.feed, readPackageVersion());
@@ -184,6 +189,8 @@ class AppUpdater {
         error: err.message,
       });
       if (!silent) throw err;
+    } finally {
+      this.checkInProgress = false;
     }
     return this.getState();
   }

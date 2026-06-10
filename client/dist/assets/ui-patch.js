@@ -869,6 +869,7 @@
     let toastEl = null;
     let pollTimer = null;
     let lastState = null;
+    let kickDownloadDone = false;
 
     function getDismissedVersion() {
       try {
@@ -913,16 +914,29 @@
 
       primary.addEventListener('click', async () => {
         const current = lastState;
-        if (!current || current.status !== 'downloaded') return;
-        primary.disabled = true;
-        primary.textContent = 'Installing…';
-        try {
-          await apiJson('/api/update/install', { method: 'POST' });
-        } catch (err) {
-          primary.disabled = false;
-          primary.textContent = 'Update Now';
-          const subEl = toastEl.querySelector('.ff-update-toast__sub');
-          if (subEl) subEl.textContent = err.message || 'Install failed';
+        if (!current) return;
+        if (current.status === 'downloaded') {
+          primary.disabled = true;
+          primary.textContent = 'Installing…';
+          try {
+            await apiJson('/api/update/install', { method: 'POST' });
+          } catch (err) {
+            primary.disabled = false;
+            primary.textContent = 'Update Now';
+            const subEl = toastEl.querySelector('.ff-update-toast__sub');
+            if (subEl) subEl.textContent = err.message || 'Install failed';
+          }
+          return;
+        }
+        if (current.status === 'error' || current.status === 'available' || current.status === 'downloading') {
+          primary.disabled = true;
+          primary.textContent = current.status === 'error' ? 'Retrying…' : 'Downloading…';
+          try {
+            await checkForUpdate();
+          } catch {
+            primary.disabled = false;
+            primary.textContent = current.status === 'error' ? 'Retry' : 'Download now';
+          }
         }
       });
     }
@@ -938,8 +952,12 @@
         return;
       }
 
-      if (!pollTimer && (state.status === 'available' || state.status === 'downloading')) {
-        pollTimer = setInterval(refreshUpdateState, 3000);
+      if (!pollTimer && (state.status === 'available' || state.status === 'downloading' || state.status === 'checking')) {
+        pollTimer = setInterval(refreshUpdateState, 1000);
+        if (state.status === 'available' && !kickDownloadDone) {
+          kickDownloadDone = true;
+          checkForUpdate().catch(() => {});
+        }
       }
       if (pollTimer && state.status === 'downloaded') {
         clearInterval(pollTimer);
@@ -947,20 +965,25 @@
       }
 
       const ready = state.status === 'downloaded';
-      const downloading = state.status === 'downloading';
+      const downloading = state.status === 'downloading' || state.status === 'checking';
+      const waiting = state.status === 'available';
       const errored = state.status === 'error';
       const title = errored
         ? 'Update check failed'
         : ready
           ? 'Update ready'
-          : 'Update available';
+          : downloading
+            ? 'Downloading update'
+            : 'Update available';
       const sub = errored
         ? (state.error || 'Could not reach update server')
         : ready
-          ? `v${state.latestVersion} — restart to install`
+          ? `v${state.latestVersion} — click Update Now to install`
           : downloading
-            ? `v${state.latestVersion} · downloading ${state.percent || 0}%`
-            : `v${state.currentVersion} → v${state.latestVersion}`;
+            ? `v${state.latestVersion} · ${state.percent || 0}% (≈114 MB on Mac)`
+            : waiting
+              ? `v${state.currentVersion} → v${state.latestVersion} · starting download…`
+              : `v${state.currentVersion} → v${state.latestVersion}`;
 
       if (!toastEl) {
         toastEl = document.createElement('div');
@@ -1009,9 +1032,21 @@
       }
 
       if (primary) {
-        primary.disabled = !ready;
-        if (primary.textContent === 'Installing…' && !ready) {
+        if (ready) {
+          primary.disabled = false;
           primary.textContent = 'Update Now';
+        } else if (errored) {
+          primary.disabled = false;
+          primary.textContent = 'Retry';
+        } else if (downloading) {
+          primary.disabled = true;
+          primary.textContent = `Downloading… ${state.percent || 0}%`;
+        } else if (waiting) {
+          primary.disabled = false;
+          primary.textContent = 'Download now';
+        } else {
+          primary.disabled = true;
+          primary.textContent = 'Please wait…';
         }
       }
     }

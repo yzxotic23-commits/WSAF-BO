@@ -304,6 +304,13 @@ class MacUpdater {
     if (this.downloadPromise) return this.downloadPromise;
 
     this.downloadPromise = (async () => {
+      this.patch({
+        status: 'downloading',
+        percent: 0,
+        error: null,
+        releaseNotes: `Preparing v${meta.version} download…`,
+      });
+
       const cacheDir = getUpdateCacheDir();
       const zipPath = path.join(cacheDir, meta.zipName);
       const extractDir = path.join(cacheDir, `extract-${meta.version}`);
