@@ -60,7 +60,9 @@ class DesktopBridge {
     this.ensureEnvAiDefaults();
     this.ensureFirstRunEnv();
     this.ensureCapacity();
-    this.ensureCodexProxy().catch(() => {});
+    this.ensureCodexProxy().catch((err) => {
+      this.log('warn', `[AI] Codex proxy startup failed: ${err.message}`);
+    });
   }
 
   /** Create .env in install folder from example on first run (new PC). */
@@ -109,8 +111,16 @@ class DesktopBridge {
   }
 
   async ensureCodexProxy() {
-    if (process.env.CODEX_PROXY_BASE_URL?.trim()) {
-      return process.env.CODEX_PROXY_BASE_URL.trim();
+    const codex = require('../src/codex-oauth');
+    const existing = process.env.CODEX_PROXY_BASE_URL?.trim();
+    if (existing) {
+      if (await codex.probeCodexProxy(existing)) {
+        return existing;
+      }
+      delete process.env.CODEX_PROXY_BASE_URL;
+      this.codexProxyPromise = null;
+      await codex.stopCodexProxy();
+      this.log('warn', '[AI] Codex proxy URL set but port not reachable — restarting proxy…');
     }
 
     const authMode = (process.env.OPENAI_AUTH_MODE || 'codex').trim().toLowerCase();
@@ -133,6 +143,22 @@ class DesktopBridge {
     }
 
     return this.codexProxyPromise;
+  }
+
+  async restartCodexProxy() {
+    const codex = require('../src/codex-oauth');
+    try {
+      await codex.stopCodexProxy();
+    } catch {
+      /* ignore */
+    }
+    delete process.env.CODEX_PROXY_BASE_URL;
+    this.codexProxyPromise = null;
+    const baseURL = await this.ensureCodexProxy();
+    if (!baseURL) {
+      return { ok: false, error: 'Codex proxy could not restart — check auth file and network.' };
+    }
+    return { ok: true, baseURL };
   }
 
   async getAiStatus() {

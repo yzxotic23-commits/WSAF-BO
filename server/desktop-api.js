@@ -176,6 +176,19 @@ function createDesktopApi(options = {}) {
     });
   });
 
+  app.post('/api/auth/codex/restart', async (_req, res) => {
+    try {
+      const result = await bridge.restartCodexProxy();
+      if (!result.ok) {
+        res.status(503).json(result);
+        return;
+      }
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   app.get('/api/ai/status', async (_req, res) => {
     try {
       res.json(await bridge.getAiStatus());

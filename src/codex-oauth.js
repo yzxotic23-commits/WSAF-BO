@@ -48,16 +48,39 @@ function getRunningProxyBaseURL() {
   return normalizeBaseURL(runningServer.url);
 }
 
+async function probeCodexProxy(baseURL, timeoutMs = 4000) {
+  const root = normalizeBaseURL(baseURL).replace(/\/v1$/, '');
+  const url = `${root}/v1/models`;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const res = await fetch(url, {
+      method: 'GET',
+      signal: ctrl.signal,
+      headers: { Authorization: 'Bearer codex-oauth' },
+    });
+    clearTimeout(timer);
+    // Server up: 200 with models, or 401/403 (auth issue but proxy reachable)
+    return res.status === 200 || res.status === 401 || res.status === 403;
+  } catch {
+    return false;
+  }
+}
+
 async function startCodexProxy() {
   const envBase = process.env.CODEX_PROXY_BASE_URL?.trim();
   if (envBase) {
-    return {
-      ok: true,
-      baseURL: normalizeBaseURL(envBase),
-      authFile: await findCodexAuthFile(),
-      reused: true,
-      external: true,
-    };
+    const reachable = await probeCodexProxy(envBase);
+    if (reachable) {
+      return {
+        ok: true,
+        baseURL: normalizeBaseURL(envBase),
+        authFile: await findCodexAuthFile(),
+        reused: true,
+        external: true,
+      };
+    }
+    delete process.env.CODEX_PROXY_BASE_URL;
   }
 
   const authFile = await findCodexAuthFile();
@@ -84,14 +107,43 @@ async function startCodexProxy() {
   const port = Math.max(1, parseInt(process.env.CODEX_PROXY_PORT || '10531', 10));
   const models = parseModelList(process.env.OPENAI_MODEL?.trim());
 
-  const { startOpenAIOAuthServer } = await import('openai-oauth');
+  let startOpenAIOAuthServer;
+  try {
+    ({ startOpenAIOAuthServer } = await import('openai-oauth'));
+  } catch (err) {
+    return {
+      ok: false,
+      reason: 'import_failed',
+      message:
+        `Could not load openai-oauth: ${err.message}. `
+        + 'Try: npm run codex-proxy (keep terminal open) or reinstall the app.',
+    };
+  }
 
-  runningServer = await startOpenAIOAuthServer({
-    host,
-    port,
-    authFilePath: process.env.CODEX_AUTH_FILE?.trim() || authFile,
-    models,
-  });
+  try {
+    runningServer = await startOpenAIOAuthServer({
+      host,
+      port,
+      authFilePath: process.env.CODEX_AUTH_FILE?.trim() || authFile,
+      models,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      reason: 'start_failed',
+      message: `Codex proxy failed to start on ${host}:${port}: ${err.message}`,
+    };
+  }
+
+  const live = await probeCodexProxy(getRunningProxyBaseURL());
+  if (!live) {
+    await stopCodexProxy();
+    return {
+      ok: false,
+      reason: 'probe_failed',
+      message: `Codex proxy started but is not reachable at http://${host}:${port}/v1`,
+    };
+  }
 
   return {
     ok: true,
@@ -132,6 +184,7 @@ module.exports = {
   getAuthFileCandidates,
   getRunningProxyBaseURL,
   normalizeBaseURL,
+  probeCodexProxy,
   startCodexProxy,
   stopCodexProxy,
   getCodexLoginHint,

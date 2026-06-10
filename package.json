@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-auto-feeding",
-  "version": "1.0.43",
+  "version": "1.0.44",
   "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
   "main": "electron/main.js",
   "author": "",
@@ -62,7 +62,8 @@
     ],
     "asar": true,
     "asarUnpack": [
-      "client/dist/**/*"
+      "client/dist/**/*",
+      "node_modules/openai-oauth/**/*"
     ],
     "win": {
       "signAndEditExecutable": false,

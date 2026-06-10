@@ -244,6 +244,7 @@ class AIProvider {
       available = await this.fetchAvailableOpenAIModels(client);
     } catch (err) {
       logOnce(`[WARN] OpenAI model list failed: ${err.message}`);
+      if (options.requireLive) return null;
       if (options.codex) return envPreference || 'gpt-5.3-codex';
       return envPreference || 'gpt-4o-mini';
     }
@@ -295,7 +296,7 @@ class AIProvider {
         apiKey: 'codex-oauth',
         baseURL,
       });
-      const model = await this.detectOpenAIModel(this.openaiClient, { codex: true });
+      const model = await this.detectOpenAIModel(this.openaiClient, { codex: true, requireLive: true });
       if (!model) return;
 
       this.openaiModel = model;
@@ -511,7 +512,7 @@ class AIProvider {
     const msg = error?.message || String(error);
     const base = [status && `HTTP ${status}`, code, msg].filter(Boolean).join(' — ');
     if (this.isConnectionError(error)) {
-      return `${base} — cek Codex login (Settings → AI) atau jalankan: npm run codex-login`;
+      return `${base} — token mungkin expired (login Codex ulang), cek internet/VPN, atau install Ollama sebagai fallback`;
     }
     return base;
   }
@@ -519,13 +520,32 @@ class AIProvider {
   async refreshCodexClient() {
     if (this.openaiAuthMode !== 'codex') return false;
     try {
-      const codex = require('./codex-oauth');
-      const result = await codex.startCodexProxy();
-      if (!result.ok) return false;
+      let baseURL = null;
+
+      if (process.env.DESKTOP_FEEDING === '1') {
+        const port = process.env.DESKTOP_API_PORT || '47821';
+        const res = await fetch(`http://127.0.0.1:${port}/api/auth/codex/restart`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!data.ok || !data.baseURL) return false;
+        baseURL = data.baseURL;
+        process.env.CODEX_PROXY_BASE_URL = baseURL;
+      } else {
+        const codex = require('./codex-oauth');
+        await codex.stopCodexProxy();
+        delete process.env.CODEX_PROXY_BASE_URL;
+        const result = await codex.startCodexProxy();
+        if (!result.ok) return false;
+        baseURL = codex.normalizeBaseURL(result.baseURL);
+        process.env.CODEX_PROXY_BASE_URL = baseURL;
+      }
+
       const OpenAI = require('openai');
       this.openaiClient = new OpenAI({
         apiKey: 'codex-oauth',
-        baseURL: codex.normalizeBaseURL(result.baseURL),
+        baseURL: baseURL.endsWith('/v1') ? baseURL : `${baseURL.replace(/\/+$/, '')}/v1`,
       });
       return true;
     } catch {
