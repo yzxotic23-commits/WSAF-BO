@@ -5,6 +5,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { createDesktopApi } = require('../server/desktop-api');
 const AppUpdater = require('./updater');
+const { getDesktopAppRoot, migrateLegacyAppData } = require('./app-data');
 
 const isDev = process.env.ELECTRON_DEV === '1';
 let mainWindow = null;
@@ -18,8 +19,16 @@ const MIN_FOCUS_UPDATE_CHECK_MS = 30 * 60 * 1000;
 if (isDev) {
   process.env.APP_ROOT = path.join(__dirname, '..');
 } else {
-  process.env.APP_ROOT = path.dirname(process.execPath);
-  process.chdir(process.env.APP_ROOT);
+  const dataRoot = getDesktopAppRoot(app);
+  fs.mkdirSync(dataRoot, { recursive: true });
+  const migration = migrateLegacyAppData(app, dataRoot);
+  if (migration.migrated) {
+    console.log(
+      `[DATA] Migrated user data to ${dataRoot}: ${(migration.copied || []).join(', ')}`
+    );
+  }
+  process.env.APP_ROOT = dataRoot;
+  process.chdir(dataRoot);
 }
 
 require('dotenv').config({ path: path.join(process.env.APP_ROOT, '.env') });

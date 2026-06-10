@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
+const { buildMacPreInstallMigrateScript } = require('./app-data');
 
 function compareVersions(latest, current) {
   const parse = (v) => String(v || '0').split('.').map((n) => parseInt(n, 10) || 0);
@@ -237,11 +238,14 @@ function quitAndInstallMacUpdate(stagedAppBundle) {
   const scriptPath = path.join(getUpdateCacheDir(), 'install-update.sh');
   const logPath = path.join(getUpdateCacheDir(), 'install.log');
 
+  const migrateBlock = buildMacPreInstallMigrateScript(app);
+
   const script = `#!/bin/bash
 set -e
 LOG="${logPath.replace(/"/g, '\\"')}"
 echo "FeedFlow Mac update started" >> "$LOG"
 sleep 2
+${migrateBlock}
 rm -rf "${path.join(targetDir, appName).replace(/"/g, '\\"')}"
 ditto "${stagedAppBundle.replace(/"/g, '\\"')}" "${path.join(targetDir, appName).replace(/"/g, '\\"')}"
 xattr -cr "${path.join(targetDir, appName).replace(/"/g, '\\"')}" || true
