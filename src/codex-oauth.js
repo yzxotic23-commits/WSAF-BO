@@ -88,9 +88,7 @@ async function startCodexProxy() {
     return {
       ok: false,
       reason: 'no_auth',
-      message:
-        'Codex auth file not found. Run: npm run codex-login\n'
-        + '  (saves token to ~/.codex/auth.json — same as Codex CLI)',
+      message: 'Codex login not available.',
     };
   }
 
@@ -166,17 +164,7 @@ async function stopCodexProxy() {
 }
 
 function getCodexLoginHint() {
-  return [
-    'Login Codex (subscription ChatGPT):',
-    '  npm run codex-login',
-    '',
-    'Browser akan terbuka — masuk dengan akun ChatGPT Plus/Pro yang punya Codex.',
-    'Token disimpan di ~/.codex/auth.json (sama seperti Codex CLI / OpenClaw).',
-    '',
-    'Lalu di .env set:',
-    '  OPENAI_AUTH_MODE=codex',
-    '  OPENAI_MODEL=auto',
-  ].join('\n');
+  return 'AI provider not available.';
 }
 
 module.exports = {

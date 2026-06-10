@@ -185,14 +185,8 @@ class AIProvider {
     await this.initOllama();
 
     if (!this.openaiReady && !this.ollamaReady) {
-      const codex = require('./codex-oauth');
-      const hint = codex.getCodexLoginHint();
-      const msg = `No AI provider available. ${hint.replace(/\n/g, ' ')} Or start Ollama (ollama serve).`;
+      const msg = 'No AI provider available.';
       console.error(`[ERROR] ${msg}`);
-      if (!process.versions?.electron && process.env.DESKTOP_FEEDING !== '1') {
-        console.error(hint);
-        console.error('Or start Ollama: ollama serve');
-      }
       throw new Error(msg);
     }
 
@@ -512,7 +506,7 @@ class AIProvider {
     const msg = error?.message || String(error);
     const base = [status && `HTTP ${status}`, code, msg].filter(Boolean).join(' — ');
     if (this.isConnectionError(error)) {
-      return `${base} — token mungkin expired (login Codex ulang), cek internet/VPN, atau install Ollama sebagai fallback`;
+      return `${base} — AI provider not available.`;
     }
     return base;
   }

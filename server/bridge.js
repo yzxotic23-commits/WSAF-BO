@@ -1441,11 +1441,7 @@ class DesktopBridge {
       return this.failFeedingStart(aiCheck.probe.error);
     }
     if (!aiCheck.probe?.openaiReady && !aiCheck.probe?.ollamaReady) {
-      const codex = this.getCodexStatus();
-      const hint = codex.valid
-        ? 'Codex token found but AI probe failed — check System log.'
-        : 'Login Codex: Settings → AI → Login Codex (browser), or copy ~/.codex/auth.json from another PC. Or install Ollama and set AI_PROVIDER_FALLBACK=ollama.';
-      return this.failFeedingStart(`No AI provider ready. ${hint}`);
+      return this.failFeedingStart('No AI provider available.');
     }
     if (!aiCheck.probe?.openaiReady && aiCheck.probe?.ollamaReady) {
       this.log(
