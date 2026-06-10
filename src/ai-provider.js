@@ -476,7 +476,11 @@ class AIProvider {
   isOpenAIFallbackError(error) {
     if (this.isConnectionError(error)) return true;
 
-    if (status === 401 || status === 402 || status === 403) return true;
+    const status = error?.status || error?.response?.status;
+    const code = error?.code || error?.error?.code;
+    const message = (error?.message || '').toLowerCase();
+
+    if (this.isOpenAIRetryableError(error)) return true;
     if (status === 400 || status === 404) return true;
 
     const fallbackCodes = [
