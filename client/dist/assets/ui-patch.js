@@ -892,19 +892,18 @@
 
     function shouldShow(state) {
       if (!state?.enabled) return false;
-      if (state.status === 'disabled' || state.status === 'idle') return false;
-      if (state.status === 'not-available') return false;
       if (
-        state.status === 'downloaded'
-        || state.status === 'error'
+        state.status === 'disabled'
+        || state.status === 'idle'
+        || state.status === 'not-available'
         || state.status === 'checking'
-        || state.status === 'available'
-        || state.status === 'downloading'
       ) {
-        return true;
+        return false;
       }
+      if (state.status === 'downloaded') return true;
       const ver = state.latestVersion || '';
-      return getDismissedVersion() !== ver;
+      if (ver && getDismissedVersion() === ver) return false;
+      return state.status === 'error' || state.status === 'available' || state.status === 'downloading';
     }
 
     async function openManualDownload() {
@@ -964,6 +963,7 @@
     function renderToast(state) {
       lastState = state;
       if (!shouldShow(state)) {
+        if (state.status === 'not-available') kickDownloadDone = false;
         removeToast();
         if (pollTimer) {
           clearInterval(pollTimer);
@@ -972,9 +972,9 @@
         return;
       }
 
-      if (!pollTimer && (state.status === 'available' || state.status === 'downloading' || state.status === 'checking')) {
-        pollTimer = setInterval(refreshUpdateState, 500);
-        if ((state.status === 'available' || state.status === 'checking') && !kickDownloadDone) {
+      if (!pollTimer && (state.status === 'available' || state.status === 'downloading')) {
+        pollTimer = setInterval(refreshUpdateState, 2000);
+        if (state.status === 'available' && !kickDownloadDone) {
           kickDownloadDone = true;
           checkForUpdate().catch(() => {});
         }
@@ -1009,7 +1009,7 @@
 
       if (!toastEl) {
         toastEl = document.createElement('div');
-        toastEl.className = 'ff-update-toast';
+        toastEl.className = 'ff-update-toast ff-update-toast--visible';
         toastEl.setAttribute('role', 'status');
         toastEl.setAttribute('aria-live', 'polite');
         document.body.appendChild(toastEl);
@@ -1168,7 +1168,7 @@
     setInterval(fetchUpdate, CHECK_MS);
 
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') fetchUpdate();
+      if (document.visibilityState === 'visible') updateUi.refreshUpdateState();
     });
   }
 

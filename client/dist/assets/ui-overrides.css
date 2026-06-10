@@ -844,6 +844,9 @@
   border: 1px solid var(--wa-border);
   border-radius: 14px;
   box-shadow: 0 12px 32px rgba(11, 20, 26, 0.16);
+}
+
+.ff-update-toast--visible {
   animation: ff-update-toast-in 0.32s ease-out;
 }
 

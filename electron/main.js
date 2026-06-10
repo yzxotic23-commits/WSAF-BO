@@ -12,6 +12,8 @@ let api = null;
 let apiPort = 47821;
 let updater = null;
 let updateCheckTimer = null;
+let lastBackgroundUpdateCheckAt = 0;
+const MIN_FOCUS_UPDATE_CHECK_MS = 30 * 60 * 1000;
 
 if (isDev) {
   process.env.APP_ROOT = path.join(__dirname, '..');
@@ -228,11 +230,15 @@ app.whenReady().then(async () => {
 
   if (!isDev && updater?.state?.enabled) {
     setTimeout(() => {
+      lastBackgroundUpdateCheckAt = Date.now();
       updater.check(true).catch(() => {});
       scheduleUpdateChecks();
     }, 4000);
 
     app.on('browser-window-focus', () => {
+      const now = Date.now();
+      if (now - lastBackgroundUpdateCheckAt < MIN_FOCUS_UPDATE_CHECK_MS) return;
+      lastBackgroundUpdateCheckAt = now;
       updater.check(true).catch(() => {});
     });
   }

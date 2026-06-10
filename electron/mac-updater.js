@@ -267,14 +267,15 @@ class MacUpdater {
 
   async check(feed, currentVersion) {
     const feedUrl = feed.url.replace(/\/?$/, '/');
-    this.patch({ status: 'checking', error: null });
 
     const ymlRes = await httpRequest(`${feedUrl}latest-mac.yml`);
     if (ymlRes.status !== 200) {
       throw new Error(`Could not fetch latest-mac.yml (HTTP ${ymlRes.status})`);
     }
 
-    const meta = parseMacYml(ymlRes.body);
+    const meta = parseMacYml(
+      Buffer.isBuffer(ymlRes.body) ? ymlRes.body.toString('utf8') : ymlRes.body
+    );
     if (!meta.version || !meta.zipName) {
       throw new Error('latest-mac.yml is missing version or path');
     }
@@ -288,6 +289,8 @@ class MacUpdater {
       });
       return;
     }
+
+    this.patch({ status: 'checking', error: null });
 
     this.patch({
       status: 'available',
