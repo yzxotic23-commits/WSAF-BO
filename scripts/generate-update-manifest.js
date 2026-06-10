@@ -67,7 +67,11 @@ function findMacZip() {
 
 const macZip = findMacZip();
 const macDmg = findFile(/\.dmg$/i);
-const macFile = macZip || macDmg;
+// Mac auto-update installs from ZIP only (DMG is for manual install fallback).
+const macFile = macZip;
+if (!macZip && macDmg) {
+  console.warn('[warn] macOS DMG found but no ZIP — latest-mac.yml requires ZIP for in-app update');
+}
 
 let ok = false;
 

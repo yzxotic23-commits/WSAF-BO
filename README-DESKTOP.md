@@ -17,7 +17,7 @@ Panduan untuk pengguna dan tim yang memakai **WhatsApp Auto Feeding** (FeedFlow)
 | Login pakai nomor telepon | Masih perlu perbaikan |
 | Daftar proxy | Ada; kadang perlu disimpan ulang |
 | Update Windows | Bisa lewat aplikasi |
-| Update Mac | **Manual** — unduh DMG dari GitHub |
+| Update Mac | **Auto** lewat aplikasi (unduh ZIP + install otomatis) |
 | Versi 1.0.22 – 1.0.32 | **Jangan dipakai** |
 
 ---
@@ -53,8 +53,8 @@ Bisa lewat menu cek update di aplikasi, atau unduh installer terbaru dari GitHub
 
 ### Mac
 
-Selalu unduh **DMG terbaru** dari halaman rilis GitHub, lalu ganti aplikasi di folder Applications.  
-Update otomatis di dalam app sering gagal — ini normal untuk aplikasi yang belum ditandatangani resmi oleh Apple.
+Buka aplikasi → jika ada notifikasi **Update available**, klik **Update Now** → app akan unduh, tutup, ganti versi baru, lalu buka lagi.  
+Pertama kali setelah update: jika Mac memblokir, klik kanan app → **Open**.
 
 **Versi yang aman saat ini:** [v1.0.21-restored](https://github.com/yzxotic23-commits/WSAF-BO/releases/tag/v1.0.21-restored)
 

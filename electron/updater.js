@@ -2,12 +2,17 @@ const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { resolveUpdateConfig } = require('./update-config');
+const { MacUpdater } = require('./mac-updater');
+
+const IS_MAC = process.platform === 'darwin';
 
 let autoUpdater = null;
-try {
-  ({ autoUpdater } = require('electron-updater'));
-} catch {
-  autoUpdater = null;
+if (!IS_MAC) {
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch {
+    autoUpdater = null;
+  }
 }
 
 function readPackageVersion() {
@@ -23,6 +28,7 @@ class AppUpdater {
   constructor(onChange) {
     this.onChange = onChange || (() => {});
     this.feed = resolveUpdateConfig();
+    this.macUpdater = IS_MAC ? new MacUpdater((partial) => this.patch(partial)) : null;
     this.state = {
       enabled: false,
       status: 'idle',
@@ -36,7 +42,14 @@ class AppUpdater {
       updateUrl: null,
       updateMode: null,
       lastChecked: null,
+      platform: process.platform,
+      manualInstall: false,
     };
+
+    if (IS_MAC) {
+      this.refreshConfig();
+      return;
+    }
 
     if (!autoUpdater) {
       this.patch({ status: 'disabled', error: 'electron-updater not available' });
@@ -102,8 +115,9 @@ class AppUpdater {
     this.patch({
       enabled,
       updateUrl: this.feed.url,
-      updateMode: this.feed.mode,
+      updateMode: IS_MAC ? 'mac-zip-auto' : this.feed.mode,
       currentVersion: readPackageVersion(),
+      manualInstall: false,
       status: enabled ? this.state.status : 'disabled',
     });
     return enabled;
@@ -112,8 +126,23 @@ class AppUpdater {
   isRuntimeEnabled() {
     if (process.env.ELECTRON_DEV === '1') return false;
     if (process.env.APP_UPDATE_DISABLED === '1') return false;
+    if (IS_MAC) return this.feed.enabled;
     if (!autoUpdater) return false;
     return this.feed.enabled;
+  }
+
+  ensureAppUpdateConfigFile(url) {
+    const ymlPath = path.join(app.getPath('userData'), 'app-update.yml');
+    const content = [
+      'provider: generic',
+      `url: ${url.replace(/\/?$/, '/')}`,
+      'updaterCacheDirName: whatsapp-auto-feeding-updater',
+      '',
+    ].join('\n');
+    fs.mkdirSync(path.dirname(ymlPath), { recursive: true });
+    fs.writeFileSync(ymlPath, content, 'utf8');
+    autoUpdater._appUpdateConfigPath = ymlPath;
+    return ymlPath;
   }
 
   configureFeed() {
@@ -121,8 +150,11 @@ class AppUpdater {
     if (!this.feed.enabled || !this.feed.url) {
       throw new Error('Auto-update is not configured');
     }
-    autoUpdater.setFeedURL({ provider: 'generic', url: this.feed.url });
-    return this.feed.url;
+    const url = this.feed.url.replace(/\/?$/, '/');
+    if (IS_MAC) return url;
+    this.ensureAppUpdateConfigFile(url);
+    autoUpdater.setFeedURL({ provider: 'generic', url });
+    return url;
   }
 
   getState() {
@@ -140,6 +172,10 @@ class AppUpdater {
       return this.getState();
     }
     try {
+      if (IS_MAC) {
+        await this.macUpdater.check(this.feed, readPackageVersion());
+        return this.getState();
+      }
       this.configureFeed();
       await autoUpdater.checkForUpdates();
     } catch (err) {
@@ -153,6 +189,10 @@ class AppUpdater {
   }
 
   quitAndInstall() {
+    if (IS_MAC) {
+      this.macUpdater.quitAndInstall();
+      return;
+    }
     if (!autoUpdater) return;
     autoUpdater.quitAndInstall(false, true);
   }
