@@ -776,8 +776,8 @@
     removePairingCodeOverlay();
 
     const host =
-      document.querySelector('.wa-main-center')
-      || document.querySelector('.wa-main')
+      document.querySelector('.wa-main')
+      || document.querySelector('.wa-main-center')
       || document.querySelector('.wa-web-login-center')
       || document.querySelector('.wa-web-login');
     if (!host) return;

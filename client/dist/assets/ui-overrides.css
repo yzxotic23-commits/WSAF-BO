@@ -1547,14 +1547,23 @@ body.ff-pairing-active .wa-web-text-link--foot {
   display: none !important;
 }
 
+body.ff-pairing-active .wa-main {
+  min-height: 100%;
+}
+
+body.ff-pairing-active .wa-main-center {
+  flex: 1;
+  min-height: 100%;
+}
+
 .ff-pairing-code-overlay--wa {
   position: absolute;
   inset: 0;
   z-index: 50;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 24px 16px 32px;
+  padding: 32px 20px;
   pointer-events: auto;
   overflow-y: auto;
   animation: ff-complete-fade-in 0.3s ease-out;
@@ -1581,7 +1590,8 @@ body.ff-pairing-active .wa-web-text-link--foot {
   pointer-events: auto;
   animation: ff-fade-up 0.35s var(--ff-ease-out);
   text-align: left;
-  margin-top: 8px;
+  margin: auto;
+  flex-shrink: 0;
 }
 
 .ff-pairing-code-title {
