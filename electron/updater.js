@@ -173,6 +173,13 @@ class AppUpdater {
       return this.getState();
     }
     if (this.checkInProgress) {
+      if (IS_MAC && this.macUpdater?.downloadPromise) {
+        try {
+          await this.macUpdater.downloadPromise;
+        } catch {
+          /* error already recorded in state */
+        }
+      }
       return this.getState();
     }
     this.checkInProgress = true;

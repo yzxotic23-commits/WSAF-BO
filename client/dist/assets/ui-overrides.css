@@ -836,7 +836,8 @@
   position: fixed;
   right: 16px;
   bottom: 16px;
-  z-index: 9999;
+  z-index: 99999;
+  pointer-events: auto;
   width: min(320px, calc(100vw - 32px));
   padding: 14px 14px 12px;
   background: #fff;
@@ -917,8 +918,28 @@
 }
 
 .ff-update-toast__btn--primary:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.ff-update-toast__manual {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--wa-teal, #008069);
+  text-align: center;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ff-update-toast__manual:hover {
+  color: var(--wa-teal-dark, #006d5b);
 }
 
 @keyframes ff-update-toast-in {

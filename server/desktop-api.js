@@ -45,11 +45,40 @@ function createDesktopApi(options = {}) {
   app.post('/api/update/install', (_req, res) => {
     try {
       if (!updater) return res.status(400).json({ error: 'Updater not available' });
-      if (updater.getState().status !== 'downloaded') {
-        return res.status(400).json({ error: 'No update downloaded yet' });
+      const state = updater.getState();
+      if (state.status !== 'downloaded') {
+        const hint =
+          state.status === 'downloading'
+            ? `Download in progress (${state.percent || 0}%) — wait until 100%`
+            : state.status === 'available' || state.status === 'checking'
+              ? 'Download still starting — wait a moment or use Manual download'
+              : 'No update downloaded yet';
+        return res.status(400).json({ error: hint, status: state.status, percent: state.percent });
       }
       res.json({ ok: true });
       setTimeout(() => updater.quitAndInstall(), 400);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/update/open-browser', (_req, res) => {
+    try {
+      const { resolveUpdateConfig } = require('../electron/update-config');
+      const cfg = resolveUpdateConfig();
+      const url =
+        cfg.owner && cfg.repo
+          ? `https://github.com/${cfg.owner}/${cfg.repo}/releases/latest`
+          : String(cfg.url || '').replace(/\/download\/?$/i, '');
+      let opened = false;
+      try {
+        const { shell } = require('electron');
+        shell.openExternal(url);
+        opened = true;
+      } catch {
+        /* API not running inside Electron shell */
+      }
+      res.json({ ok: true, url, opened });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

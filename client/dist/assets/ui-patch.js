@@ -892,12 +892,28 @@
 
     function shouldShow(state) {
       if (!state?.enabled) return false;
-      if (state.status === 'disabled' || state.status === 'idle' || state.status === 'checking') return false;
+      if (state.status === 'disabled' || state.status === 'idle') return false;
       if (state.status === 'not-available') return false;
-      if (state.status === 'error') return true;
-      if (state.status === 'downloaded') return true;
+      if (
+        state.status === 'downloaded'
+        || state.status === 'error'
+        || state.status === 'checking'
+        || state.status === 'available'
+        || state.status === 'downloading'
+      ) {
+        return true;
+      }
       const ver = state.latestVersion || '';
       return getDismissedVersion() !== ver;
+    }
+
+    async function openManualDownload() {
+      try {
+        const r = await apiJson('/api/update/open-browser', { method: 'POST' });
+        if (!r.opened && r.url) window.open(r.url, '_blank', 'noopener');
+      } catch {
+        window.open('https://github.com/yzxotic23-commits/WSAF-BO/releases/latest', '_blank', 'noopener');
+      }
     }
 
     function bindToastActions(state) {
@@ -928,14 +944,18 @@
           }
           return;
         }
-        if (current.status === 'error' || current.status === 'available' || current.status === 'downloading') {
-          primary.disabled = true;
-          primary.textContent = current.status === 'error' ? 'Retrying…' : 'Downloading…';
-          try {
-            await checkForUpdate();
-          } catch {
-            primary.disabled = false;
-            primary.textContent = current.status === 'error' ? 'Retry' : 'Download now';
+        primary.disabled = true;
+        const prevLabel = primary.textContent;
+        primary.textContent = current.status === 'error' ? 'Retrying…' : 'Downloading…';
+        try {
+          await checkForUpdate();
+        } catch (err) {
+          const subEl = toastEl.querySelector('.ff-update-toast__sub');
+          if (subEl) subEl.textContent = err.message || 'Download failed — try Manual download below';
+        } finally {
+          primary.disabled = false;
+          if (lastState?.status !== 'downloaded') {
+            primary.textContent = lastState?.status === 'error' ? 'Retry' : prevLabel || 'Download now';
           }
         }
       });
@@ -953,8 +973,8 @@
       }
 
       if (!pollTimer && (state.status === 'available' || state.status === 'downloading' || state.status === 'checking')) {
-        pollTimer = setInterval(refreshUpdateState, 1000);
-        if (state.status === 'available' && !kickDownloadDone) {
+        pollTimer = setInterval(refreshUpdateState, 500);
+        if ((state.status === 'available' || state.status === 'checking') && !kickDownloadDone) {
           kickDownloadDone = true;
           checkForUpdate().catch(() => {});
         }
@@ -980,9 +1000,11 @@
         : ready
           ? `v${state.latestVersion} — click Update Now to install`
           : downloading
-            ? `v${state.latestVersion} · ${state.percent || 0}% (≈114 MB on Mac)`
+            ? state.status === 'checking'
+              ? `Checking v${state.latestVersion}…`
+              : `v${state.latestVersion} · ${state.percent || 0}% (~114 MB on Mac)`
             : waiting
-              ? `v${state.currentVersion} → v${state.latestVersion} · starting download…`
+              ? `v${state.currentVersion} → v${state.latestVersion} · tap Download now`
               : `v${state.currentVersion} → v${state.latestVersion}`;
 
       if (!toastEl) {
@@ -1006,12 +1028,22 @@
           '</div>' +
           '<div class="ff-update-toast__actions">' +
           '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--ghost">Later</button>' +
-          '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--primary">Update Now</button>' +
-          '</div>';
+          '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--primary">Download now</button>' +
+          '</div>' +
+          '<button type="button" class="ff-update-toast__manual">Manual download (browser)</button>';
         titleEl = toastEl.querySelector('.ff-update-toast__title');
         subEl = toastEl.querySelector('.ff-update-toast__sub');
         primary = toastEl.querySelector('.ff-update-toast__btn--primary');
         bindToastActions(state);
+      }
+
+      const manualLink = toastEl.querySelector('.ff-update-toast__manual');
+      if (manualLink && !manualLink.dataset.ffBound) {
+        manualLink.dataset.ffBound = '1';
+        manualLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          openManualDownload();
+        });
       }
 
       titleEl.textContent = title;
@@ -1032,21 +1064,18 @@
       }
 
       if (primary) {
+        primary.disabled = false;
         if (ready) {
-          primary.disabled = false;
           primary.textContent = 'Update Now';
         } else if (errored) {
-          primary.disabled = false;
-          primary.textContent = 'Retry';
+          primary.textContent = 'Retry download';
         } else if (downloading) {
-          primary.disabled = true;
-          primary.textContent = `Downloading… ${state.percent || 0}%`;
-        } else if (waiting) {
-          primary.disabled = false;
-          primary.textContent = 'Download now';
+          primary.textContent =
+            state.status === 'checking'
+              ? 'Checking…'
+              : `Downloading… ${state.percent || 0}%`;
         } else {
-          primary.disabled = true;
-          primary.textContent = 'Please wait…';
+          primary.textContent = 'Download now';
         }
       }
     }
@@ -1057,6 +1086,24 @@
         renderToast(state);
       } catch { /* API offline */ }
     }
+
+    function hookSocketUpdate() {
+      if (window.__ffUpdateSocketHook) return;
+      window.__ffUpdateSocketHook = true;
+      const script = document.createElement('script');
+      script.src = `${API}/socket.io/socket.io.js`;
+      script.async = true;
+      script.onload = () => {
+        try {
+          if (typeof window.io !== 'function') return;
+          const socket = window.io(API, { transports: ['websocket', 'polling'] });
+          socket.on('update', (state) => renderToast(state));
+        } catch { /* noop */ }
+      };
+      document.head.appendChild(script);
+    }
+
+    hookSocketUpdate();
 
     async function checkForUpdate() {
       try {
