@@ -58,6 +58,8 @@ class DesktopBridge {
     this.auditLog = new AuditLogStore(this.getAppRoot());
     this.currentFeedingRunId = null;
     this.lastFeedingComplete = null;
+    /** Slots that passed linked check when feeding started (parent socket is down during CLI run). */
+    this.feedingLinkedSlots = null;
     this.ensureEnvAiDefaults();
     this.ensureFirstRunEnv();
     this.ensureCapacity();
@@ -460,11 +462,58 @@ class DesktopBridge {
     }
   }
 
+  isFeedingActive() {
+    return Boolean(
+      this.feedingStarting
+      || (this.feedingProcess && !this.feedingProcess.killed)
+    );
+  }
+
+  resolveDisplayName(probe, session, auth) {
+    const fromDisk = auth.profileName || probe.loadProfileName() || null;
+    if (fromDisk) return fromDisk;
+    return session?.getDisplayName?.() || null;
+  }
+
+  /** Proxy shown in UI/logs: live socket, or feeding assignment when parent socket is down. */
+  resolveAccountProxy(slot, session) {
+    const assigned = this.accountProxies[slot] || null;
+    const live = session?.proxyUrl || null;
+    const feeding = this.isFeedingActive();
+    const url = live || (feeding ? assigned : null);
+
+    if (!url) {
+      const linkedDirect = Boolean(session?.linkedViaDirect);
+      return {
+        masked: 'direct',
+        mode: 'direct',
+        source: linkedDirect ? 'linked-via-direct' : 'none',
+        detail: linkedDirect
+          ? 'Linked without proxy — preview uses local IP; feeding CLI may still assign proxy'
+          : 'No proxy on this connection',
+      };
+    }
+
+    const masked = this.proxyManager.maskUrl(url);
+    let source = 'session';
+    if (!live && feeding) source = 'feeding-assigned';
+    return {
+      masked,
+      mode: 'proxy',
+      source,
+      detail: `WA traffic via ${masked} (${source})`,
+    };
+  }
+
   isAccountLinked(slot) {
     const name = getAccountName(slot);
     const session = this.sessions[slot];
     const auth = new WhatsAppSession(name).getAuthStatus();
     if (this.logoutSlots.has(slot)) return false;
+    if (this.isFeedingActive()) {
+      if (this.feedingLinkedSlots?.has(slot)) return true;
+      return Boolean(auth.saved && auth.valid);
+    }
     if (auth.saved && auth.valid && auth.registered) return true;
     return Boolean(
       session?.isConnected
@@ -489,12 +538,12 @@ class DesktopBridge {
       const partnerAuth = partnerProbe.getAuthStatus();
       const hasSaved = this.isAccountLinked(i);
       const partnerHasSaved = this.isAccountLinked(partnerSlot);
-      const displayName = hasSaved
-        ? session?.getDisplayName?.() || auth.profileName || null
-        : null;
-      const partnerDisplayName = partnerHasSaved
-        ? partnerSession?.getDisplayName?.() || partnerAuth.profileName || null
-        : null;
+      const displayName = this.resolveDisplayName(probe, session, auth);
+      const partnerDisplayName = this.resolveDisplayName(
+        partnerProbe,
+        partnerSession,
+        partnerAuth
+      );
       const slotLabel = getAccountLabel(i);
       const partnerSlotLabel = getAccountLabel(partnerSlot);
       accounts.push({
@@ -508,7 +557,9 @@ class DesktopBridge {
         partnerSlotLabel,
         partnerDisplayName,
         partnerSlot,
-        phone: hasSaved ? session?.getPhone() || auth.phone || null : null,
+        phone: hasSaved || (auth.saved && auth.valid)
+          ? session?.getPhone() || auth.phone || null
+          : null,
         linking: Boolean(
           session?.isLinking
           && !session?.isConnected
@@ -518,8 +569,17 @@ class DesktopBridge {
         connected:
           !this.logoutSlots.has(i)
           && Boolean(session?.isConnected && !session?.isLoggedOut && !session?.isLoggingOut),
+        feedingActive: this.isFeedingActive() && Boolean(this.feedingLinkedSlots?.has(i)),
         linkedViaDirect: Boolean(session?.linkedViaDirect),
-        proxy: session?.proxyUrl ? this.proxyManager.maskUrl(session.proxyUrl) : 'direct',
+        ...(() => {
+          const px = this.resolveAccountProxy(i, session);
+          return {
+            proxy: px.masked,
+            proxyMode: px.mode,
+            proxySource: px.source,
+            proxyDetail: px.detail,
+          };
+        })(),
         authSaved: hasSaved,
         loggingOut: this.logoutSlots.has(i),
         logoutPhase: this.logoutPhase.get(i) || null,
@@ -767,8 +827,16 @@ class DesktopBridge {
       return this.getStatus();
     }
 
-    this.log('info', `[PROXY] Loaded ${this.proxyManager.proxies.length} proxies`);
+    this.log('info', `[PROXY] Loaded ${this.proxyManager.proxies.length} proxies from proxies.txt`);
     this.accountProxies = await this.assignWorkingProxies();
+    for (let i = 0; i < this.accountCount(); i++) {
+      const name = getAccountName(i);
+      const url = this.accountProxies[i];
+      const route = url
+        ? this.proxyManager.maskUrl(url)
+        : 'direct (no working proxy for slot)';
+      this.log('info', `[PROXY] Slot ${name}: ${route}`);
+    }
     this.emit('status', this.getStatus());
     return this.getStatus();
   }
@@ -1073,7 +1141,7 @@ class DesktopBridge {
         session.purgeLocalSession();
         this.log('info', `[${sessionName}] Cleared incomplete session before phone pairing`);
       }
-      this.log('info', `[${sessionName}] Phone pairing — using direct connection (no proxy)`);
+      this.log('info', `[${sessionName}] Link route: direct — phone pairing never uses proxy`);
       session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
       return { ok: true, mode: 'direct', pending: true };
     }
@@ -1081,19 +1149,32 @@ class DesktopBridge {
     if (qrMode === 'direct' || !proxyUrl) {
       session.setProxy(null);
       session.linkedViaDirect = true;
+      const why = !proxyUrl
+        ? 'no proxy assigned to this slot'
+        : `PROXY_QR_LINK=${qrMode} (QR link uses local IP by default)`;
+      this.log('info', `[${sessionName}] Link route: direct — ${why}`);
       session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
       return { ok: true, mode: 'direct', pending: true };
     }
 
     session.setProxy(proxyUrl);
+    this.log(
+      'info',
+      `[${sessionName}] Link route: trying proxy ${this.proxyManager.maskUrl(proxyUrl)} (PROXY_QR_LINK=rotate)`
+    );
     const outcome = await session.connectUntilReady(plan, 22000);
 
     if (outcome === 'qr_waiting' || outcome === 'connected') {
+      this.log('info', `[${sessionName}] Link route: proxy OK — ${this.proxyManager.maskUrl(proxyUrl)}`);
       return { ok: true, outcome, proxy: proxyUrl };
     }
 
     session.setProxy(null);
     session.linkedViaDirect = true;
+    this.log(
+      'warn',
+      `[${sessionName}] Link route: proxy failed for QR — falling back to direct (local IP)`
+    );
     session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
     return { ok: true, mode: 'direct_fallback' };
   }
@@ -1388,6 +1469,7 @@ class DesktopBridge {
 
   stopFeeding() {
     this.feedingStarting = false;
+    this.feedingLinkedSlots = null;
     if (!this.feedingProcess) return { ok: true, wasRunning: false };
     try {
       this.feedingProcess.kill('SIGTERM');
@@ -1415,6 +1497,7 @@ class DesktopBridge {
   failFeedingStart(message) {
     this.feedingStarting = false;
     this.feedingLaunchPhase = 'prepare';
+    this.feedingLinkedSlots = null;
     this.emit('status', this.getStatus());
     return { ok: false, error: message };
   }
@@ -1448,6 +1531,11 @@ class DesktopBridge {
       );
     }
 
+    this.feedingLinkedSlots = new Set();
+    for (let i = 0; i < savedCount; i++) {
+      this.feedingLinkedSlots.add(i);
+    }
+
     await this.ensureCodexProxy();
     const aiCheck = await this.getAiStatus();
     if (aiCheck.probe?.error) {
@@ -1468,6 +1556,23 @@ class DesktopBridge {
 
     const root = this.getAppRoot();
     this.log('info', `[FEEDING] Auth folder: ${path.join(root, 'auth')}`);
+    if (this.hasProxies) {
+      this.log('info', '[FEEDING] Proxy plan for this run:');
+      for (let i = 0; i < this.accountCount(); i++) {
+        const name = getAccountName(i);
+        const url = this.accountProxies[i];
+        const route = url
+          ? this.proxyManager.maskUrl(url)
+          : 'direct (no working proxy for slot)';
+        this.log('info', `[FEEDING]   ${name} → ${route}`);
+      }
+      this.log(
+        'info',
+        '[FEEDING] CLI will connect each account via route above (see Route (connect/connected) in log)'
+      );
+    } else {
+      this.log('info', '[FEEDING] No proxies.txt — all accounts will use direct (local IP)');
+    }
 
     this.setFeedingLaunchPhase('prepare');
     for (let i = 0; i < this.accountCount(); i++) {
@@ -1517,6 +1622,20 @@ class DesktopBridge {
         .filter(Boolean)
         .forEach((line) => {
           if (this.tryParseFeedingChatLog(line)) return;
+          if (
+            /Profile name|Connected as:/i.test(line)
+            && !/~\s*$/.test(line)
+          ) {
+            this.refreshProfileNamesFromDisk();
+            this.emit('status', this.getStatus());
+          }
+          if (/Route \((connect|connected)\):/i.test(line)) {
+            this.emit('status', this.getStatus());
+          }
+          if (/^\[PROXY\]/i.test(line) || /Route \(/i.test(line) || /linkedViaDirect/i.test(line)) {
+            this.log('info', line);
+            return;
+          }
           this.log(level, line);
           if (
             !cliReady
@@ -1543,6 +1662,7 @@ class DesktopBridge {
       }
       this.log(code === 0 ? 'success' : 'warn', `[FEEDING] Exited (code ${code ?? '?'})`);
       this.feedingProcess = null;
+      this.feedingLinkedSlots = null;
       if (code === 0 && !this.lastFeedingComplete?.at) {
         this.recordFeedingComplete({ success: true });
       } else if (code !== 0 && code != null && !this.lastFeedingComplete?.at) {
@@ -1562,6 +1682,7 @@ class DesktopBridge {
       endFeedingLaunch();
       this.log('error', `[FEEDING] ${err.message}`);
       this.feedingProcess = null;
+      this.feedingLinkedSlots = null;
       this.emit('status', this.getStatus());
     });
 

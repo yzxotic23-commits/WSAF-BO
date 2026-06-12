@@ -130,6 +130,12 @@ class ProxyManager {
   }
 
   maskUrl(proxyUrl) {
+    return ProxyManager.maskProxyUrl(proxyUrl);
+  }
+
+  /** Mask credentials/host for logs and UI (static — safe without ProxyManager instance). */
+  static maskProxyUrl(proxyUrl) {
+    if (!proxyUrl) return 'direct';
     try {
       const url = new URL(proxyUrl);
       const host = url.hostname;
@@ -141,6 +147,12 @@ class ProxyManager {
     } catch {
       return '***masked***';
     }
+  }
+
+  /** Human-readable route label for connection logs. */
+  static describeRoute(proxyUrl) {
+    if (!proxyUrl) return 'direct (local IP — no proxy)';
+    return `via proxy ${ProxyManager.maskProxyUrl(proxyUrl)}`;
   }
 
   loadWorkingStore() {
@@ -226,12 +238,23 @@ class ProxyManager {
 
       if (!found) {
         console.log(`[PROXY] ${accountName}: no working proxy — will use direct connection`);
+      } else {
+        console.log(`[PROXY] ${accountName}: assigned ${this.maskUrl(found)}`);
       }
 
       assigned.push(found);
     }
 
     this.saveWorkingStore(updatedStore);
+    console.log('');
+    console.log('[PROXY] Assignment summary (probe TCP → WA hosts):');
+    for (let i = 0; i < accountCount; i++) {
+      const accountName = getAccountName ? getAccountName(i) : `account${i + 1}`;
+      const url = assigned[i];
+      const route = url ? this.maskUrl(url) : 'direct (probe failed or none)';
+      console.log(`  ${accountName}: ${route}`);
+    }
+    console.log('[PROXY] Feeding/connect will use the route above per account slot.');
     console.log('');
     return assigned;
   }

@@ -1252,10 +1252,15 @@ async function connectAllSessions(hasProxies, proxyManager, accountProxies) {
 
     if (plan.skipLogin) {
       const phoneHint = plan.auth?.phone ? ` (${plan.auth.phone})` : '';
-      console.log(`[LOGIN] ${sessionName}: saved session${phoneHint} — skipping login method`);
+      const regHint = plan.auth?.registered ? 'registered' : 'valid, finishing registration';
+      console.log(`[LOGIN] ${sessionName}: saved session${phoneHint} (${regHint}) — skipping login prompt`);
       if (proxyUrl) {
         session.setProxy(proxyUrl);
-        console.log(`[PROXY] ${sessionName} → ${proxyManager.maskUrl(proxyUrl)}`);
+        console.log(`[PROXY] ${sessionName} assigned → ${proxyManager.maskUrl(proxyUrl)}`);
+      } else if (hasProxies) {
+        console.log(`[PROXY] ${sessionName}: probe found no working proxy — will connect direct`);
+      } else {
+        console.log(`[PROXY] ${sessionName}: no proxies.txt — connecting direct`);
       }
       await session.connect();
     } else if (hasProxies && linkCandidates.length > 0) {
@@ -1288,14 +1293,24 @@ async function reconnectSessionForContinue(session, proxyUrl, proxyManager) {
   const hasAuth = session.hasSavedAuth();
   if (!hasAuth) {
     console.log(`[RECONNECT] ${session.sessionName}: no saved session — scan QR`);
-    if (proxyUrl) session.setProxy(proxyUrl);
+    if (proxyUrl) {
+      session.setProxy(proxyUrl);
+      console.log(`[PROXY] ${session.sessionName} assigned → ${proxyManager.maskUrl(proxyUrl)}`);
+    } else {
+      console.log(`[PROXY] ${session.sessionName}: reconnect direct (no proxy slot)`);
+    }
     await session.connect({ method: 'qr' });
     return session.isConnected;
   }
 
   // Session linked or recovered on direct — never force proxy on Continue (avoids bad session + auth wipe)
   if (session.linkedViaDirect) {
-    console.log(`[PROXY] ${session.sessionName}: reconnect on direct (session was linked without proxy)`);
+    console.log(
+      `[PROXY] ${session.sessionName}: reconnect on direct — linkedViaDirect=true (linked without proxy earlier)`
+    );
+    console.log(
+      `[PROXY] ${session.sessionName}: feeding rounds still use proxy from proxies.txt when CLI starts`
+    );
     session.setProxy(null);
     await session.disconnect();
     await session.connect();
@@ -1303,7 +1318,7 @@ async function reconnectSessionForContinue(session, proxyUrl, proxyManager) {
   }
 
   if (proxyUrl) {
-    console.log(`[PROXY] ${session.sessionName} → ${proxyManager.maskUrl(proxyUrl)}`);
+    console.log(`[PROXY] ${session.sessionName} assigned → ${proxyManager.maskUrl(proxyUrl)}`);
     await session.reconnectWithProxy(proxyUrl);
     if (!session.isConnected) {
       await session.waitForConnection(20000);
@@ -1324,6 +1339,24 @@ async function reconnectAllSessions(sessions, proxyManager, accountProxies) {
   }
 }
 
+function formatLiveRoute(session, assignedProxy, proxyManager) {
+  if (session?.proxyUrl) {
+    return { route: proxyManager.maskUrl(session.proxyUrl), mode: 'proxy', source: 'live socket' };
+  }
+  if (assignedProxy) {
+    return {
+      route: proxyManager.maskUrl(assignedProxy),
+      mode: 'proxy',
+      source: 'assigned but socket is direct',
+    };
+  }
+  return {
+    route: 'direct',
+    mode: 'direct',
+    source: session?.linkedViaDirect ? 'linkedViaDirect' : 'no proxy',
+  };
+}
+
 function printConnectedSummary(sessions, hasProxies, proxyManager, accountProxies) {
   const connected = sessions.filter((s) => s.isConnected && !s.isLoggedOut);
   const ready = connected.length;
@@ -1340,25 +1373,30 @@ function printConnectedSummary(sessions, hasProxies, proxyManager, accountProxie
   for (let p = 0; p < pairCount(); p++) {
     const sessionA = sessions[p * 2];
     const sessionB = sessions[p * 2 + 1];
+    const slotA = p * 2;
+    const slotB = p * 2 + 1;
     const phoneA = sessionA.getPhone() || '(not linked)';
     const phoneB = sessionB.getPhone() || '(not linked)';
+    const nameA = sessionA.getDisplayName?.() || getAccountLabel(slotA);
+    const nameB = sessionB.getDisplayName?.() || getAccountLabel(slotB);
     const statusA = sessionA.isConnected ? 'ok' : 'OFFLINE';
     const statusB = sessionB.isConnected ? 'ok' : 'OFFLINE';
-    let proxyInfo = '';
-    if (hasProxies) {
-      const slotA = p * 2;
-      const slotB = p * 2 + 1;
-      const liveA = sessionA.proxyUrl ? proxyManager.maskUrl(sessionA.proxyUrl) : 'direct';
-      const liveB = sessionB.proxyUrl ? proxyManager.maskUrl(sessionB.proxyUrl) : 'direct';
-      proxyInfo = ` | ${getAccountLabel(slotA)}: ${liveA} [${statusA}] | ${getAccountLabel(slotB)}: ${liveB} [${statusB}]`;
-    } else {
-      proxyInfo = ` | ${getAccountLabel(p * 2)} [${statusA}] | ${getAccountLabel(p * 2 + 1)} [${statusB}]`;
-    }
-    console.log(`  Pair ${p + 1}: ${phoneA} <-> ${phoneB}${proxyInfo}`);
+    const routeA = formatLiveRoute(sessionA, accountProxies[slotA], proxyManager);
+    const routeB = formatLiveRoute(sessionB, accountProxies[slotB], proxyManager);
+    console.log(`  Pair ${p + 1}: ${phoneA} <-> ${phoneB}`);
+    console.log(
+      `    ${nameA}: route=${routeA.route} [${statusA}] (${routeA.source})`
+    );
+    console.log(
+      `    ${nameB}: route=${routeB.route} [${statusB}] (${routeB.source})`
+    );
   }
 
   if (!hasProxies) {
-    console.log('  Proxy    : none (direct connection)');
+    console.log('  Proxy    : none (all accounts on direct / local IP)');
+  } else {
+    console.log('  Note     : route=proxy means WA traffic exits via that SOCKS IP');
+    console.log('             direct during link is normal; feeding should show route=proxy above');
   }
   console.log('='.repeat(50));
 
@@ -1386,11 +1424,20 @@ async function main() {
   const hasProxies = proxyManager.load();
   const accountProxies = hasProxies ? await assignAccountProxies(proxyManager) : [];
 
+  if (isDesktopFeeding()) {
+    console.log('[FEEDING] Desktop mode — detailed proxy logs appear in System log');
+    console.log(`[FEEDING] Data folder: ${getAppRoot()}`);
+    console.log('');
+  }
+
   if (hasProxies) {
     const qrMode = getProxyQrLinkMode();
     console.log(
-      `[PROXY] Probe = TCP check only. QR link mode: ${qrMode}` +
-      (qrMode === 'direct' ? ' (recommended — WA blocks QR on proxy IPs)' : ' (tries all proxies, then direct)')
+      `[PROXY] Probe = TCP to web.whatsapp.com / g.whatsapp.net (routing check only).`
+    );
+    console.log(
+      `[PROXY] QR link mode: ${qrMode}` +
+      (qrMode === 'direct' ? ' — new QR uses local IP; feeding uses proxy from assignment above' : ' — tries proxies for QR, then direct')
     );
     console.log('');
   }

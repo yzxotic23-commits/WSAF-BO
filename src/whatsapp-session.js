@@ -21,6 +21,7 @@ const {
   classifySendError,
   formatPolicyAlert,
 } = require('./wa-policy-detector');
+const ProxyManager = require('./proxy-manager');
 
 class WhatsAppSession extends EventEmitter {
   constructor(sessionName) {
@@ -275,6 +276,12 @@ class WhatsAppSession extends EventEmitter {
 
   setProxy(proxyUrl) {
     this.proxyUrl = proxyUrl;
+  }
+
+  logConnectionRoute(phase = 'connect') {
+    console.log(
+      `[${this.sessionName}] Route (${phase}): ${ProxyManager.describeRoute(this.proxyUrl)}`
+    );
   }
 
   emitPolicyAlert(alert) {
@@ -693,12 +700,19 @@ class WhatsAppSession extends EventEmitter {
     const { version } = await fetchLatestBaileysVersion();
 
     if (hasCompleteAuth) {
-      console.log(`[${this.sessionName}] Saved session found — connecting...`);
+      const phoneHint = authStatus.phone ? ` (${authStatus.phone})` : '';
+      console.log(`[${this.sessionName}] Saved session found${phoneHint} — reconnecting...`);
+    } else if (authStatus.valid && !authStatus.registered) {
+      console.log(
+        `[${this.sessionName}] Session on disk (valid, not registered yet) — completing link...`
+      );
     } else if (this.loginMethod === 'pairing') {
       console.log(`[${this.sessionName}] No session — login via pairing code (${this.pairingPhone})`);
     } else {
       console.log(`[${this.sessionName}] No session — scan QR to link`);
     }
+
+    this.logConnectionRoute('connect');
 
     const logger = pino({ level: 'silent' });
     const agent = this.createProxyAgent(this.proxyUrl);
@@ -798,6 +812,12 @@ class WhatsAppSession extends EventEmitter {
         if (profileName) this.saveProfileName(profileName);
         console.log(`[${this.sessionName}] Connected as: ${profileName || phone}`);
         console.log(`[${this.sessionName}] JID: ${jidNormalizedUser(user.id)}`);
+        this.logConnectionRoute('connected');
+        if (!this.proxyUrl) {
+          console.log(
+            `[${this.sessionName}] linkedViaDirect=true — preview reconnect may skip proxy; feeding CLI still assigns proxy from proxies.txt`
+          );
+        }
         this.emit('connected', { user, profileName: profileName || null, phone });
         this.scheduleProfileNameCapture();
       }
@@ -1025,10 +1045,16 @@ class WhatsAppSession extends EventEmitter {
         } else if (isBadSession && hadAuth && authValid) {
           // Saved session — bad session is usually proxy/IP change; keep auth folder
           if (this.proxyUrl) {
+            const failedProxy = this.proxyUrl;
             this.linkedViaDirect = true;
             this.proxyUrl = null;
             this.reconnectAttempts = 0;
-            console.log(`[${this.sessionName}] Bad session via proxy — retrying on direct (auth kept)`);
+            console.log(
+              `[${this.sessionName}] Bad session via proxy ${ProxyManager.maskProxyUrl(failedProxy)} — retrying on direct (auth kept)`
+            );
+            console.log(
+              `[${this.sessionName}] Tip: avoid switching proxy IP after link; use stable proxy per account slot`
+            );
             this.scheduleReconnect(() => this.connect(), 3000);
           } else if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;

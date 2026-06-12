@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
-const { buildMacPreInstallMigrateScript } = require('./app-data');
+const { buildMacPreInstallMigrateScript, backupAppDataBeforeUpdate } = require('./app-data');
 
 function compareVersions(latest, current) {
   const parse = (v) => String(v || '0').split('.').map((n) => parseInt(n, 10) || 0);
@@ -385,6 +385,14 @@ class MacUpdater {
   quitAndInstall() {
     if (!this.stagedAppBundle || !fs.existsSync(this.stagedAppBundle)) {
       throw new Error('No downloaded update ready to install');
+    }
+    try {
+      const backup = backupAppDataBeforeUpdate(app, 'pre-update-mac');
+      if (backup.backedUp) {
+        console.log(`[DATA] Pre-update backup saved: ${backup.dest}`);
+      }
+    } catch (err) {
+      console.warn(`[DATA] Pre-update backup skipped: ${err.message}`);
     }
     quitAndInstallMacUpdate(this.stagedAppBundle);
   }

@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { resolveUpdateConfig } = require('./update-config');
 const { MacUpdater } = require('./mac-updater');
+const { backupAppDataBeforeUpdate } = require('./app-data');
 
 const IS_MAC = process.platform === 'darwin';
 
@@ -203,6 +204,15 @@ class AppUpdater {
   }
 
   quitAndInstall() {
+    try {
+      const backup = backupAppDataBeforeUpdate(app, 'pre-update');
+      if (backup.backedUp) {
+        console.log(`[DATA] Pre-update backup saved: ${backup.dest}`);
+      }
+    } catch (err) {
+      console.warn(`[DATA] Pre-update backup skipped: ${err.message}`);
+    }
+
     if (IS_MAC) {
       this.macUpdater.quitAndInstall();
       return;
