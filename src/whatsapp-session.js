@@ -284,6 +284,28 @@ class WhatsAppSession extends EventEmitter {
     );
   }
 
+  buildBaseSocketOptions(version, state, logger, agent) {
+    const socketOptions = {
+      version,
+      auth: state,
+      logger,
+      printQRInTerminal: false,
+      browser: this.getBrowserConfig(),
+      connectTimeoutMs: 60000,
+      keepAliveIntervalMs: 30000,
+      retryRequestDelayMs: 2000,
+      markOnlineOnConnect: false,
+      syncFullHistory: false,
+      shouldSyncHistoryMessage: () => false,
+      getMessage: async () => undefined,
+    };
+    if (agent) {
+      socketOptions.agent = agent;
+      socketOptions.fetchAgent = agent;
+    }
+    return socketOptions;
+  }
+
   emitPolicyAlert(alert) {
     if (!alert) return;
     console.log(formatPolicyAlert(this.sessionName, alert));
@@ -486,19 +508,7 @@ class WhatsAppSession extends EventEmitter {
     const logger = pino({ level: 'silent' });
     const agent = this.createProxyAgent(this.proxyUrl);
 
-    const socketOptions = {
-      version,
-      auth: state,
-      logger,
-      printQRInTerminal: false,
-      browser: this.getBrowserConfig(),
-      connectTimeoutMs: 60000,
-    };
-    if (agent) {
-      socketOptions.agent = agent;
-      socketOptions.fetchAgent = agent;
-    }
-
+    const socketOptions = this.buildBaseSocketOptions(version, state, logger, agent);
     this.socket = makeWASocket(socketOptions);
     this.socket.ev.on('creds.update', saveCreds);
 
@@ -719,23 +729,7 @@ class WhatsAppSession extends EventEmitter {
 
     this.qrCount = 0;
 
-    const socketOptions = {
-      version,
-      auth: state,
-      logger,
-      printQRInTerminal: false,
-      browser: this.getBrowserConfig(),
-      connectTimeoutMs: 60000,
-      keepAliveIntervalMs: 30000,
-      retryRequestDelayMs: 2000,
-      markOnlineOnConnect: false,
-    };
-
-    if (agent) {
-      socketOptions.agent = agent;
-      socketOptions.fetchAgent = agent;
-    }
-
+    const socketOptions = this.buildBaseSocketOptions(version, state, logger, agent);
     this.socket = makeWASocket(socketOptions);
 
     this.socket.ev.on('creds.update', async (update) => {

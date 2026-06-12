@@ -15,12 +15,25 @@ const NOISE_PREFIXES = [
   'Closing open session in favor of incoming prekey bundle',
   'Decrypted message with closed session.',
   'Migrating session to:',
+  'Failed to decrypt message with any known session',
+  'Session error:Error: Bad MAC',
+  'Session error: Error: Bad MAC',
+  'Error: Bad MAC',
+  'MessageCounterError:',
+  'No matching session',
+  'Invalid PreKey',
 ];
 
 function isLibsignalNoise(args) {
-  const head = args[0];
-  if (typeof head !== 'string') return false;
-  return NOISE_PREFIXES.some((p) => head.startsWith(p) || head.includes(p));
+  const text = args
+    .map((a) => {
+      if (typeof a === 'string') return a;
+      if (a instanceof Error) return a.message || String(a);
+      return '';
+    })
+    .join(' ');
+  if (!text) return false;
+  return NOISE_PREFIXES.some((p) => text.includes(p));
 }
 
 function patchConsole(method) {
@@ -34,4 +47,5 @@ function patchConsole(method) {
 if (SUPPRESS) {
   patchConsole('info');
   patchConsole('warn');
+  patchConsole('error');
 }
