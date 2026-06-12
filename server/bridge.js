@@ -460,6 +460,21 @@ class DesktopBridge {
     }
   }
 
+  isAccountLinked(slot) {
+    const name = getAccountName(slot);
+    const session = this.sessions[slot];
+    const auth = new WhatsAppSession(name).getAuthStatus();
+    if (this.logoutSlots.has(slot)) return false;
+    if (auth.saved && auth.valid && auth.registered) return true;
+    return Boolean(
+      session?.isConnected
+      && !session?.isLoggedOut
+      && !session?.isLoggingOut
+      && auth.saved
+      && auth.valid
+    );
+  }
+
   getStatus() {
     this.refreshProfileNamesFromDisk();
     const accounts = [];
@@ -472,10 +487,8 @@ class DesktopBridge {
       const partnerSession = this.sessions[partnerSlot];
       const partnerProbe = new WhatsAppSession(getAccountName(partnerSlot));
       const partnerAuth = partnerProbe.getAuthStatus();
-      const hasSaved = auth.saved && auth.registered && auth.valid && !this.logoutSlots.has(i);
-      const partnerHasSaved =
-        partnerAuth.saved && partnerAuth.registered && partnerAuth.valid
-        && !this.logoutSlots.has(partnerSlot);
+      const hasSaved = this.isAccountLinked(i);
+      const partnerHasSaved = this.isAccountLinked(partnerSlot);
       const displayName = hasSaved
         ? session?.getDisplayName?.() || auth.profileName || null
         : null;
@@ -1427,8 +1440,7 @@ class DesktopBridge {
     const savedCount = this.accountCount();
     let linked = 0;
     for (let i = 0; i < savedCount; i++) {
-      const auth = new WhatsAppSession(getAccountName(i)).getAuthStatus();
-      if (auth.saved && auth.valid && auth.registered && !this.logoutSlots.has(i)) linked += 1;
+      if (this.isAccountLinked(i)) linked += 1;
     }
     if (linked < savedCount) {
       return this.failFeedingStart(

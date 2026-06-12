@@ -308,6 +308,7 @@
           });
           if (window.desktop?.reloadEnv) await window.desktop.reloadEnv();
           showSettingsToast(modal, 'success', 'Saved');
+          window.setTimeout(() => closeAllSettingsModals(), 400);
         } catch (err) {
           showSettingsToast(modal, 'error', err.message || 'Save failed');
         } finally {
@@ -430,6 +431,7 @@
         await apiJson('/api/proxies/load', { method: 'POST' });
         textarea.dataset.ffDirty = '0';
         showSettingsToast(modal, 'success', 'Saved');
+        window.setTimeout(() => closeAllSettingsModals(), 400);
       } catch (err) {
         showSettingsToast(modal, 'error', err.message || 'Save failed');
       } finally {
