@@ -67,8 +67,36 @@ class WhatsAppSession extends EventEmitter {
 
   extractProfileNameFromMe(me) {
     if (!me) return null;
-    const name = (me.notify || me.name || me.verifiedName || '').trim();
-    return name || null;
+    const notify = (me.notify || '').trim();
+    const verified = (me.verifiedName || '').trim();
+    const name = (me.name || '').trim();
+    // Push name (notify) = what contacts see on WhatsApp; prefer over internal name field.
+    if (notify && notify !== '~') return notify;
+    if (verified && verified !== '~') return verified;
+    if (name && name !== '~') return name;
+    return null;
+  }
+
+  /** Best display name from creds (live) then profile-name.json; sync disk when creds wins. */
+  getBestProfileNameFromDisk() {
+    const credsPath = path.join(this.authDir, 'creds.json');
+    let fromCreds = null;
+    if (fs.existsSync(credsPath)) {
+      try {
+        const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+        fromCreds = this.extractProfileNameFromMe(creds?.me);
+      } catch {
+        /* ignore */
+      }
+    }
+    const fromFile = this.loadProfileName();
+    const best = fromCreds || fromFile || null;
+    if (fromCreds && fromCreds !== fromFile) {
+      this.saveProfileName(fromCreds);
+    } else if (best) {
+      this.displayName = best;
+    }
+    return best;
   }
 
   clearProfileProbeTimers() {
@@ -91,20 +119,7 @@ class WhatsAppSession extends EventEmitter {
 
   /** Read push name from creds.json on disk (CLI feeding updates this file). */
   syncProfileNameFromDisk() {
-    const credsPath = path.join(this.authDir, 'creds.json');
-    if (!fs.existsSync(credsPath)) return this.loadProfileName();
-    try {
-      const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
-      const fromCreds = this.extractProfileNameFromMe(creds?.me);
-      if (fromCreds) {
-        const previous = this.loadProfileName();
-        if (previous !== fromCreds) this.saveProfileName(fromCreds);
-        return fromCreds;
-      }
-    } catch {
-      /* ignore */
-    }
-    return this.loadProfileName();
+    return this.getBestProfileNameFromDisk();
   }
 
   /** Save push name when Baileys provides it (often after connection open). */
@@ -177,7 +192,7 @@ class WhatsAppSession extends EventEmitter {
       const live = this.extractProfileNameFromMe(this.socket.user);
       if (live) return live;
     }
-    return this.loadProfileName();
+    return this.getBestProfileNameFromDisk() || this.loadProfileName();
   }
 
   getPartnerLidStorePath() {
@@ -223,15 +238,18 @@ class WhatsAppSession extends EventEmitter {
     }
   }
 
+  /** Only trust LID mappings from creds seed or verified phone-number metadata. */
   learnPartnerLid(lidJid, source = '') {
+    const verified = source === 'creds_seed' || source === 'sender_pn' || source === 'phoneNumberShare';
+    if (!verified) return;
+
     const lid = lidJid ? jidNormalizedUser(lidJid) : '';
     if (!lid || !isLidUser(lid)) return;
     if (this.partnerLidJid === lid) return;
 
     this.partnerLidJid = lid;
-    const tag = source ? ` (${source})` : '';
     console.log(
-      `[${this.sessionName}] Partner LID mapped: ${lid} ↔ ${this.expectedPartnerJid || '?'}${tag}`
+      `[${this.sessionName}] Partner LID mapped: ${lid} ↔ ${this.expectedPartnerJid || '?'} (${source})`
     );
 
     if (this.expectedPartnerJid) {
@@ -343,8 +361,8 @@ class WhatsAppSession extends EventEmitter {
       const lid = rawLid ? jidNormalizedUser(rawLid) : null;
       const fromCreds = this.extractProfileNameFromMe(creds?.me);
       const fromFile = this.loadProfileName();
-      const profileName = fromFile || fromCreds;
-      if (fromCreds && !fromFile) {
+      const profileName = fromCreds || fromFile;
+      if (fromCreds && fromCreds !== fromFile) {
         try {
           this.saveProfileName(fromCreds);
         } catch {
@@ -1107,12 +1125,20 @@ class WhatsAppSession extends EventEmitter {
           continue;
         }
 
+        const senderPn = msg.key?.senderPn || msg.key?.participantPn || null;
+        if (
+          this.expectedPartnerJid
+          && !this.isPartnerMessage(sender, remoteJid, this.expectedPartnerJid, { senderPn })
+        ) {
+          continue;
+        }
+
         this.emit('message', {
           sender,
           remoteJid,
           text,
           message: msg,
-          senderPn: msg.key?.senderPn || msg.key?.participantPn,
+          senderPn,
         });
       }
     });
@@ -1212,6 +1238,8 @@ class WhatsAppSession extends EventEmitter {
     const partner = partnerJid || this.expectedPartnerJid;
     if (!partner) return false;
 
+    if (isJidGroup(remoteJid) || isJidGroup(sender)) return false;
+
     if (this.isSameUser(sender, partner)) return true;
     if (remoteJid && this.isSameUser(remoteJid, partner)) return true;
 
@@ -1230,22 +1258,18 @@ class WhatsAppSession extends EventEmitter {
     const senderPn = meta.senderPn ? jidNormalizedUser(meta.senderPn) : '';
     if (senderPn && this.isSameUser(senderPn, partner)) {
       const lid = isLidUser(sender) ? sender : remoteJid;
-      this.learnPartnerLid(lid, 'sender_pn');
+      if (isLidUser(lid)) this.learnPartnerLid(lid, 'sender_pn');
       return true;
     }
 
-    const chatJid = remoteJid || sender;
-    if (
-      partner &&
-      !isJidGroup(chatJid) &&
-      (isLidUser(sender) || isLidUser(remoteJid))
-    ) {
-      const lid = isLidUser(sender) ? sender : remoteJid;
-      this.learnPartnerLid(lid, 'inbound_lid');
-      return true;
-    }
-
+    // Unknown LID/PN without verified sender_pn — ignore (may be another contact on linked phone).
     return false;
+  }
+
+  canSendToJid(jid) {
+    if (!this.expectedPartnerJid) return true;
+    const target = jidNormalizedUser(jid);
+    return this.isSameUser(target, this.expectedPartnerJid);
   }
 
   async sendMessage(jid, text) {
@@ -1259,6 +1283,12 @@ class WhatsAppSession extends EventEmitter {
 
     try {
       let target = jidNormalizedUser(jid);
+      if (!this.canSendToJid(target)) {
+        console.log(
+          `[${this.sessionName}] Send blocked — not feeding partner (target=${target}, partner=${this.expectedPartnerJid})`
+        );
+        return false;
+      }
       if (
         this.partnerLidJid &&
         this.expectedPartnerJid &&

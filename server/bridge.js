@@ -353,8 +353,12 @@ class DesktopBridge {
 
   findSlotByLabel(label) {
     const want = String(label || '').trim();
+    if (!want) return -1;
     for (let i = 0; i < this.accountCount(); i++) {
       if (getAccountLabel(i) === want) return i;
+      const probe = new WhatsAppSession(getAccountName(i));
+      const display = probe.getBestProfileNameFromDisk?.() || probe.loadProfileName();
+      if (display && display === want) return i;
     }
     return -1;
   }
@@ -470,9 +474,9 @@ class DesktopBridge {
   }
 
   resolveDisplayName(probe, session, auth) {
-    const fromDisk = auth.profileName || probe.loadProfileName() || null;
-    if (fromDisk) return fromDisk;
-    return session?.getDisplayName?.() || null;
+    const fromCreds = probe.getBestProfileNameFromDisk?.() || null;
+    if (fromCreds) return fromCreds;
+    return session?.getDisplayName?.() || auth.profileName || probe.loadProfileName() || null;
   }
 
   /** Proxy shown in UI/logs: live socket, or feeding assignment when parent socket is down. */

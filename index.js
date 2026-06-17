@@ -484,6 +484,10 @@ async function runPairSession(
   sessionA.setExpectedPartner(jidB);
   sessionB.setExpectedPartner(jidA);
 
+  // Creds seed overwrites any stale partner-lid.json from mis-identified contacts.
+  sessionA.partnerLidJid = null;
+  sessionB.partnerLidJid = null;
+
   // Cross-inject LIDs from creds.json so the bot sends to LID from the start
   // (no need to wait for a manual message to learn the partner's LID)
   const lidA = sessionA.getMyLid();  // Account A's own LID (as seen by B)
