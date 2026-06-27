@@ -762,10 +762,16 @@
       saveBtn.disabled = true;
       probeBtn.disabled = true;
       try {
-        const results = await apiJson('/api/proxies/probe', { method: 'POST' });
+        const results = await apiJson('/api/proxies/probe', {
+          method: 'POST',
+          body: JSON.stringify({ content: textarea.value }),
+        });
         const ok = (results || []).filter((r) => r.ok).length;
         const total = (results || []).length;
-        showSettingsToast(modal, 'success', `Probe complete — ${ok}/${total} proxies OK`);
+        const msg = total === 0
+          ? 'No valid proxies in list — check format (socks5://user:pass@ip:port)'
+          : `Probe complete — ${ok}/${total} proxies OK`;
+        showSettingsToast(modal, total === 0 ? 'error' : 'success', msg);
       } catch (err) {
         showSettingsToast(modal, 'error', err.message || 'Probe failed');
       } finally {

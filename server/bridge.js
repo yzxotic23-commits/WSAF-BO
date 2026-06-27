@@ -50,7 +50,7 @@ class DesktopBridge {
   constructor(emit) {
     this.emit = emit || (() => {});
     this.sessions = [];
-    this.proxyManager = new ProxyManager();
+    this.proxyManager = new ProxyManager(this.getProxiesPath());
     this.accountProxies = [];
     this.hasProxies = false;
     this.connecting = false;
@@ -968,6 +968,7 @@ class DesktopBridge {
   }
 
   async loadProxies() {
+    this.proxyManager.filePath = this.getProxiesPath();
     this.hasProxies = this.proxyManager.load();
     if (!this.hasProxies) {
       this.accountProxies = [];
@@ -996,10 +997,15 @@ class DesktopBridge {
     return this.proxyManager.assignForAccounts(this.accountCount());
   }
 
-  async probeAllProxies() {
+  async probeAllProxies(content = null) {
+    this.proxyManager.filePath = this.getProxiesPath();
+    const urls = content != null
+      ? this.proxyManager.parseContent(content)
+      : (this.proxyManager.load(), this.proxyManager.proxies);
+
     const results = [];
-    for (let i = 0; i < this.proxyManager.proxies.length; i++) {
-      const url = this.proxyManager.proxies[i];
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
       const ok = await probeProxy(url);
       results.push({ index: i, masked: this.proxyManager.maskUrl(url), ok });
       this.log('info', `[PROXY] ${this.proxyManager.maskUrl(url)} → ${ok ? 'OK' : 'FAIL'}`);

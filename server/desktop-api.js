@@ -304,9 +304,10 @@ function createDesktopApi(options = {}) {
     }
   });
 
-  app.post('/api/proxies/probe', async (_req, res) => {
+  app.post('/api/proxies/probe', async (req, res) => {
     try {
-      res.json(await bridge.probeAllProxies());
+      const content = req.body?.content;
+      res.json(await bridge.probeAllProxies(content));
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

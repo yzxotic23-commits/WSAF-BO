@@ -27,31 +27,33 @@ class ProxyManager {
   load() {
     if (!fs.existsSync(this.filePath)) {
       console.log('[PROXY] No proxies.txt found, using direct connection.');
+      this.proxies = [];
       return false;
     }
-
-    const content = fs.readFileSync(this.filePath, 'utf8');
-    const lines = content
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('#'));
-
-    this.proxies = [];
-    for (const line of lines) {
-      if (this.isValidProxyUrl(line)) {
-        this.proxies.push(line);
-      } else {
-        console.log(`[PROXY] Skipped invalid line: ${line}`);
-      }
-    }
-
+    this.proxies = this.parseContent(fs.readFileSync(this.filePath, 'utf8'));
     if (this.proxies.length === 0) {
       console.log('[PROXY] proxies.txt is empty, using direct connection.');
       return false;
     }
-
     console.log(`[PROXY] Loaded ${this.proxies.length} proxies.`);
     return true;
+  }
+
+  parseContent(content) {
+    const lines = String(content || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+
+    const proxies = [];
+    for (const line of lines) {
+      if (this.isValidProxyUrl(line)) {
+        proxies.push(line);
+      } else {
+        console.log(`[PROXY] Skipped invalid line: ${line}`);
+      }
+    }
+    return proxies;
   }
 
   getNext() {
