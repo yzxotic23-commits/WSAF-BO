@@ -36,6 +36,7 @@
           const body = JSON.parse(init.body);
           if (body?.method === 'pairing' && body.phoneNumber) {
             body.phoneNumber = normalizePairingPhoneInput(body.phoneNumber);
+            body.clearIncomplete = true;
             sessionStorage.setItem('ff-pairing-slot', slot);
             sessionStorage.setItem('ff-pairing-until', String(Date.now() + 15 * 60 * 1000));
             init = { ...init, body: JSON.stringify(body) };
@@ -1234,59 +1235,6 @@
   }
 
   function setupPairingCodeOverlay() {
-    function showPairingError(msg) {
-      const host =
-        document.querySelector('.wa-web-login-center')
-        || document.querySelector('.wa-web-login')
-        || document.querySelector('.wa-main');
-      if (!host) return;
-      let el = document.querySelector('.ff-pairing-error');
-      if (!el) {
-        el = document.createElement('div');
-        el.className = 'ff-pairing-error';
-        el.style.cssText =
-          'margin:12px auto;padding:10px 14px;max-width:420px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;font-size:14px;text-align:center;';
-        host.prepend(el);
-      }
-      el.textContent = msg;
-      setTimeout(() => el?.remove(), 15000);
-    }
-
-    function hookPairingSocket() {
-      function connect() {
-        if (typeof io === 'undefined') return;
-        try {
-          const socket = io(API, { transports: ['websocket', 'polling'] });
-          socket.on('pairingCodeFailed', (data) => {
-            lastShownPairingKey = null;
-            removePairingCodeOverlay();
-            sessionStorage.removeItem('ff-pairing-slot');
-            sessionStorage.removeItem('ff-pairing-until');
-            showPairingError(
-              data?.message || 'Gagal mendapatkan kode pairing. Periksa nomor telepon dan coba lagi.'
-            );
-          });
-          socket.on('pairingCode', () => {
-            pollPairingCodeOverlay();
-          });
-        } catch {
-          /* socket optional */
-        }
-      }
-      if (typeof io !== 'undefined') {
-        connect();
-        return;
-      }
-      const scriptId = 'ff-pairing-socket-io';
-      if (document.getElementById(scriptId)) return;
-      const script = document.createElement('script');
-      script.id = scriptId;
-      script.src = `${API}/socket.io/socket.io.js`;
-      script.onload = connect;
-      document.head.appendChild(script);
-    }
-
-    hookPairingSocket();
     pollPairingCodeOverlay();
     setInterval(pollPairingCodeOverlay, 900);
   }

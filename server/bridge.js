@@ -1327,7 +1327,20 @@ class DesktopBridge {
       && (pairingCodeActive || existing.isLinking || existing.pairingCodeRequested)
     );
 
-    if (plan.method === 'pairing' && pairingBusy && !plan.refreshPairing && !plan.clearIncomplete) {
+    const stuckPairingRetry = Boolean(
+      plan.method === 'pairing'
+      && existing
+      && existing.isLinking
+      && !existing.isConnected
+      && !pairingCodeActive
+    );
+
+    if (stuckPairingRetry && !plan.clearIncomplete && !plan.refreshPairing) {
+      plan = { ...plan, clearIncomplete: true };
+      this.log('info', `[${sessionName}] Stuck link cleared — restarting pairing`);
+    }
+
+    if (plan.method === 'pairing' && pairingBusy && !plan.refreshPairing && !plan.clearIncomplete && !stuckPairingRetry) {
       this.linkingSlot = slotIndex;
       this.emit('status', this.getStatus());
       this.log(
@@ -1349,6 +1362,7 @@ class DesktopBridge {
       && !existing.isConnected
       && !plan.refreshPairing
       && !plan.clearIncomplete
+      && !stuckPairingRetry
     ) {
       const partial = existing.getAuthStatus();
       if (!partial.registered) {
