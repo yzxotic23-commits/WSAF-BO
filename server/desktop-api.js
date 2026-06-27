@@ -78,6 +78,9 @@ function createDesktopApi(options = {}) {
               : 'No update downloaded yet';
         return res.status(400).json({ error: hint, status: state.status, percent: state.percent });
       }
+      if (bridge.feedingStarting || (bridge.feedingProcess && !bridge.feedingProcess.killed)) {
+        bridge.stopFeeding();
+      }
       res.json({ ok: true });
       setTimeout(() => updater.quitAndInstall(), 400);
     } catch (e) {

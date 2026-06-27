@@ -204,6 +204,8 @@ class AppUpdater {
   }
 
   quitAndInstall() {
+    app.isQuittingForUpdate = true;
+
     try {
       const backup = backupAppDataBeforeUpdate(app, 'pre-update');
       if (backup.backedUp) {
@@ -218,7 +220,8 @@ class AppUpdater {
       return;
     }
     if (!autoUpdater) return;
-    autoUpdater.quitAndInstall(false, true);
+    // Silent install + force relaunch after NSIS finishes (Update Now must not show wizard).
+    autoUpdater.quitAndInstall(true, true);
   }
 }
 

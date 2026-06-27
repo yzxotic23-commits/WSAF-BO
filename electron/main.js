@@ -266,10 +266,25 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', async () => {
+app.on('before-quit', (event) => {
   if (updateCheckTimer) clearInterval(updateCheckTimer);
-  if (api?.bridge) {
-    api.bridge.stopFeeding();
-    await api.bridge.disconnectAll();
+
+  // In-app update: quit immediately so NSIS can replace the exe and relaunch.
+  if (app.isQuittingForUpdate) {
+    if (api?.bridge) {
+      api.bridge.stopFeeding();
+    }
+    return;
   }
+
+  if (!api?.bridge) return;
+
+  event.preventDefault();
+  api.bridge.stopFeeding();
+  Promise.race([
+    api.bridge.disconnectAll(),
+    new Promise((resolve) => setTimeout(resolve, 8000)),
+  ]).finally(() => {
+    app.exit(0);
+  });
 });
