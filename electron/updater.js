@@ -18,10 +18,12 @@ if (!IS_MAC) {
 
 function readPackageVersion() {
   try {
+    const fromApp = app.getVersion?.();
+    if (fromApp && fromApp !== '0.0.0') return fromApp;
     const pkgPath = path.join(__dirname, '..', 'package.json');
     return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version || '0.0.0';
   } catch {
-    return app.getVersion();
+    return app.getVersion?.() || '0.0.0';
   }
 }
 

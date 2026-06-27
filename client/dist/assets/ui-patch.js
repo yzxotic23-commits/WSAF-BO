@@ -1413,6 +1413,7 @@
     return {
       refreshUpdateState,
       checkForUpdate,
+      renderToast,
       /** Dev preview: ffPreviewUpdate('available'|'downloading'|'ready') */
       showPreview(mode) {
         const samples = {
@@ -1454,7 +1455,7 @@
 
   /** Re-check when app window becomes visible (complements Electron scheduler) */
   function setupAutoUpdatePolling() {
-    const CHECK_MS = 4 * 60 * 60 * 1000;
+    const CHECK_MS = 60 * 60 * 1000;
     const updateUi = setupUpdateCornerToast();
     window.ffPreviewUpdate = (mode) => updateUi.showPreview(mode);
 
@@ -1462,12 +1463,44 @@
       await updateUi.checkForUpdate();
     }
 
-    updateUi.refreshUpdateState();
+    function hookUpdateSocket() {
+      function connect() {
+        if (typeof io === 'undefined') return;
+        try {
+          const socket = io(API, { transports: ['websocket', 'polling'] });
+          socket.on('update', (state) => {
+            if (state && typeof state === 'object') updateUi.renderToast(state);
+          });
+        } catch {
+          /* socket optional */
+        }
+      }
+      if (typeof io !== 'undefined') {
+        connect();
+        return;
+      }
+      const scriptId = 'ff-socket-io-client';
+      if (document.getElementById(scriptId)) return;
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.src = `${API}/socket.io/socket.io.js`;
+      script.onload = connect;
+      script.onerror = () => { /* polling fallback only */ };
+      document.head.appendChild(script);
+    }
+
+    // Initial + delayed checks — main process also checks ~4s after launch.
+    fetchUpdate();
+    [6000, 15000, 30000].forEach((ms) => setTimeout(() => updateUi.refreshUpdateState(), ms));
+    setTimeout(fetchUpdate, 8000);
+
+    hookUpdateSocket();
     setInterval(fetchUpdate, CHECK_MS);
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') fetchUpdate();
     });
+    window.addEventListener('focus', () => updateUi.refreshUpdateState());
   }
 
   function boot() {
