@@ -173,15 +173,33 @@
     });
   }
 
+  /** Audit log is in AMS — remove legacy FeedFlow topbar pill */
+  function removeAuditTopbarPill() {
+    document.querySelectorAll('.wa-topbar-pill--audit').forEach((el) => {
+      el.remove();
+    });
+  }
+
+  /** Sidebar footer: hide Unlink all (Stop feeding tetap muncul saat feeding jalan). */
+  function tidyListFooter() {
+    document.querySelectorAll('.wa-list-footer .wa-footer-btn--muted').forEach((btn) => {
+      btn.style.display = 'none';
+      btn.setAttribute('aria-hidden', 'true');
+    });
+  }
+
   function applyDomFixes() {
     stampModalBackdrops();
     if (isModalOpen()) return;
 
     hideDuplicateTopbarTitle();
+    removeAuditTopbarPill();
     fixListHeaderLayout();
     stabilizeStatPills();
     fixToolbarButtons();
     syncOfficialLogo();
+    injectPerPairControls();
+    tidyListFooter();
   }
 
   function scheduleDomFixes() {
@@ -205,6 +223,306 @@
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || data.message || `Request failed (${res.status})`);
     return data;
+  }
+
+  let ffAppStatus = null;
+  let ffStatusTimer = null;
+
+  async function refreshAppStatus() {
+    try {
+      ffAppStatus = await apiJson('/api/status');
+    } catch {
+      /* sidebar may not be ready */
+    }
+    return ffAppStatus;
+  }
+
+  function isPairLinked(pairIndex) {
+    const accounts = ffAppStatus?.accounts || [];
+    const slots = accounts.filter((a) => a.pairIndex === pairIndex);
+    if (slots.length < 2) return false;
+    return slots.every((a) => a.authSaved);
+  }
+
+  const START_FEED_ICON =
+    '<svg class="ff-pair-start-btn__icon" viewBox="0 0 24 24" width="10" height="10" aria-hidden="true">' +
+    '<path fill="currentColor" d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>';
+
+  function setStartFeedButtonLabel(btn, text) {
+    let label = btn.querySelector('.ff-pair-start-btn__label');
+    if (!label) {
+      btn.innerHTML = START_FEED_ICON + `<span class="ff-pair-start-btn__label">${text}</span>`;
+      return;
+    }
+    label.textContent = text;
+  }
+
+  function ensureStartFeedButtonStructure(btn) {
+    if (!btn.querySelector('.ff-pair-start-btn__label')) {
+      const text = btn.textContent.trim() || 'Start';
+      setStartFeedButtonLabel(btn, text);
+    }
+  }
+
+  function updatePerPairFeedingButtons() {
+    const running = !!(ffAppStatus?.feedingRunning || ffAppStatus?.feedingStarting);
+    const activePair = ffAppStatus?.feedingPairIndex;
+
+    document.querySelectorAll('.ff-pair-start-btn').forEach((btn) => {
+      ensureStartFeedButtonStructure(btn);
+      const pairIndex = parseInt(btn.dataset.pairIndex || '-1', 10);
+      const ready = isPairLinked(pairIndex);
+      const isActive = running && activePair === pairIndex;
+      btn.disabled = running || !ready;
+      btn.classList.toggle('ff-pair-start-btn--active', isActive);
+      setStartFeedButtonLabel(btn, isActive ? 'Running…' : 'Start');
+      btn.title = ready
+        ? `Start AI feeding for Pair ${pairIndex + 1} only`
+        : `Link both accounts in Pair ${pairIndex + 1} first`;
+    });
+
+    document.querySelectorAll('.ff-pair-remove-btn').forEach((btn) => {
+      btn.disabled = running;
+    });
+  }
+
+  async function startPairFeeding(pairIndex, btn) {
+    if (btn?.disabled) return;
+    if (btn) btn.disabled = true;
+    try {
+      await apiJson('/api/feeding/start', {
+        method: 'POST',
+        body: JSON.stringify({ pairIndex }),
+      });
+    } catch (err) {
+      window.alert(err.message || 'Could not start feeding');
+    } finally {
+      await refreshAppStatus();
+      updatePerPairFeedingButtons();
+    }
+  }
+
+  /** Restore row structure; keep Start feeding as last child (React owns label). */
+  function normalizePairLabelRow(row) {
+    const wrapper = row.querySelector(':scope > .ff-pair-label-actions');
+    if (wrapper) {
+      while (wrapper.firstChild) {
+        row.appendChild(wrapper.firstChild);
+      }
+      wrapper.remove();
+    }
+
+    const startBtn = row.querySelector('.ff-pair-start-btn');
+    if (startBtn && startBtn !== row.lastElementChild) {
+      row.appendChild(startBtn);
+    }
+
+    row.querySelectorAll('.wa-pair-remove-btn').forEach((btn) => {
+      btn.hidden = true;
+      btn.setAttribute('aria-hidden', 'true');
+      btn.tabIndex = -1;
+    });
+  }
+
+  function getPairCountFromDom() {
+    return document.querySelectorAll('.wa-pair-label-row').length;
+  }
+
+  function closeFfModal(backdrop) {
+    if (!backdrop) return;
+    backdrop.remove();
+  }
+
+  function showConfirmModal({
+    title,
+    message,
+    confirmLabel = 'OK',
+    cancelLabel = 'Cancel',
+    danger = false,
+    onConfirm,
+  }) {
+    document.querySelector('.ff-confirm-modal-backdrop')?.remove();
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'wa-modal-backdrop ff-confirm-modal-backdrop';
+    backdrop.setAttribute('role', 'presentation');
+
+    const dialog = document.createElement('div');
+    dialog.className = 'wa-modal';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', 'ff-confirm-modal-title');
+    dialog.innerHTML =
+      `<h2 id="ff-confirm-modal-title" class="wa-modal-title">${title}</h2>` +
+      `<p class="wa-modal-message">${message}</p>` +
+      '<div class="wa-modal-actions">' +
+      `<button type="button" class="wa-modal-btn wa-modal-btn--ghost ff-confirm-cancel">${cancelLabel}</button>` +
+      `<button type="button" class="wa-modal-btn ${danger ? 'wa-modal-btn--danger' : 'wa-modal-btn--primary'} ff-confirm-ok">${confirmLabel}</button>` +
+      '</div>';
+
+    backdrop.appendChild(dialog);
+    document.body.appendChild(backdrop);
+    stampModalBackdrops();
+
+    const cancel = () => closeFfModal(backdrop);
+    backdrop.addEventListener('click', cancel);
+    dialog.addEventListener('click', (e) => e.stopPropagation());
+    dialog.querySelector('.ff-confirm-cancel')?.addEventListener('click', cancel);
+    dialog.querySelector('.ff-confirm-ok')?.addEventListener('click', async () => {
+      const okBtn = dialog.querySelector('.ff-confirm-ok');
+      if (okBtn) okBtn.disabled = true;
+      try {
+        await onConfirm?.();
+        cancel();
+      } catch (err) {
+        if (okBtn) okBtn.disabled = false;
+        window.alert(err.message || 'Action failed');
+      }
+    });
+  }
+
+  function removePairAt(pairIndex) {
+    const pairNum = pairIndex + 1;
+    showConfirmModal({
+      title: `Remove Pair ${pairNum}?`,
+      message:
+        'This deletes both accounts in this pair (local WhatsApp session files on this PC). Remaining pairs will shift up. At least one pair must remain. Stop feeding first if it is running.',
+      confirmLabel: 'Remove pair',
+      cancelLabel: 'Cancel',
+      danger: true,
+      onConfirm: async () => {
+        const result = await apiJson('/api/accounts/remove-pair', {
+          method: 'POST',
+          body: JSON.stringify({ pairIndex }),
+        });
+        if (result.error) throw new Error(result.error);
+        await refreshAppStatus();
+        injectPerPairControls();
+        updatePerPairFeedingButtons();
+      },
+    });
+  }
+
+  function injectPerPairRemoveButtons(row, pairIndex) {
+    const pairCount = ffAppStatus?.pairCount || getPairCountFromDom();
+    const feeding = !!(ffAppStatus?.feedingRunning || ffAppStatus?.feedingStarting);
+
+    if (pairCount <= 1) {
+      row.querySelector('.ff-pair-remove-btn')?.remove();
+      return;
+    }
+
+    let removeBtn = row.querySelector('.ff-pair-remove-btn');
+    if (!removeBtn) {
+      removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'ff-pair-remove-btn';
+      removeBtn.setAttribute('aria-label', `Remove pair ${pairIndex + 1}`);
+      removeBtn.title = 'Remove pair';
+      removeBtn.innerHTML =
+        '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">' +
+        '<path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>' +
+        '</svg>';
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removePairAt(pairIndex);
+      });
+      const labelEl = row.querySelector('.wa-pair-label');
+      if (labelEl?.nextSibling) {
+        row.insertBefore(removeBtn, labelEl.nextSibling);
+      } else if (labelEl) {
+        labelEl.after(removeBtn);
+      } else {
+        row.prepend(removeBtn);
+      }
+    }
+
+    removeBtn.dataset.pairIndex = String(pairIndex);
+    removeBtn.disabled = feeding;
+  }
+
+  function injectPerPairControls() {
+    document.querySelectorAll('.wa-pair-label-row').forEach((row) => {
+      normalizePairLabelRow(row);
+
+      const labelEl = row.querySelector('.wa-pair-label');
+      if (!labelEl) return;
+      const match = labelEl.textContent.match(/Pair\s+(\d+)/i);
+      if (!match) return;
+      const pairIndex = parseInt(match[1], 10) - 1;
+
+      injectPerPairRemoveButtons(row, pairIndex);
+
+      let startBtn = row.querySelector('.ff-pair-start-btn');
+      if (!startBtn) {
+        startBtn = document.createElement('button');
+        startBtn.type = 'button';
+        startBtn.className = 'ff-pair-start-btn';
+        startBtn.dataset.pairIndex = String(pairIndex);
+        setStartFeedButtonLabel(startBtn, 'Start');
+        startBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          startPairFeeding(pairIndex, startBtn);
+        });
+        row.appendChild(startBtn);
+      } else if (startBtn.dataset.pairIndex !== String(pairIndex)) {
+        startBtn.dataset.pairIndex = String(pairIndex);
+      }
+    });
+
+    const globalStart = document.querySelector('.wa-footer-btn--feed');
+    if (globalStart) {
+      globalStart.style.display = 'none';
+      globalStart.setAttribute('aria-hidden', 'true');
+    }
+
+    updatePerPairFeedingButtons();
+    wirePairHoverGroups();
+  }
+
+  function wirePairHoverGroups() {
+    const wraps = [...document.querySelectorAll('.wa-chat-row-wrap')];
+    let currentPair = -1;
+    const groups = new Map();
+
+    wraps.forEach((wrap) => {
+      const label = wrap.querySelector('.wa-pair-label');
+      if (label) {
+        const m = label.textContent.match(/Pair\s+(\d+)/i);
+        if (m) currentPair = parseInt(m[1], 10) - 1;
+      }
+      if (currentPair < 0) return;
+      if (!groups.has(currentPair)) groups.set(currentPair, []);
+      groups.get(currentPair).push(wrap);
+    });
+
+    groups.forEach((groupWraps) => {
+      const labelRow = groupWraps[0]?.querySelector('.wa-pair-label-row');
+      if (!labelRow) return;
+      groupWraps.forEach((wrap) => {
+        if (wrap.dataset.ffPairHoverBound === '1') return;
+        wrap.dataset.ffPairHoverBound = '1';
+        wrap.addEventListener('mouseenter', () => labelRow.classList.add('ff-pair-hover'));
+        wrap.addEventListener('mouseleave', () => labelRow.classList.remove('ff-pair-hover'));
+      });
+    });
+  }
+
+  function injectPerPairFeedingButtons() {
+    injectPerPairControls();
+  }
+
+  function setupPerPairFeedingStatusPoll() {
+    refreshAppStatus().then(() => {
+      injectPerPairControls();
+      updatePerPairFeedingButtons();
+    });
+    if (ffStatusTimer) clearInterval(ffStatusTimer);
+    ffStatusTimer = setInterval(async () => {
+      await refreshAppStatus();
+      injectPerPairControls();
+      updatePerPairFeedingButtons();
+    }, 2500);
   }
 
   function getSettingsModal() {
@@ -308,7 +626,6 @@
           });
           if (window.desktop?.reloadEnv) await window.desktop.reloadEnv();
           showSettingsToast(modal, 'success', 'Saved');
-          window.setTimeout(() => closeAllSettingsModals(), 400);
         } catch (err) {
           showSettingsToast(modal, 'error', err.message || 'Save failed');
         } finally {
@@ -431,7 +748,6 @@
         await apiJson('/api/proxies/load', { method: 'POST' });
         textarea.dataset.ffDirty = '0';
         showSettingsToast(modal, 'success', 'Saved');
-        window.setTimeout(() => closeAllSettingsModals(), 400);
       } catch (err) {
         showSettingsToast(modal, 'error', err.message || 'Save failed');
       } finally {
@@ -449,7 +765,7 @@
         const results = await apiJson('/api/proxies/probe', { method: 'POST' });
         const ok = (results || []).filter((r) => r.ok).length;
         const total = (results || []).length;
-        showSettingsToast(modal, 'success', `Probe complete — ${ok}/${total} proxy OK`);
+        showSettingsToast(modal, 'success', `Probe complete — ${ok}/${total} proxies OK`);
       } catch (err) {
         showSettingsToast(modal, 'error', err.message || 'Probe failed');
       } finally {
@@ -540,8 +856,8 @@
     const success = data.success !== false && !data.manualStop;
     const title = success ? 'Feeding complete' : 'Feeding stopped';
     const subtitle = success
-      ? 'All AI chat pairs have finished. Session saved on this device.'
-      : 'Feeding stopped before completion. You can start again anytime.';
+      ? 'All AI chat pairs have finished. Sessions remain saved on this device.'
+      : 'Feeding ended before all pairs finished. You can start again anytime.';
 
     const overlay = document.createElement('div');
     overlay.className = 'ff-feeding-complete';
@@ -554,7 +870,7 @@
       '<h2 class="ff-feeding-complete-title">' + title + '</h2>' +
       '<p class="ff-feeding-complete-sub">' + subtitle + '</p>' +
       '<div class="ff-feeding-complete-stats">' +
-      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.completed ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Pairs completed</span></div>' +
+      '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.completed ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Pairs done</span></div>' +
       '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.messagesSent ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Messages sent</span></div>' +
       '<div class="ff-feeding-complete-stat"><span class="ff-feeding-complete-stat-value">' + (data.totalPairs ?? 0) + '</span><span class="ff-feeding-complete-stat-label">Total pairs</span></div>' +
       '</div>' +
@@ -606,13 +922,12 @@
     setInterval(pollFeedingComplete, 1500);
   }
 
-  /** Pairing code — login center overlay + chat panel banner */
+  /** Pairing code screen — WhatsApp Web layout with QR fallback link */
   let lastShownPairingKey = null;
   let pairingSwitchInProgress = false;
 
   function removePairingCodeOverlay() {
     document.querySelectorAll('.ff-pairing-code-overlay').forEach((el) => el.remove());
-    document.querySelectorAll('.ff-pairing-chat-banner').forEach((el) => el.remove());
     document.body.classList.remove('ff-pairing-active');
   }
 
@@ -748,28 +1063,6 @@
     }
   }
 
-  function showPairingChatBanner(acc, formatted) {
-    const chatMain =
-      document.querySelector('.wa-chat-main')
-      || document.querySelector('.wa-main-center')
-      || document.querySelector('.wa-chat-panel');
-    if (!chatMain) return;
-
-    let banner = chatMain.querySelector('.ff-pairing-chat-banner');
-    if (!banner) {
-      banner = document.createElement('div');
-      banner.className = 'ff-pairing-chat-banner';
-      chatMain.prepend(banner);
-    }
-    banner.dataset.slot = String(acc.slot);
-    banner.innerHTML =
-      '<div class="ff-pairing-chat-banner__inner">' +
-      '<p class="ff-pairing-chat-banner__title">Enter pairing code on your phone</p>' +
-      buildPairingCodeBoxes(formatted) +
-      '<p class="ff-pairing-chat-banner__hint">WhatsApp → Linked devices → Link with phone number</p>' +
-      '</div>';
-  }
-
   function showPairingCodeOverlay(acc) {
     const key = `${acc.slot}:${acc.pairingCode}`;
     if (lastShownPairingKey === key && document.querySelector('.ff-pairing-code-overlay')) return;
@@ -778,10 +1071,9 @@
     removePairingCodeOverlay();
 
     const host =
-      document.querySelector('.wa-main')
-      || document.querySelector('.wa-main-center')
-      || document.querySelector('.wa-web-login-center')
-      || document.querySelector('.wa-web-login');
+      document.querySelector('.wa-web-login-center')
+      || document.querySelector('.wa-web-login')
+      || document.querySelector('.wa-main');
     if (!host) return;
 
     const raw = String(acc.pairingCode || '').replace(/-/g, '').toUpperCase();
@@ -796,7 +1088,6 @@
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', 'Enter code on phone');
     overlay.innerHTML =
-      '<div class="ff-pairing-code-backdrop" aria-hidden="true"></div>' +
       '<div class="ff-pairing-code-card ff-pairing-code-card--wa">' +
       '<h2 class="ff-pairing-code-title">Enter code on phone</h2>' +
       (phoneDisplay
@@ -807,16 +1098,12 @@
       '<li><span class="ff-pairing-step-num">1</span><span class="ff-pairing-step-text">Open <strong>WhatsApp</strong> on your phone</span></li>' +
       '<li><span class="ff-pairing-step-num">2</span><span class="ff-pairing-step-text">On Android tap <strong>Menu</strong> · On iPhone tap <strong>Settings</strong></span></li>' +
       '<li><span class="ff-pairing-step-num">3</span><span class="ff-pairing-step-text">Tap <strong>Linked devices</strong>, then <strong>Link device</strong></span></li>' +
-      '<li><span class="ff-pairing-step-num">4</span><span class="ff-pairing-step-text">Tap <strong>Link with phone number instead</strong> (not “Enter code” from another device)</span></li>' +
-      '<li><span class="ff-pairing-step-num">5</span><span class="ff-pairing-step-text">Type the <strong>8-digit code shown here</strong> into your phone</span></li>' +
+      '<li><span class="ff-pairing-step-num">4</span><span class="ff-pairing-step-text">Tap <strong>Link with phone number instead</strong> and enter this code on your phone</span></li>' +
       '</ol>' +
-      '<div class="ff-pairing-code-foot">' +
       '<button type="button" class="ff-pairing-switch-qr">Log in with QR code <span aria-hidden="true">›</span></button>' +
-      '</div>' +
       '</div>';
     host.appendChild(overlay);
     document.body.classList.add('ff-pairing-active');
-    showPairingChatBanner(acc, formatted);
 
     overlay.querySelector('.ff-pairing-switch-qr')?.addEventListener('click', () => {
       switchToQrLoginView().catch((err) => {
@@ -875,7 +1162,6 @@
     let toastEl = null;
     let pollTimer = null;
     let lastState = null;
-    let kickDownloadDone = false;
 
     function getDismissedVersion() {
       try {
@@ -898,27 +1184,12 @@
 
     function shouldShow(state) {
       if (!state?.enabled) return false;
-      if (
-        state.status === 'disabled'
-        || state.status === 'idle'
-        || state.status === 'not-available'
-        || state.status === 'checking'
-      ) {
-        return false;
-      }
+      if (state.status === 'disabled' || state.status === 'idle' || state.status === 'checking') return false;
+      if (state.status === 'not-available') return false;
+      if (state.status === 'error') return true;
       if (state.status === 'downloaded') return true;
       const ver = state.latestVersion || '';
-      if (ver && getDismissedVersion() === ver) return false;
-      return state.status === 'error' || state.status === 'available' || state.status === 'downloading';
-    }
-
-    async function openManualDownload() {
-      try {
-        const r = await apiJson('/api/update/open-browser', { method: 'POST' });
-        if (!r.opened && r.url) window.open(r.url, '_blank', 'noopener');
-      } catch {
-        window.open('https://github.com/yzxotic23-commits/WSAF-BO/releases/latest', '_blank', 'noopener');
-      }
+      return getDismissedVersion() !== ver;
     }
 
     function bindToastActions(state) {
@@ -935,33 +1206,16 @@
 
       primary.addEventListener('click', async () => {
         const current = lastState;
-        if (!current) return;
-        if (current.status === 'downloaded') {
-          primary.disabled = true;
-          primary.textContent = 'Installing…';
-          try {
-            await apiJson('/api/update/install', { method: 'POST' });
-          } catch (err) {
-            primary.disabled = false;
-            primary.textContent = 'Update Now';
-            const subEl = toastEl.querySelector('.ff-update-toast__sub');
-            if (subEl) subEl.textContent = err.message || 'Install failed';
-          }
-          return;
-        }
+        if (!current || current.status !== 'downloaded') return;
         primary.disabled = true;
-        const prevLabel = primary.textContent;
-        primary.textContent = current.status === 'error' ? 'Retrying…' : 'Downloading…';
+        primary.textContent = 'Installing…';
         try {
-          await checkForUpdate();
+          await apiJson('/api/update/install', { method: 'POST' });
         } catch (err) {
-          const subEl = toastEl.querySelector('.ff-update-toast__sub');
-          if (subEl) subEl.textContent = err.message || 'Download failed — try Manual download below';
-        } finally {
           primary.disabled = false;
-          if (lastState?.status !== 'downloaded') {
-            primary.textContent = lastState?.status === 'error' ? 'Retry' : prevLabel || 'Download now';
-          }
+          primary.textContent = 'Update Now';
+          const subEl = toastEl.querySelector('.ff-update-toast__sub');
+          if (subEl) subEl.textContent = err.message || 'Install failed';
         }
       });
     }
@@ -969,7 +1223,6 @@
     function renderToast(state) {
       lastState = state;
       if (!shouldShow(state)) {
-        if (state.status === 'not-available') kickDownloadDone = false;
         removeToast();
         if (pollTimer) {
           clearInterval(pollTimer);
@@ -979,11 +1232,7 @@
       }
 
       if (!pollTimer && (state.status === 'available' || state.status === 'downloading')) {
-        pollTimer = setInterval(refreshUpdateState, 2000);
-        if (state.status === 'available' && !kickDownloadDone) {
-          kickDownloadDone = true;
-          checkForUpdate().catch(() => {});
-        }
+        pollTimer = setInterval(refreshUpdateState, 3000);
       }
       if (pollTimer && state.status === 'downloaded') {
         clearInterval(pollTimer);
@@ -991,31 +1240,24 @@
       }
 
       const ready = state.status === 'downloaded';
-      const downloading = state.status === 'downloading' || state.status === 'checking';
-      const waiting = state.status === 'available';
+      const downloading = state.status === 'downloading';
       const errored = state.status === 'error';
       const title = errored
         ? 'Update check failed'
         : ready
           ? 'Update ready'
-          : downloading
-            ? 'Downloading update'
-            : 'Update available';
+          : 'Update available';
       const sub = errored
         ? (state.error || 'Could not reach update server')
         : ready
-          ? `v${state.latestVersion} — click Update Now to install`
+          ? `v${state.latestVersion} — restart to install`
           : downloading
-            ? state.status === 'checking'
-              ? `Checking v${state.latestVersion}…`
-              : `v${state.latestVersion} · ${state.percent || 0}% (~114 MB on Mac)`
-            : waiting
-              ? `v${state.currentVersion} → v${state.latestVersion} · tap Download now`
-              : `v${state.currentVersion} → v${state.latestVersion}`;
+            ? `v${state.latestVersion} · downloading ${state.percent || 0}%`
+            : `v${state.currentVersion} → v${state.latestVersion}`;
 
       if (!toastEl) {
         toastEl = document.createElement('div');
-        toastEl.className = 'ff-update-toast ff-update-toast--visible';
+        toastEl.className = 'ff-update-toast';
         toastEl.setAttribute('role', 'status');
         toastEl.setAttribute('aria-live', 'polite');
         document.body.appendChild(toastEl);
@@ -1034,22 +1276,12 @@
           '</div>' +
           '<div class="ff-update-toast__actions">' +
           '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--ghost">Later</button>' +
-          '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--primary">Download now</button>' +
-          '</div>' +
-          '<button type="button" class="ff-update-toast__manual">Manual download (browser)</button>';
+          '<button type="button" class="ff-update-toast__btn ff-update-toast__btn--primary">Update Now</button>' +
+          '</div>';
         titleEl = toastEl.querySelector('.ff-update-toast__title');
         subEl = toastEl.querySelector('.ff-update-toast__sub');
         primary = toastEl.querySelector('.ff-update-toast__btn--primary');
         bindToastActions(state);
-      }
-
-      const manualLink = toastEl.querySelector('.ff-update-toast__manual');
-      if (manualLink && !manualLink.dataset.ffBound) {
-        manualLink.dataset.ffBound = '1';
-        manualLink.addEventListener('click', (e) => {
-          e.preventDefault();
-          openManualDownload();
-        });
       }
 
       titleEl.textContent = title;
@@ -1070,18 +1302,9 @@
       }
 
       if (primary) {
-        primary.disabled = false;
-        if (ready) {
+        primary.disabled = !ready;
+        if (primary.textContent === 'Installing…' && !ready) {
           primary.textContent = 'Update Now';
-        } else if (errored) {
-          primary.textContent = 'Retry download';
-        } else if (downloading) {
-          primary.textContent =
-            state.status === 'checking'
-              ? 'Checking…'
-              : `Downloading… ${state.percent || 0}%`;
-        } else {
-          primary.textContent = 'Download now';
         }
       }
     }
@@ -1092,24 +1315,6 @@
         renderToast(state);
       } catch { /* API offline */ }
     }
-
-    function hookSocketUpdate() {
-      if (window.__ffUpdateSocketHook) return;
-      window.__ffUpdateSocketHook = true;
-      const script = document.createElement('script');
-      script.src = `${API}/socket.io/socket.io.js`;
-      script.async = true;
-      script.onload = () => {
-        try {
-          if (typeof window.io !== 'function') return;
-          const socket = window.io(API, { transports: ['websocket', 'polling'] });
-          socket.on('update', (state) => renderToast(state));
-        } catch { /* noop */ }
-      };
-      document.head.appendChild(script);
-    }
-
-    hookSocketUpdate();
 
     async function checkForUpdate() {
       try {
@@ -1174,7 +1379,7 @@
     setInterval(fetchUpdate, CHECK_MS);
 
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') updateUi.refreshUpdateState();
+      if (document.visibilityState === 'visible') fetchUpdate();
     });
   }
 
@@ -1187,6 +1392,7 @@
     setupFeedingCompleteWatcher();
     setupPairingCodeOverlay();
     setupSessionsClearAutoClose();
+    setupPerPairFeedingStatusPoll();
 
     document.documentElement.style.zoom = '1';
     document.body.style.zoom = '1';

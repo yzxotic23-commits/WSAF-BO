@@ -2,17 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "WhatsApp Auto Chat (start)",
+      "name": "FeedFlow Web Dashboard",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["index.js"],
-      "port": null
-    },
-    {
-      "name": "WhatsApp Auto Chat (dev:mac)",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["index.js"],
-      "port": null,
-      "autoPort": true
+      "runtimeArgs": ["web.js"],
+      "port": 47821
     },
     {
       "name": "Codex OAuth Proxy",

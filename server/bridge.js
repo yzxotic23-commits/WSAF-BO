@@ -18,10 +18,20 @@ const {
   getAccountLabel,
 } = require('../src/app-config');
 const { AuditLogStore, FEEDING_STATUS } = require('../src/audit-log');
+const { SlotDisplayLabelStore } = require('../src/slot-display-labels');
 
 const MAX_PAIRS = 10;
 
 const MAX_CHAT_PER_ACCOUNT = 400;
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
+    }),
+  ]);
+}
 
 function getPartnerSlot(slot) {
   const pairBase = Math.floor(slot / 2) * 2;
@@ -56,8 +66,11 @@ class DesktopBridge {
     this.linkingSlot = null;
     this.codexProxyPromise = null;
     this.auditLog = new AuditLogStore(this.getAppRoot());
+    this.slotLabels = new SlotDisplayLabelStore(this.getAppRoot());
     this.currentFeedingRunId = null;
     this.lastFeedingComplete = null;
+    /** 0-based pair index when a single-pair feeding run is active; null = all pairs. */
+    this.feedingPairIndex = null;
     /** Slots that passed linked check when feeding started (parent socket is down during CLI run). */
     this.feedingLinkedSlots = null;
     this.ensureEnvAiDefaults();
@@ -239,53 +252,123 @@ class DesktopBridge {
     return { ok: true, pairCount: next, accountCount: this.accountCount() };
   }
 
-  /** Hapus pasangan terakhir (2 akun) — PAIR_COUNT turun 1; minimal 1 pasang tetap ada. */
-  async removeLastPair() {
+  async _shutdownAndPurgeSlot(slot) {
+    const name = getAccountName(slot);
+    let session = this.sessions[slot];
+    if (!session) session = new WhatsAppSession(name);
+    session.autoReconnectAllowed = false;
+    session.clearReconnectTimer();
+    try {
+      if (session.isConnected || session.socket) {
+        session.isLoggingOut = true;
+        await session.shutdown();
+      }
+    } catch (err) {
+      this.log('warn', `[${name}] Shutdown before remove pair: ${err.message}`);
+    }
+    try {
+      session.purgeLocalSession();
+    } catch (err) {
+      this.log('warn', `[${name}] Purge before remove pair: ${err.message}`);
+    }
+    this.sessions[slot] = null;
+    this.chatHistory.delete(slot);
+    this.logoutSlots.delete(slot);
+    this.logoutPhase.delete(slot);
+
+    const authDir = path.join(this.getAppRoot(), 'auth', name);
+    if (fs.existsSync(authDir)) {
+      try {
+        fs.rmSync(authDir, { recursive: true, force: true });
+      } catch (err) {
+        this.log('warn', `[${name}] Could not delete auth folder: ${err.message}`);
+      }
+    }
+  }
+
+  async _moveSlotData(fromSlot, toSlot) {
+    const authRoot = path.join(this.getAppRoot(), 'auth');
+    const fromDir = path.join(authRoot, getAccountName(fromSlot));
+    const toDir = path.join(authRoot, getAccountName(toSlot));
+
+    const fromSession = this.sessions[fromSlot];
+    if (fromSession) {
+      fromSession.autoReconnectAllowed = false;
+      fromSession.clearReconnectTimer();
+      try {
+        if (fromSession.isConnected || fromSession.socket) await fromSession.shutdown();
+      } catch { /* noop */ }
+    }
+    const toSession = this.sessions[toSlot];
+    if (toSession) {
+      try {
+        if (toSession.isConnected || toSession.socket) await toSession.shutdown();
+      } catch { /* noop */ }
+    }
+
+    if (fs.existsSync(toDir)) fs.rmSync(toDir, { recursive: true, force: true });
+    if (fs.existsSync(fromDir)) fs.renameSync(fromDir, toDir);
+
+    this.sessions[fromSlot] = null;
+    this.sessions[toSlot] = null;
+    this.accountProxies[toSlot] = this.accountProxies[fromSlot] ?? null;
+    this.accountProxies[fromSlot] = null;
+
+    if (this.chatHistory.has(fromSlot)) {
+      this.chatHistory.set(toSlot, this.chatHistory.get(fromSlot));
+      this.chatHistory.delete(fromSlot);
+    }
+
+    if (this.logoutSlots.has(fromSlot)) {
+      this.logoutSlots.delete(fromSlot);
+      this.logoutSlots.add(toSlot);
+    }
+    if (this.logoutPhase.has(fromSlot)) {
+      this.logoutPhase.set(toSlot, this.logoutPhase.get(fromSlot));
+      this.logoutPhase.delete(fromSlot);
+    }
+  }
+
+  /** Hapus pasangan mana pun (0-based). Pair di bawahnya naik; minimal 1 pair tetap ada. */
+  async removePair(pairIndex) {
     const current = this.pairCount();
     if (current <= 1) {
       return { ok: false, error: 'At least one pair is required' };
+    }
+    if (pairIndex < 0 || pairIndex >= current) {
+      return { ok: false, error: `Invalid pair index: ${pairIndex}` };
     }
     if (this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed)) {
       return { ok: false, error: 'Stop feeding before removing a pair' };
     }
 
-    const pairIndex = current - 1;
+    const oldAccountCount = this.accountCount();
     const slotA = pairIndex * 2;
     const slotB = slotA + 1;
+    const removedPairNumber = pairIndex + 1;
 
-    for (const slot of [slotA, slotB]) {
-      const name = getAccountName(slot);
-      let session = this.sessions[slot];
-      if (!session) session = new WhatsAppSession(name);
-      session.autoReconnectAllowed = false;
-      session.clearReconnectTimer();
-      try {
-        if (session.isConnected || session.socket) {
-          session.isLoggingOut = true;
-          await session.shutdown();
-        }
-      } catch (err) {
-        this.log('warn', `[${name}] Shutdown before remove pair: ${err.message}`);
-      }
-      try {
-        session.purgeLocalSession();
-      } catch (err) {
-        this.log('warn', `[${name}] Purge before remove pair: ${err.message}`);
-      }
-      this.sessions[slot] = null;
-      this.chatHistory.delete(slot);
-      this.logoutSlots.delete(slot);
-      this.logoutPhase.delete(slot);
-
-      const authDir = path.join(this.getAppRoot(), 'auth', name);
-      if (fs.existsSync(authDir)) {
-        try {
-          fs.rmSync(authDir, { recursive: true, force: true });
-        } catch (err) {
-          this.log('warn', `[${name}] Could not delete auth folder: ${err.message}`);
-        }
-      }
+    const labelSnapshot = {};
+    for (let slot = 0; slot < oldAccountCount; slot++) {
+      const row = this.slotLabels.getRow(slot);
+      if (row) labelSnapshot[slot] = { ...row };
     }
+
+    await this._shutdownAndPurgeSlot(slotA);
+    await this._shutdownAndPurgeSlot(slotB);
+
+    for (let slot = slotB + 1; slot < oldAccountCount; slot++) {
+      const newSlot = slot - 2;
+      await this._moveSlotData(slot, newSlot);
+    }
+
+    const newLabels = {};
+    for (let slot = 0; slot < oldAccountCount; slot++) {
+      if (slot >= slotA && slot <= slotB) continue;
+      const newSlot = slot > slotB ? slot - 2 : slot;
+      if (labelSnapshot[slot]) newLabels[String(newSlot)] = labelSnapshot[slot];
+    }
+    this.slotLabels.labels = newLabels;
+    this.slotLabels.save();
 
     const next = current - 1;
     this.writeEnvUpdates({ PAIR_COUNT: String(next) });
@@ -296,11 +379,17 @@ class DesktopBridge {
     for (const key of [...this.chatHistory.keys()]) {
       if (key >= newCount) this.chatHistory.delete(key);
     }
+    for (const key of [...this.logoutSlots]) {
+      if (key >= newCount) this.logoutSlots.delete(key);
+    }
+    for (const key of [...this.logoutPhase.keys()]) {
+      if (key >= newCount) this.logoutPhase.delete(key);
+    }
     this.ensureCapacity();
 
     this.log(
       'success',
-      `[CONFIG] Removed pair ${current} — now ${next} pair(s) (${newCount} accounts)`
+      `[CONFIG] Removed pair ${removedPairNumber} — now ${next} pair(s) (${newCount} accounts)`
     );
     const status = this.getStatus();
     this.emit('status', status);
@@ -308,10 +397,16 @@ class DesktopBridge {
       ok: true,
       pairCount: next,
       accountCount: newCount,
-      removedPairNumber: current,
+      removedPairNumber,
+      removedPairIndex: pairIndex,
       removedSlots: [slotA, slotB],
       accounts: status.accounts,
     };
+  }
+
+  /** @deprecated — use removePair(pairCount - 1) */
+  async removeLastPair() {
+    return this.removePair(this.pairCount() - 1);
   }
 
   log(level, message, data = {}) {
@@ -473,10 +568,56 @@ class DesktopBridge {
     );
   }
 
-  resolveDisplayName(probe, session, auth) {
+  resolveDisplayName(probe, session, auth, slotIndex = null) {
     const fromCreds = probe.getBestProfileNameFromDisk?.() || null;
     if (fromCreds) return fromCreds;
-    return session?.getDisplayName?.() || auth.profileName || probe.loadProfileName() || null;
+    const fromSession = session?.getDisplayName?.() || auth.profileName || probe.loadProfileName() || null;
+    if (fromSession) return fromSession;
+    if (slotIndex != null) {
+      const fromAms = this.slotLabels.get(slotIndex);
+      if (fromAms) return fromAms;
+    }
+    return null;
+  }
+
+  setSlotDisplayLabel(slotIndex, accountName, extra = {}) {
+    const row = this.slotLabels.set(slotIndex, accountName, extra);
+    this.syncLinkedSlotAudit(slotIndex, extra);
+    this.emit('status', this.getStatus());
+    return row;
+  }
+
+  syncLinkedSlotAudit(slotIndex, extra = {}) {
+    if (!this.isAccountLinked(slotIndex)) return null;
+    const name = getAccountName(slotIndex);
+    const session = this.sessions[slotIndex];
+    const probe = new WhatsAppSession(name);
+    const auth = probe.getAuthStatus();
+    const labelRow = this.slotLabels.getRow(slotIndex) || {};
+    const accountName = this.resolveDisplayName(probe, session, auth, slotIndex)
+      || labelRow.accountName
+      || getAccountLabel(slotIndex);
+    const merged = { ...labelRow, ...extra };
+    return this.auditLog.upsertLinkedSlot({
+      slot: slotIndex,
+      sessionName: name,
+      accountName,
+      location: merged.location || null,
+      ipAddress: merged.ipAddress || null,
+      proxyUrl: session?.proxyUrl || this.accountProxies[slotIndex] || null,
+      reason: 'account_linked',
+    });
+  }
+
+  syncLinkedSlotsAudit() {
+    const updated = [];
+    for (let i = 0; i < this.accountCount(); i++) {
+      if (!this.isAccountLinked(i)) continue;
+      const entry = this.syncLinkedSlotAudit(i);
+      if (entry) updated.push(entry);
+    }
+    if (updated.length) this.emitAuditUpdate(updated[updated.length - 1]);
+    return { count: updated.length, entries: updated };
   }
 
   /** Proxy shown in UI/logs: live socket, or feeding assignment when parent socket is down. */
@@ -542,11 +683,12 @@ class DesktopBridge {
       const partnerAuth = partnerProbe.getAuthStatus();
       const hasSaved = this.isAccountLinked(i);
       const partnerHasSaved = this.isAccountLinked(partnerSlot);
-      const displayName = this.resolveDisplayName(probe, session, auth);
+      const displayName = this.resolveDisplayName(probe, session, auth, i);
       const partnerDisplayName = this.resolveDisplayName(
         partnerProbe,
         partnerSession,
-        partnerAuth
+        partnerAuth,
+        partnerSlot
       );
       const slotLabel = getAccountLabel(i);
       const partnerSlotLabel = getAccountLabel(partnerSlot);
@@ -607,6 +749,7 @@ class DesktopBridge {
       linkingSlot: this.linkingSlot,
       feedingRunning: Boolean(this.feedingProcess && !this.feedingProcess.killed),
       feedingStarting: Boolean(this.feedingStarting),
+      feedingPairIndex: this.feedingPairIndex,
       feedingLaunchPhase: this.feedingLaunchPhase || 'prepare',
       lastFeedingComplete: this.lastFeedingComplete,
       accounts,
@@ -894,6 +1037,7 @@ class DesktopBridge {
 
     session.on('pairingCodeFailed', (data) => {
       this.log('warn', `[${name}] Pairing code failed: ${data?.message || 'unknown'}`);
+      this.emit('pairingCodeFailed', { account: name, slot: slotIndex, ...data });
       this.emit('status', this.getStatus());
     });
 
@@ -948,12 +1092,12 @@ class DesktopBridge {
     });
 
     session.on('policyAlert', (alert) => {
+      if (!alert) return;
       if (
-        session.isPairingLinkActive?.()
-        && alert?.type === 'LOGGED_OUT_OR_RESTRICTED'
+        (session.isPairingLinkActive?.() || (session.isLinking && !session.isConnected))
+        && (alert.type === 'LOGGED_OUT_OR_RESTRICTED' || !alert.strictScanPossible)
         && /connection\s*failure|connection\s*closed|connection\s*lost/i.test(alert?.detail || '')
       ) {
-        this.log('info', `[${name}] Pairing handshake pause — waiting for code`);
         return;
       }
       this.emit('alert', { account: name, slot: slotIndex, ...alert });
@@ -1088,6 +1232,57 @@ class DesktopBridge {
     }
 
     const sessionName = getAccountName(slotIndex);
+    const existing = this.sessions[slotIndex];
+    const pairingCodeActive = Boolean(
+      existing?.loginMethod === 'pairing'
+      && existing?.pairingCodeDisplay
+      && !existing?.isConnected
+    );
+    const pairingBusy = Boolean(
+      existing
+      && existing.loginMethod === 'pairing'
+      && existing.pairingPhone
+      && !existing?.isConnected
+      && (pairingCodeActive || existing.isLinking || existing.pairingCodeRequested)
+    );
+
+    if (plan.method === 'pairing' && pairingBusy && !plan.refreshPairing) {
+      this.linkingSlot = slotIndex;
+      this.emit('status', this.getStatus());
+      this.log(
+        'info',
+        `[${sessionName}] Pairing already in progress — enter the code on your phone (do not request a new code)`
+      );
+      if (existing.pairingCodeDisplay) {
+        existing.emit('pairingCode', {
+          code: existing.pairingCodeDisplay,
+          phone: existing.pairingPhone,
+        });
+      }
+      return { ok: true, mode: 'direct', pending: true, pairingCodeActive: pairingCodeActive };
+    }
+
+    if (
+      existing
+      && existing.isLinking
+      && !existing.isConnected
+      && !plan.refreshPairing
+    ) {
+      const partial = existing.getAuthStatus();
+      if (!partial.registered) {
+        this.linkingSlot = slotIndex;
+        this.emit('status', this.getStatus());
+        this.log('info', `[${sessionName}] Link already in progress — wait before starting again`);
+        if (existing.pairingCodeDisplay) {
+          existing.emit('pairingCode', {
+            code: existing.pairingCodeDisplay,
+            phone: existing.pairingPhone,
+          });
+        }
+        return { ok: true, mode: 'direct', pending: true, linkInProgress: true };
+      }
+    }
+
     const authProbe = new WhatsAppSession(sessionName).getAuthStatus();
     const needsFreshLink = !authProbe.valid || !authProbe.registered;
 
@@ -1095,6 +1290,14 @@ class DesktopBridge {
       throw new Error(
         `${getAccountLabel(this.linkingSlot)} is still linking. Finish or cancel that link before starting ${getAccountLabel(slotIndex)}.`
       );
+    }
+
+    if (plan.clearIncomplete && pairingCodeActive && !plan.refreshPairing) {
+      this.log(
+        'warn',
+        `[${sessionName}] Ignored clearIncomplete — active pairing code ${existing.pairingCodeDisplay} (enter it on your phone)`
+      );
+      plan = { ...plan, clearIncomplete: false };
     }
 
     if (plan.clearIncomplete) {
@@ -1121,6 +1324,28 @@ class DesktopBridge {
 
     let session = this.sessions[slotIndex];
 
+    if (plan.method === 'pairing' && (plan.clearIncomplete || plan.refreshPairing)) {
+      if (session) {
+        session.autoReconnectAllowed = false;
+        session.clearReconnectTimer?.();
+        try {
+          await session.shutdown();
+        } catch {
+          /* ignore */
+        }
+      }
+      const probe = new WhatsAppSession(sessionName);
+      if (probe.getAuthStatus().saved && !probe.getAuthStatus().registered) {
+        probe.purgeLocalSession();
+        this.log('info', `[${sessionName}] Cleared incomplete session before phone pairing`);
+      }
+      this.sessions[slotIndex] = null;
+      session = null;
+      if (this.linkingSlot === slotIndex) {
+        this.linkingSlot = null;
+      }
+    }
+
     if (!session) {
       session = new WhatsAppSession(sessionName);
       session.autoReconnectAllowed = true;
@@ -1141,7 +1366,7 @@ class DesktopBridge {
     if (plan.method === 'pairing') {
       session.setProxy(null);
       session.linkedViaDirect = true;
-      if (authProbe.saved && !authProbe.registered) {
+      if (authProbe.saved && !authProbe.registered && !plan.clearIncomplete && !plan.refreshPairing) {
         session.purgeLocalSession();
         this.log('info', `[${sessionName}] Cleared incomplete session before phone pairing`);
       }
@@ -1333,7 +1558,12 @@ class DesktopBridge {
         this.emitAccountProgress(slotIndex, 'disconnect', 'Closing connection…');
         this.log('info', `[${sessionName}] Closing connection before logout…`);
         session.isLoggingOut = true;
-        await session.shutdown();
+        try {
+          await withTimeout(session.shutdown(), 12_000, 'Closing connection');
+        } catch (err) {
+          this.log('warn', `[${sessionName}] ${err.message} — forcing local disconnect`);
+          await session.disconnect().catch(() => {});
+        }
         session.isLoggingOut = false;
         session.isShuttingDown = false;
       }
@@ -1341,7 +1571,12 @@ class DesktopBridge {
       this.emitAccountProgress(slotIndex, 'remote', 'Logging out from WhatsApp…');
       this.log('info', `[${sessionName}] Logging out from WhatsApp…`);
       session.isLoggingOut = true;
-      await session.logoutAndClear();
+      try {
+        await withTimeout(session.logoutAndClear(), 35_000, 'WhatsApp logout');
+      } catch (err) {
+        this.log('warn', `[${sessionName}] ${err.message} — purging local session only`);
+        session.purgeLocalSession();
+      }
 
       this.sessions[slotIndex] = null;
       this.emitAccountProgress(slotIndex, 'clear', 'Removing session data…');
@@ -1421,7 +1656,12 @@ class DesktopBridge {
       session.autoReconnectAllowed = false;
       session.clearReconnectTimer();
       session.isLoggedOut = true;
-      await session.shutdown();
+      try {
+        await withTimeout(session.shutdown(), 8_000, 'Session shutdown');
+      } catch (err) {
+        this.log('warn', `[${getAccountName(i)}] ${err.message} — forcing disconnect`);
+        await session.disconnect().catch(() => {});
+      }
       this.sessions[i] = null;
     }
     this.sessions = [];
@@ -1464,6 +1704,7 @@ class DesktopBridge {
     this.sessions = [];
     this.logoutSlots.clear();
     this.logoutPhase.clear();
+    this.slotLabels.clearAll();
     this.log('warn', `[SESSIONS] Cleared ${removed.length} item(s) from auth/ — link accounts again with QR`);
     const status = this.getStatus();
     this.emit('status', status);
@@ -1474,6 +1715,7 @@ class DesktopBridge {
   stopFeeding() {
     this.feedingStarting = false;
     this.feedingLinkedSlots = null;
+    this.feedingPairIndex = null;
     if (!this.feedingProcess) return { ok: true, wasRunning: false };
     try {
       this.feedingProcess.kill('SIGTERM');
@@ -1502,6 +1744,7 @@ class DesktopBridge {
     this.feedingStarting = false;
     this.feedingLaunchPhase = 'prepare';
     this.feedingLinkedSlots = null;
+    this.feedingPairIndex = null;
     this.emit('status', this.getStatus());
     return { ok: false, error: message };
   }
@@ -1510,7 +1753,7 @@ class DesktopBridge {
     return 'npx @openai/codex login';
   }
 
-  async startFeeding() {
+  async startFeeding(options = {}) {
     if (this.feedingProcess && !this.feedingProcess.killed) {
       return { ok: false, error: 'Feeding already running' };
     }
@@ -1518,26 +1761,48 @@ class DesktopBridge {
       return { ok: false, error: 'Feeding is already starting' };
     }
 
+    let pairIndex = options.pairIndex;
+    if (pairIndex !== undefined && pairIndex !== null && pairIndex !== '') {
+      pairIndex = parseInt(pairIndex, 10);
+      if (!Number.isFinite(pairIndex) || pairIndex < 0 || pairIndex >= this.pairCount()) {
+        return { ok: false, error: `Invalid pair (${options.pairIndex})` };
+      }
+    } else {
+      pairIndex = null;
+    }
+
     this.feedingStarting = true;
     this.feedingLaunchPhase = 'prepare';
+    this.feedingPairIndex = pairIndex;
     this.lastFeedingComplete = null;
     this.emit('status', this.getStatus());
 
     try {
-    const savedCount = this.accountCount();
-    let linked = 0;
-    for (let i = 0; i < savedCount; i++) {
-      if (this.isAccountLinked(i)) linked += 1;
-    }
-    if (linked < savedCount) {
-      return this.failFeedingStart(
-        `Not all accounts are linked (${linked}/${savedCount}). Scan QR for each account in the sidebar before Start feeding.`
-      );
-    }
+    if (pairIndex !== null) {
+      const slotA = pairIndex * 2;
+      const slotB = slotA + 1;
+      if (!this.isAccountLinked(slotA) || !this.isAccountLinked(slotB)) {
+        return this.failFeedingStart(
+          `Pair ${pairIndex + 1} is not fully linked — scan QR for both accounts before Start feeding.`
+        );
+      }
+      this.feedingLinkedSlots = new Set([slotA, slotB]);
+    } else {
+      const savedCount = this.accountCount();
+      let linked = 0;
+      for (let i = 0; i < savedCount; i++) {
+        if (this.isAccountLinked(i)) linked += 1;
+      }
+      if (linked < savedCount) {
+        return this.failFeedingStart(
+          `Not all accounts are linked (${linked}/${savedCount}). Scan QR for each account in the sidebar before Start feeding.`
+        );
+      }
 
-    this.feedingLinkedSlots = new Set();
-    for (let i = 0; i < savedCount; i++) {
-      this.feedingLinkedSlots.add(i);
+      this.feedingLinkedSlots = new Set();
+      for (let i = 0; i < savedCount; i++) {
+        this.feedingLinkedSlots.add(i);
+      }
     }
 
     await this.ensureCodexProxy();
@@ -1559,10 +1824,21 @@ class DesktopBridge {
     }
 
     const root = this.getAppRoot();
+    if (pairIndex !== null) {
+      this.log(
+        'info',
+        `[FEEDING] Pair ${pairIndex + 1} only — accounts ${getAccountName(pairIndex * 2)} & ${getAccountName(pairIndex * 2 + 1)}`
+      );
+    } else {
+      this.log('info', `[FEEDING] All ${this.pairCount()} pair(s)`);
+    }
     this.log('info', `[FEEDING] Auth folder: ${path.join(root, 'auth')}`);
     if (this.hasProxies) {
       this.log('info', '[FEEDING] Proxy plan for this run:');
-      for (let i = 0; i < this.accountCount(); i++) {
+      const slotsToLog = pairIndex !== null
+        ? [pairIndex * 2, pairIndex * 2 + 1]
+        : Array.from({ length: this.accountCount() }, (_, i) => i);
+      for (const i of slotsToLog) {
         const name = getAccountName(i);
         const url = this.accountProxies[i];
         const route = url
@@ -1579,7 +1855,10 @@ class DesktopBridge {
     }
 
     this.setFeedingLaunchPhase('prepare');
-    for (let i = 0; i < this.accountCount(); i++) {
+    const clearSlots = pairIndex !== null
+      ? [pairIndex * 2, pairIndex * 2 + 1]
+      : Array.from({ length: this.accountCount() }, (_, i) => i);
+    for (const i of clearSlots) {
       this.clearChat(i);
     }
 
@@ -1599,6 +1878,11 @@ class DesktopBridge {
     env.DESKTOP_FEEDING = '1';
     env.DESKTOP_API_PORT = process.env.DESKTOP_API_PORT || '47821';
     env.FEEDING_RUN_ID = this.currentFeedingRunId;
+    if (pairIndex !== null) {
+      env.FEEDING_PAIR_INDEX = String(pairIndex);
+    } else {
+      delete env.FEEDING_PAIR_INDEX;
+    }
     let child;
     try {
       child = this.spawnFeedingChild(scriptPath, root, env);
@@ -1667,6 +1951,7 @@ class DesktopBridge {
       this.log(code === 0 ? 'success' : 'warn', `[FEEDING] Exited (code ${code ?? '?'})`);
       this.feedingProcess = null;
       this.feedingLinkedSlots = null;
+      this.feedingPairIndex = null;
       if (code === 0 && !this.lastFeedingComplete?.at) {
         this.recordFeedingComplete({ success: true });
       } else if (code !== 0 && code != null && !this.lastFeedingComplete?.at) {
@@ -1687,10 +1972,11 @@ class DesktopBridge {
       this.log('error', `[FEEDING] ${err.message}`);
       this.feedingProcess = null;
       this.feedingLinkedSlots = null;
+      this.feedingPairIndex = null;
       this.emit('status', this.getStatus());
     });
 
-    return { ok: true, pid: child.pid };
+    return { ok: true, pid: child.pid, pairIndex };
     } catch (err) {
       return this.failFeedingStart(err.message || String(err));
     }

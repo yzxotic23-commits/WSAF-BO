@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const FEEDING_STATUS = {
+  ACTIVE: 'Active',
   SUCCESS: 'Success',
   RESTRICT: 'Restrict',
   BANNED: 'Banned',
@@ -61,6 +62,9 @@ function mapPolicyTypeToStatus(policyType) {
 function reasonToStatus(reason, completed = false) {
   if (completed) return FEEDING_STATUS.SUCCESS;
   const r = String(reason || '').toLowerCase();
+  if (/feeding_started|feeding_active|session_started|account_linked/.test(r)) {
+    return FEEDING_STATUS.ACTIVE;
+  }
   if (
     /ban|forbidden|403|send_forbidden|send_rate|send_policy|policy_keyword/.test(r)
   ) {
@@ -170,8 +174,9 @@ class AuditLogStore {
   }
 
   statusRank(status) {
-    if (status === FEEDING_STATUS.BANNED) return 3;
-    if (status === FEEDING_STATUS.RESTRICT) return 2;
+    if (status === FEEDING_STATUS.BANNED) return 4;
+    if (status === FEEDING_STATUS.RESTRICT) return 3;
+    if (status === FEEDING_STATUS.ACTIVE) return 2;
     return 1;
   }
 
@@ -182,6 +187,52 @@ class AuditLogStore {
       if (e.runId === runId && e.slot === slot) return e;
     }
     return null;
+  }
+
+  /** Stable AMS-linked row per slot (not tied to a feeding run). */
+  upsertLinkedSlot({
+    slot = null,
+    sessionName = null,
+    accountName = null,
+    location = null,
+    proxyUrl = null,
+    ipAddress = null,
+    feedingStatus = FEEDING_STATUS.ACTIVE,
+    reason = 'account_linked',
+  }) {
+    const LINK_RUN = 'ams-linked';
+    const existing = this.findRunSlot(LINK_RUN, slot);
+    const ip = ipAddress || extractIpAddress(proxyUrl);
+
+    if (existing) {
+      if (accountName) existing.accountName = accountName;
+      if (location) existing.location = formatAuditLocation(location);
+      if (ip) existing.ipAddress = ip;
+      if (
+        feedingStatus
+        && this.statusRank(feedingStatus) >= this.statusRank(existing.feedingStatus)
+      ) {
+        existing.feedingStatus = feedingStatus;
+      }
+      existing.reason = reason || existing.reason;
+      existing.sessionName = sessionName || existing.sessionName;
+      existing.ts = new Date().toISOString();
+      existing.dateTime = formatDateTime(existing.ts);
+      this.rewriteLog();
+      return existing;
+    }
+
+    return this.record({
+      runId: LINK_RUN,
+      slot,
+      sessionName,
+      accountName,
+      location,
+      feedingStatus,
+      reason,
+      proxyUrl,
+      ipAddress: ip,
+    });
   }
 
   recordOrUpdate(payload) {
@@ -205,7 +256,11 @@ class AuditLogStore {
     }
 
     if (this.statusRank(nextStatus) <= this.statusRank(existing.feedingStatus)) {
-      return existing;
+      const completingActive = (
+        nextStatus === FEEDING_STATUS.SUCCESS
+        && existing.feedingStatus === FEEDING_STATUS.ACTIVE
+      );
+      if (!completingActive) return existing;
     }
 
     existing.feedingStatus = nextStatus;
@@ -231,6 +286,7 @@ class AuditLogStore {
     reason = null,
     policyType = null,
     proxyUrl = null,
+    ipAddress: explicitIp = null,
     location = null,
     pairIndex = null,
     messageCount = null,
@@ -242,8 +298,8 @@ class AuditLogStore {
     let status = feedingStatus;
     if (policyType) {
       status = mapPolicyTypeToStatus(policyType);
-    } else if (reason) {
-      status = reasonToStatus(reason, feedingStatus === FEEDING_STATUS.SUCCESS);
+    } else if (reason && feedingStatus === FEEDING_STATUS.SUCCESS) {
+      status = reasonToStatus(reason, true);
     }
 
     const entry = {
@@ -257,7 +313,7 @@ class AuditLogStore {
       sessionName,
       feedingDays,
       feedingStatus: status,
-      ipAddress: extractIpAddress(proxyUrl),
+      ipAddress: explicitIp || extractIpAddress(proxyUrl),
       proxyMasked: proxyUrl && proxyUrl !== 'direct' ? proxyUrl : null,
       reason: reason || null,
       policyType: policyType || null,

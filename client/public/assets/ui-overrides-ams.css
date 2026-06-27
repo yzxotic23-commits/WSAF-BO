@@ -1,0 +1,221 @@
+/**
+ * FeedFlow — AMS theme (standalone console + embed).
+ * Loaded after index bundle + ui-overrides.css.
+ */
+
+/* ── AMS design tokens → FeedFlow CSS variables ───────────────── */
+:root {
+  --wa-teal: #e65f2b;
+  --wa-teal-light: #f07040;
+  --wa-teal-dark: #cf5426;
+  --wa-accent: #e65f2b;
+  --wa-header: #fcf9f7;
+  --wa-border: rgba(6, 6, 6, 0.08);
+  --wa-text: #060606;
+  --wa-text-secondary: #797979;
+  --wa-white: #ffffff;
+  --wa-chat-bg: #ebdfd7;
+  --wa-incoming: #ffffff;
+  --wa-outgoing: #fff0e8;
+  --wa-hover: rgba(6, 6, 6, 0.04);
+  --wa-active: #f1f1f1;
+  --wa-link-bg: #ebdfd7;
+  --wa-bg: #ebdfd7;
+  --wa-gradient-brand: linear-gradient(135deg, #f07040 0%, #e65f2b 48%, #cf5426 100%);
+  --wa-radius-card: 14px;
+  --wa-shadow-card: 0 4px 6px rgba(0, 0, 0, 0.02);
+  --wa-shadow-elevated: 0 8px 15px rgba(19, 15, 57, 0.12);
+
+  /* ui-overrides.css polish tokens */
+  --ff-ring: 0 0 0 3px rgba(230, 95, 43, 0.22);
+  --ff-surface: rgba(252, 249, 247, 0.96);
+  --ff-glass: rgba(252, 249, 247, 0.88);
+}
+
+body {
+  background: #ebdfd7;
+  color: #060606;
+}
+
+.wa-app {
+  background: #ebdfd7;
+}
+
+.wa-shell {
+  background: linear-gradient(165deg, #fcf9f7 0%, #ebdfd7 52%, #e8ddd4 100%);
+}
+
+.wa-list {
+  border-right-color: rgba(6, 6, 6, 0.08) !important;
+  background: rgba(252, 249, 247, 0.98);
+  box-shadow: 2px 0 16px rgba(0, 0, 0, 0.03);
+}
+
+.wa-list-header {
+  background: linear-gradient(180deg, #fff 0%, #fcf9f7 72%);
+}
+
+.wa-list-footer {
+  border-top-color: rgba(6, 6, 6, 0.08);
+  background: linear-gradient(0deg, rgba(255, 255, 255, 0.98) 0%, #fcf9f7 100%);
+}
+
+.wa-main,
+.wa-web-login {
+  background: #ebdfd7;
+}
+
+.wa-outgoing {
+  background: #fff0e8 !important;
+}
+
+/* Replace hardcoded WhatsApp teal tints from ui-overrides.css */
+.wa-header-icon-btn:hover {
+  background: rgba(230, 95, 43, 0.1) !important;
+  color: #e65f2b !important;
+}
+
+.wa-stat-pill:hover {
+  background: rgba(230, 95, 43, 0.1) !important;
+}
+
+.wa-stat-pill--active {
+  background: rgba(230, 95, 43, 0.12) !important;
+  color: #e65f2b !important;
+}
+
+.wa-chat-row--active,
+.wa-chat-row:hover {
+  background: rgba(230, 95, 43, 0.06) !important;
+  border-left-color: #f07040 !important;
+}
+
+.wa-toolbar-btn--primary,
+.btn-primary,
+.wa-btn-start,
+.wa-footer-btn--feed {
+  background: #e65f2b !important;
+  border-color: #e65f2b !important;
+}
+
+.wa-toolbar-btn--primary:hover,
+.btn-primary:hover,
+.wa-btn-start:hover:not(:disabled),
+.wa-footer-btn--feed:hover:not(:disabled) {
+  background: #cf5426 !important;
+  border-color: #cf5426 !important;
+}
+
+.wa-footer-btn--feed {
+  box-shadow: 0 4px 16px rgba(230, 95, 43, 0.22) !important;
+}
+
+.wa-footer-btn--feed:hover:not(:disabled) {
+  box-shadow: 0 6px 22px rgba(230, 95, 43, 0.3) !important;
+}
+
+.wa-stat-pill--live .wa-stat-pill-dot,
+.conn-dot.on {
+  background: #1a932e !important;
+}
+
+.wa-topbar-pill--on,
+.wa-topbar-pill--audit.wa-topbar-pill--on,
+.wa-topbar-pill--system.wa-topbar-pill--on {
+  background: rgba(230, 95, 43, 0.12) !important;
+  color: #e65f2b !important;
+  border-color: rgba(230, 95, 43, 0.2) !important;
+}
+
+.wa-brand-mark,
+.wa-list-header-badge {
+  background: var(--wa-gradient-brand) !important;
+  box-shadow: 0 8px 24px rgba(230, 95, 43, 0.28) !important;
+}
+
+.wa-link-card:hover,
+.wa-settings-tab--active {
+  border-color: #f07040 !important;
+}
+
+.wa-settings-tab--active {
+  background: rgba(230, 95, 43, 0.12) !important;
+  color: #e65f2b !important;
+}
+
+.wa-modal-primary,
+.wa-dialog-btn--primary {
+  background: #e65f2b !important;
+}
+
+.wa-modal-primary:hover,
+.wa-dialog-btn--primary:hover {
+  background: #cf5426 !important;
+}
+
+.wa-qr-ring {
+  border-color: #f07040 !important;
+}
+
+.wa-chat-row-badge {
+  background: #e65f2b !important;
+  box-shadow: 0 2px 8px rgba(230, 95, 43, 0.28) !important;
+}
+
+/* Audit log moved to AMS dashboard */
+.wa-topbar-pill--audit {
+  display: none !important;
+}
+
+/* Status colors aligned with AMS */
+.badge-success,
+.status-success {
+  color: #1a932e !important;
+}
+
+.badge-warn,
+.status-warn {
+  color: #dfa510 !important;
+}
+
+.badge-danger,
+.status-danger {
+  color: #ee201c !important;
+}
+
+/* ── Embed-only layout fixes (iframe inside AMS) ─────────────── */
+html.ams-embed {
+  height: 100%;
+}
+
+html.ams-embed body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+html.ams-embed #root {
+  height: 100%;
+}
+
+html.ams-embed .wa-app,
+html.ams-embed .wa-shell {
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100%;
+}
+
+html.ams-embed .wa-shell {
+  box-shadow: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+
+html.ams-embed .wa-app {
+  overflow: hidden;
+}
+
+html.ams-embed .wa-main {
+  min-height: 0;
+  flex: 1;
+}

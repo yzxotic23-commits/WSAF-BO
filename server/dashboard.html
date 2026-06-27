@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FeedFlow Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3350;
+      --accent: #25d366;
+      --accent2: #128c7e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --info: #3b82f6;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── TOP BAR ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 17px;
+    }
+
+    .header-brand .logo-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+
+    .header-nav a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      transition: all .15s;
+    }
+
+    .header-nav a:hover, .header-nav a.active {
+      color: var(--text);
+      background: var(--bg3);
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      background: var(--bg3);
+      padding: 5px 10px;
+      border-radius: 20px;
+    }
+
+    .status-pill .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .status-pill.live .dot {
+      background: var(--accent);
+      box-shadow: 0 0 5px var(--accent);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+
+    /* ── LAYOUT ── */
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px 20px;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 12px;
+    }
+
+    /* ── STAT CARDS ── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+
+    .card-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .card-value {
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .card-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .card.green .card-value { color: var(--accent); }
+    .card.yellow .card-value { color: var(--warn); }
+    .card.red .card-value { color: var(--danger); }
+    .card.blue .card-value { color: var(--info); }
+
+    /* ── CHARTS ROW ── */
+    .charts-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    @media (max-width: 900px) {
+      .charts-row { grid-template-columns: 1fr; }
+    }
+
+    .chart-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+
+    .chart-card h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 14px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .chart-wrap {
+      position: relative;
+      height: 200px;
+    }
+
+    /* ── ACCOUNTS GRID ── */
+    .accounts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .account-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+
+    .account-card .acc-name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .account-card .acc-phone {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 20px;
+    }
+
+    .badge.connected { background: rgba(37,211,102,.15); color: var(--accent); }
+    .badge.feeding { background: rgba(59,130,246,.15); color: var(--info); }
+    .badge.linking { background: rgba(245,158,11,.15); color: var(--warn); }
+    .badge.disconnected { background: rgba(100,116,139,.1); color: var(--muted); }
+
+    /* ── AUDIT TABLE ── */
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th {
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg3);
+    }
+
+    tbody tr {
+      border-bottom: 1px solid rgba(46,51,80,.5);
+      transition: background .1s;
+    }
+
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--bg3); }
+
+    tbody td {
+      padding: 10px 14px;
+      color: var(--text);
+    }
+
+    .status-success { color: var(--accent); font-weight: 600; }
+    .status-restrict { color: var(--warn); font-weight: 600; }
+    .status-banned { color: var(--danger); font-weight: 600; }
+    .status-unknown { color: var(--muted); }
+
+    .feeding-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--info);
+      background: rgba(59,130,246,.1);
+      padding: 4px 10px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+    }
+
+    .feeding-indicator .spin {
+      width: 10px; height: 10px;
+      border: 2px solid rgba(59,130,246,.3);
+      border-top-color: var(--info);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .ip-table-wrap {
+      overflow-x: auto;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 24px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-brand">
+    <div class="logo-dot"></div>
+    FeedFlow Dashboard
+  </div>
+  <nav class="header-nav">
+    <a href="/">App</a>
+    <a href="/dashboard" class="active">Dashboard</a>
+  </nav>
+  <div id="conn-pill" class="status-pill">
+    <div class="dot"></div>
+    <span id="conn-label">Connecting…</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- Feeding active indicator -->
+  <div id="feeding-banner" class="feeding-indicator" style="display:none">
+    <div class="spin"></div>
+    Feeding sedang berjalan
+  </div>
+
+  <!-- ── STAT CARDS ── -->
+  <div class="section-title">Overview</div>
+  <div class="cards-grid" id="cards">
+    <div class="card blue"><div class="card-label">Total Runs</div><div class="card-value" id="c-total">–</div></div>
+    <div class="card green"><div class="card-label">Success</div><div class="card-value" id="c-success">–</div><div class="card-sub" id="c-success-rate"></div></div>
+    <div class="card yellow"><div class="card-label">Restrict</div><div class="card-value" id="c-restrict">–</div><div class="card-sub" id="c-restrict-rate"></div></div>
+    <div class="card red"><div class="card-label">Banned</div><div class="card-value" id="c-banned">–</div><div class="card-sub" id="c-banned-rate"></div></div>
+    <div class="card"><div class="card-label">Accounts Online</div><div class="card-value" id="c-online">–</div></div>
+    <div class="card"><div class="card-label">Pairs</div><div class="card-value" id="c-pairs">–</div></div>
+  </div>
+
+  <!-- ── CHARTS ── -->
+  <div class="section-title">Analytics</div>
+  <div class="charts-row">
+    <div class="chart-card">
+      <h3>Feeding Status</h3>
+      <div class="chart-wrap"><canvas id="chart-status"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Feeding Days</h3>
+      <div class="chart-wrap"><canvas id="chart-days"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>IP Risk</h3>
+      <div class="chart-wrap"><canvas id="chart-ip"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── ACCOUNTS ── -->
+  <div class="section-title">Accounts</div>
+  <div class="accounts-grid" id="accounts-grid">
+    <div class="empty-state">Loading…</div>
+  </div>
+
+  <!-- ── IP BREAKDOWN ── -->
+  <div class="section-title">IP Address Breakdown</div>
+  <div class="ip-table-wrap">
+    <table>
+      <thead><tr>
+        <th>IP / Proxy</th>
+        <th>Total</th>
+        <th>Success</th>
+        <th>Restrict</th>
+        <th>Banned</th>
+        <th>Ban Rate</th>
+      </tr></thead>
+      <tbody id="ip-tbody"><tr><td colspan="6" class="empty-state">No data yet</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ── AUDIT LOG ── -->
+  <div class="section-title">Audit Log (last 100)</div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Date / Time</th>
+        <th>Account</th>
+        <th>Location</th>
+        <th>Feeding Days</th>
+        <th>Status</th>
+        <th>IP Address</th>
+      </tr></thead>
+      <tbody id="audit-tbody"><tr><td colspan="6" class="empty-state">No data yet</td></tr></tbody>
+    </table>
+  </div>
+
+</main>
+
+<script>
+// ── helpers ──────────────────────────────────────────────────────────────────
+const API = (path) => fetch(path).then(r => r.json());
+
+function statusClass(s) {
+  if (!s) return 'status-unknown';
+  const u = s.toLowerCase();
+  if (u === 'success') return 'status-success';
+  if (u === 'restrict') return 'status-restrict';
+  if (u === 'banned') return 'status-banned';
+  return 'status-unknown';
+}
+
+function el(id) { return document.getElementById(id); }
+
+// ── charts ───────────────────────────────────────────────────────────────────
+const CHART_DEFAULTS = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+};
+
+let chartStatus, chartDays, chartIp;
+
+function initCharts() {
+  const pieColors = ['#25d366', '#f59e0b', '#ef4444'];
+  chartStatus = new Chart(el('chart-status'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Success', 'Restrict', 'Banned'],
+      datasets: [{ data: [0, 0, 0], backgroundColor: pieColors, borderWidth: 0 }],
+    },
+    options: { ...CHART_DEFAULTS },
+  });
+
+  chartDays = new Chart(el('chart-days'), {
+    type: 'bar',
+    data: {
+      labels: ['D1', 'D2', 'D2+'],
+      datasets: [{
+        label: 'Count',
+        data: [0, 0, 0],
+        backgroundColor: ['#3b82f6', '#8b5cf6', '#ec4899'],
+        borderRadius: 6,
+      }],
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      scales: {
+        x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(46,51,80,.4)' } },
+        y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(46,51,80,.4)' } },
+      },
+    },
+  });
+
+  chartIp = new Chart(el('chart-ip'), {
+    type: 'bar',
+    data: {
+      labels: [],
+      datasets: [
+        { label: 'Success', data: [], backgroundColor: '#25d366', borderRadius: 4 },
+        { label: 'Restrict', data: [], backgroundColor: '#f59e0b', borderRadius: 4 },
+        { label: 'Banned', data: [], backgroundColor: '#ef4444', borderRadius: 4 },
+      ],
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      scales: {
+        x: { stacked: true, ticks: { color: '#64748b', maxRotation: 30 }, grid: { color: 'rgba(46,51,80,.4)' } },
+        y: { stacked: true, ticks: { color: '#64748b' }, grid: { color: 'rgba(46,51,80,.4)' } },
+      },
+    },
+  });
+}
+
+// ── update UI ────────────────────────────────────────────────────────────────
+function updateSummary(s) {
+  el('c-total').textContent = s.totalFeedingVolume ?? 0;
+  el('c-success').textContent = s.successVolume ?? 0;
+  el('c-success-rate').textContent = `${s.successRate ?? 0}% success rate`;
+  el('c-restrict').textContent = s.restrictVolume ?? 0;
+  el('c-restrict-rate').textContent = `${s.restrictRate ?? 0}% restrict rate`;
+  el('c-banned').textContent = s.bannedVolume ?? 0;
+  el('c-banned-rate').textContent = `${s.bannedRate ?? 0}% ban rate`;
+
+  // pie chart
+  chartStatus.data.datasets[0].data = [
+    s.successVolume ?? 0,
+    s.restrictVolume ?? 0,
+    s.bannedVolume ?? 0,
+  ];
+  chartStatus.update();
+
+  // IP chart
+  if (Array.isArray(s.byIp) && s.byIp.length) {
+    const top = s.byIp.slice(0, 6);
+    chartIp.data.labels = top.map(r => r.ip.length > 20 ? r.ip.slice(0, 18) + '…' : r.ip);
+    chartIp.data.datasets[0].data = top.map(r => r.success);
+    chartIp.data.datasets[1].data = top.map(r => r.restrict);
+    chartIp.data.datasets[2].data = top.map(r => r.banned);
+    chartIp.update();
+
+    const tbody = el('ip-tbody');
+    tbody.innerHTML = s.byIp.map(r => `
+      <tr>
+        <td>${r.ip}</td>
+        <td>${r.total}</td>
+        <td class="status-success">${r.success}</td>
+        <td class="status-restrict">${r.restrict}</td>
+        <td class="status-banned">${r.banned}</td>
+        <td class="${r.bannedRate > 30 ? 'status-banned' : r.bannedRate > 0 ? 'status-restrict' : ''}">${r.bannedRate}%</td>
+      </tr>`).join('');
+  }
+}
+
+function updateAuditList(entries) {
+  if (!entries || !entries.length) return;
+
+  // Days chart
+  let d1 = 0, d2 = 0, dMore = 0;
+  for (const e of entries) {
+    const d = String(e.feedingDays || '').toLowerCase();
+    if (d === 'd1') d1++;
+    else if (d === 'd2') d2++;
+    else dMore++;
+  }
+  chartDays.data.datasets[0].data = [d1, d2, dMore];
+  chartDays.update();
+
+  // Table
+  const tbody = el('audit-tbody');
+  tbody.innerHTML = entries.slice(0, 100).map(e => `
+    <tr>
+      <td>${e.dateTime || '–'}</td>
+      <td>${e.accountName || '–'}</td>
+      <td>${e.location && e.location !== 'Pending' ? e.location : '–'}</td>
+      <td>${e.feedingDays || '–'}</td>
+      <td class="${statusClass(e.feedingStatus)}">${e.feedingStatus || '–'}</td>
+      <td>${e.ipAddress || '–'}</td>
+    </tr>`).join('');
+}
+
+function updateAccounts(status) {
+  const accounts = status.accounts || [];
+  const feeding = status.feedingActive;
+
+  el('feeding-banner').style.display = feeding ? 'inline-flex' : 'none';
+  el('c-online').textContent = accounts.filter(a => a.connected).length;
+  el('c-pairs').textContent = Math.floor(accounts.length / 2);
+
+  const grid = el('accounts-grid');
+  if (!accounts.length) {
+    grid.innerHTML = '<div class="empty-state">No accounts configured</div>';
+    return;
+  }
+
+  grid.innerHTML = accounts.map(a => {
+    let badge, badgeLabel;
+    if (a.feedingActive) { badge = 'feeding'; badgeLabel = '⚡ Feeding'; }
+    else if (a.linking) { badge = 'linking'; badgeLabel = '⏳ Linking'; }
+    else if (a.connected) { badge = 'connected'; badgeLabel = '● Online'; }
+    else { badge = 'disconnected'; badgeLabel = '○ Offline'; }
+
+    return `<div class="account-card">
+      <div class="acc-name">${a.label || a.name}</div>
+      <div class="acc-phone">${a.phone || 'Not linked'}</div>
+      <span class="badge ${badge}">${badgeLabel}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── fetch initial data ────────────────────────────────────────────────────────
+async function loadAll() {
+  try {
+    const [auditData, status] = await Promise.all([
+      API('/api/audit?limit=200'),
+      API('/api/status'),
+    ]);
+
+    if (auditData.summary) updateSummary(auditData.summary);
+    if (auditData.entries) updateAuditList(auditData.entries);
+    updateAccounts(status);
+  } catch (e) {
+    console.warn('Initial load failed:', e.message);
+  }
+}
+
+// ── socket.io ─────────────────────────────────────────────────────────────────
+initCharts();
+loadAll();
+
+const socket = io({ transports: ['websocket', 'polling'] });
+
+socket.on('connect', () => {
+  const pill = el('conn-pill');
+  pill.classList.add('live');
+  el('conn-label').textContent = 'Live';
+});
+
+socket.on('disconnect', () => {
+  const pill = el('conn-pill');
+  pill.classList.remove('live');
+  el('conn-label').textContent = 'Reconnecting…';
+});
+
+socket.on('status', (status) => {
+  updateAccounts(status);
+});
+
+socket.on('audit', (data) => {
+  if (data.summary) updateSummary(data.summary);
+  // Reload full list on audit update
+  API('/api/audit?limit=200').then(d => {
+    if (d.entries) updateAuditList(d.entries);
+  }).catch(() => {});
+});
+</script>
+</body>
+</html>

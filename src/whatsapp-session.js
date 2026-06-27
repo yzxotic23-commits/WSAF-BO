@@ -20,6 +20,7 @@ const {
   classifyDisconnect,
   classifySendError,
   formatPolicyAlert,
+  isTransientHandshakeMessage,
 } = require('./wa-policy-detector');
 const ProxyManager = require('./proxy-manager');
 
@@ -292,6 +293,22 @@ class WhatsAppSession extends EventEmitter {
     }, delayMs);
   }
 
+  /** Preserve pairing plan across auto-reconnects (bare connect() otherwise falls back to QR). */
+  loginPlanForReconnect() {
+    if (this.pendingLoginPlan?.method === 'pairing' && this.pendingLoginPlan?.phoneNumber) {
+      return this.pendingLoginPlan;
+    }
+    if (this.loginMethod === 'pairing' && this.pairingPhone) {
+      return { method: 'pairing', phoneNumber: this.pairingPhone };
+    }
+    return undefined;
+  }
+
+  scheduleReconnectWithLoginPlan(delayMs) {
+    const plan = this.loginPlanForReconnect();
+    this.scheduleReconnect(() => this.connect(plan), delayMs);
+  }
+
   setProxy(proxyUrl) {
     this.proxyUrl = proxyUrl;
   }
@@ -348,7 +365,15 @@ class WhatsAppSession extends EventEmitter {
   getAuthStatus() {
     const credsPath = path.join(this.authDir, 'creds.json');
     if (!fs.existsSync(credsPath)) {
-      return { saved: false, valid: false, registered: false, phone: null, lid: null, profileName: null };
+      return {
+        saved: false,
+        valid: false,
+        registered: false,
+        phone: null,
+        lid: null,
+        profileName: null,
+        pairingCode: null,
+      };
     }
 
     try {
@@ -369,10 +394,82 @@ class WhatsAppSession extends EventEmitter {
           /* ignore */
         }
       }
-      return { saved: true, valid, registered, phone, lid, profileName };
+      return {
+        saved: true,
+        valid,
+        registered,
+        phone,
+        lid,
+        profileName,
+        pairingCode: creds?.pairingCode || null,
+      };
     } catch {
-      return { saved: true, valid: false, registered: false, phone: null, lid: null, profileName: null };
+      return {
+        saved: true,
+        valid: false,
+        registered: false,
+        phone: null,
+        lid: null,
+        profileName: null,
+        pairingCode: null,
+      };
     }
+  }
+
+  restorePairingFromPartialAuth(authStatus) {
+    if (!authStatus?.valid || authStatus.registered || !authStatus.phone) return false;
+    this.loginMethod = 'pairing';
+    this.pairingPhone = this.normalizePairingPhone(authStatus.phone);
+    if (authStatus.pairingCode) {
+      this.pairingCodeDisplay = this.formatPairingCode(authStatus.pairingCode);
+      this.pairingAwaitingUser = true;
+    }
+    this.pendingLoginPlan = { method: 'pairing', phoneNumber: this.pairingPhone };
+    return true;
+  }
+
+  isRegistrationComplete() {
+    try {
+      const live = this.socket?.authState?.creds?.registered;
+      if (live === true) return true;
+      if (live === false) return false;
+      return this.getAuthStatus().registered;
+    } catch {
+      return false;
+    }
+  }
+
+  finalizeSuccessfulLogin() {
+    if (this.isShuttingDown || !this.socket?.user) return;
+    if (this.isConnected && this.isRegistrationComplete()) return;
+
+    this.isLinking = false;
+    this.isConnected = true;
+    this.isLoggedOut = false;
+    this.pairingAwaitingUser = false;
+    this.pairingCodeDisplay = null;
+    this.pairingCodeRequested = false;
+    this.pairingReconnectAttempts = 0;
+    this.qrCount = 0;
+    this.reconnectAttempts = 0;
+    this.proxyFallbackAttempts = 0;
+    this.linkedViaDirect = !this.proxyUrl;
+
+    const user = this.socket.user;
+    const phone = user.id.split(':')[0];
+    const profileName = this.extractProfileNameFromMe(user);
+    if (profileName) this.saveProfileName(profileName);
+    console.log(`[${this.sessionName}] Connected as: ${profileName || phone}`);
+    console.log(`[${this.sessionName}] JID: ${jidNormalizedUser(user.id)}`);
+    this.logConnectionRoute('connected');
+    if (!this.proxyUrl) {
+      console.log(
+        `[${this.sessionName}] linkedViaDirect=true — preview reconnect may skip proxy; feeding CLI still assigns proxy from proxies.txt`
+      );
+    }
+    this.emit('connected', { user, profileName: profileName || null, phone });
+    this.scheduleProfileNameCapture();
+    this.emit('linkState');
   }
 
   /** Phone pairing in progress — not yet fully connected. */
@@ -653,12 +750,14 @@ class WhatsAppSession extends EventEmitter {
     if (this.loginMethod !== 'pairing' || !this.pairingPhone || this.pairingCodeRequested) {
       return;
     }
+    const authStatus = this.getAuthStatus();
+    if (authStatus.valid && authStatus.registered) return;
     const registered = this.socket?.authState?.creds?.registered;
     if (registered) return;
     if (!qr && connection !== 'connecting') return;
     if (this.pairingCodeRequestTimer) return;
 
-    const delayMs = qr ? 2000 : 6000;
+    const delayMs = qr ? 1500 : 2500;
     console.log(
       `[${this.sessionName}] Pairing handshake ready — requesting code in ${delayMs / 1000}s...`
     );
@@ -695,17 +794,24 @@ class WhatsAppSession extends EventEmitter {
     }
 
     const authStatus = this.getAuthStatus();
-    const wantsPairing =
-      loginOptions.method === 'pairing'
-      || (this.loginMethod === 'pairing' && this.pairingPhone);
-    const hasCompleteAuth = authStatus.valid && authStatus.registered && !wantsPairing;
+    const hasCompleteAuth = authStatus.valid && authStatus.registered && loginOptions.method !== 'pairing';
 
     if (hasCompleteAuth) {
       this.loginMethod = 'qr';
       this.pairingAwaitingUser = false;
       this.pairingCodeDisplay = null;
     } else {
-      this.loginMethod = loginOptions.method === 'pairing' ? 'pairing' : 'qr';
+      if (loginOptions.method === 'pairing') {
+        this.loginMethod = 'pairing';
+      } else if (loginOptions.method === 'qr') {
+        this.loginMethod = 'qr';
+      } else if (this.loginMethod === 'pairing' && this.pairingPhone) {
+        // Bare reconnect after pairing code accepted (restartRequired) — keep finish path.
+      } else if (this.restorePairingFromPartialAuth(authStatus)) {
+        // Partial pairing session on disk — stay on pairing, not QR.
+      } else {
+        this.loginMethod = 'qr';
+      }
       this.pairingPhone = loginOptions.phoneNumber
         ? this.normalizePairingPhone(loginOptions.phoneNumber)
         : this.pairingPhone || null;
@@ -726,6 +832,14 @@ class WhatsAppSession extends EventEmitter {
 
     const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
     const { version } = await fetchLatestBaileysVersion();
+
+    const safeSaveCreds = async (update) => {
+      try {
+        await saveCreds(update);
+      } catch (err) {
+        if (err?.code !== 'ENOENT') throw err;
+      }
+    };
 
     if (hasCompleteAuth) {
       const phoneHint = authStatus.phone ? ` (${authStatus.phone})` : '';
@@ -751,8 +865,11 @@ class WhatsAppSession extends EventEmitter {
     this.socket = makeWASocket(socketOptions);
 
     this.socket.ev.on('creds.update', async (update) => {
-      await saveCreds(update);
-      if (!this.isShuttingDown && !this.isPairingLinkActive()) {
+      await safeSaveCreds(update);
+      if (this.isShuttingDown) return;
+      if (this.isRegistrationComplete() && !this.isConnected) {
+        this.finalizeSuccessfulLogin();
+      } else if (!this.isPairingLinkActive()) {
         this.captureProfileName('creds.update');
       }
     });
@@ -807,31 +924,16 @@ class WhatsAppSession extends EventEmitter {
       }
 
       if (connection === 'open') {
-        this.isLinking = false;
-        this.isConnected = true;
-        this.isLoggedOut = false;
-        this.pairingAwaitingUser = false;
-        this.pairingCodeDisplay = null;
-        this.pairingCodeRequested = false;
-        this.pairingReconnectAttempts = 0;
-        this.qrCount = 0;
-        this.reconnectAttempts = 0;
-        this.proxyFallbackAttempts = 0;
-        this.linkedViaDirect = !this.proxyUrl;
-        const user = this.socket.user;
-        const phone = user.id.split(':')[0];
-        const profileName = this.extractProfileNameFromMe(user);
-        if (profileName) this.saveProfileName(profileName);
-        console.log(`[${this.sessionName}] Connected as: ${profileName || phone}`);
-        console.log(`[${this.sessionName}] JID: ${jidNormalizedUser(user.id)}`);
-        this.logConnectionRoute('connected');
-        if (!this.proxyUrl) {
+        if (!this.isRegistrationComplete()) {
+          this.isLinking = true;
+          this.isConnected = false;
+          this.emit('linkState');
           console.log(
-            `[${this.sessionName}] linkedViaDirect=true — preview reconnect may skip proxy; feeding CLI still assigns proxy from proxies.txt`
+            `[${this.sessionName}] Waiting for login to finish — enter pairing code on phone or scan QR`
           );
+          return;
         }
-        this.emit('connected', { user, profileName: profileName || null, phone });
-        this.scheduleProfileNameCapture();
+        this.finalizeSuccessfulLogin();
       }
 
       if (connection === 'close') {
@@ -864,21 +966,32 @@ class WhatsAppSession extends EventEmitter {
         }
         this.emit('linkState');
 
+        const hadAuth = this.hasSavedAuth();
+        const authSnapshot = this.getAuthStatus();
+        const errMsg = lastDisconnect?.error?.message || '';
+        const transientHandshake = isTransientHandshakeMessage(errMsg);
+        const incompleteLink = !authSnapshot.registered
+          && (this.isLinking || pairingActive || hadAuth);
         const policyAlert = classifyDisconnect(lastDisconnect);
         const suppressPolicyAlert =
-          pairingActive && this.isTransientPairingDisconnect(lastDisconnect);
+          (pairingActive && this.isTransientPairingDisconnect(lastDisconnect))
+          || (incompleteLink && transientHandshake)
+          || (transientHandshake && ((hadAuth && authSnapshot.valid) || this.pairingPhone));
         if (policyAlert && !suppressPolicyAlert) {
           this.emitPolicyAlert(policyAlert);
         } else if (suppressPolicyAlert) {
           console.log(
-            `[${this.sessionName}] Pairing handshake pause (${policyAlert?.detail || reasonText}) — session kept, waiting`
+            `[${this.sessionName}] Link handshake retry (${errMsg || reasonText}) — session kept`
           );
         }
 
-        const hadAuth = this.hasSavedAuth();
-        const authSnapshot = this.getAuthStatus();
         const authValid = authSnapshot.valid;
         const isForbidden = statusCode === DisconnectReason.forbidden;
+        const pairingInProgress =
+          this.loginMethod === 'pairing'
+          && (this.pairingAwaitingUser || this.pairingCodeDisplay)
+          && !authSnapshot.registered;
+
         // After user enters pairing code on phone, WA sends 515 — must reconnect immediately.
         if (isRestartRequired) {
           this.isLinking = true;
@@ -888,14 +1001,18 @@ class WhatsAppSession extends EventEmitter {
           this.pairingCodeRequested = false;
           this.pairingReconnectAttempts = 0;
           this.reconnectAttempts = 0;
-          this.loginMethod = 'qr';
           console.log(`[${this.sessionName}] Pairing code accepted — finishing link (reconnect)...`);
           this.emit('linkState');
-          this.scheduleReconnect(() => this.connect(), 400);
+          this.scheduleReconnect(
+            () => this.connect(
+              this.pendingLoginPlan || { method: 'pairing', phoneNumber: this.pairingPhone }
+            ),
+            400
+          );
           return;
         }
 
-        if (pairingActive && !isForbidden && !isRestartRequired) {
+        if (pairingInProgress && !isForbidden) {
           if (isReplaced) {
             this.isLinking = true;
             this.isLoggedOut = false;
@@ -908,15 +1025,45 @@ class WhatsAppSession extends EventEmitter {
             }
             return;
           }
-
-          if (this.pairingCodeDisplay) {
-            console.log(
-              `[${this.sessionName}] Pairing code active — enter ${this.pairingCodeDisplay} on your phone (brief disconnect is normal)`
-            );
+          if (isLoggedOut || isBadSession) {
             this.isLinking = true;
             this.isLoggedOut = false;
             this.emit('linkState');
+            if (this.pairingReconnectAttempts < 3) {
+              this.pairingReconnectAttempts += 1;
+              const delay = Math.min(6000 * this.pairingReconnectAttempts, 18000);
+              console.log(
+                `[${this.sessionName}] Pairing in progress — waiting for code on phone (retry ${this.pairingReconnectAttempts}/3 in ${delay / 1000}s)`
+              );
+              this.scheduleReconnect(
+                () => this.connect(
+                  this.pendingLoginPlan || { method: 'pairing', phoneNumber: this.pairingPhone }
+                ),
+                delay
+              );
+            } else if (this.pairingCodeDisplay) {
+              this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
+            }
+            return;
+          }
+          // Do not reconnect while the user types the code — reconnect invalidates the active code.
+          this.isLinking = true;
+          this.isLoggedOut = false;
+          this.emit('linkState');
+          if (this.pairingCodeDisplay) {
             this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
+          }
+          return;
+        }
+
+        if (pairingActive && !isForbidden && !isRestartRequired) {
+          if (isReplaced) {
+            this.isLinking = true;
+            this.isLoggedOut = false;
+            console.log(
+              `[${this.sessionName}] Pairing paused — another client took the session. Close it, then enter the code on your phone.`
+            );
+            this.emit('linkState');
             return;
           }
 
@@ -961,20 +1108,17 @@ class WhatsAppSession extends EventEmitter {
           this.reconnectAttempts = 0;
           this.emit('loggedOut');
         } else if (isLoggedOut || isForbidden) {
-          const errMsg = lastDisconnect?.error?.message || '';
           const transient401 =
             isLoggedOut
-            && /connection\s*failure|connection\s*closed|connection\s*lost|timed\s*out|econnreset|network|stream\s*errored/i.test(
-              errMsg
-            );
-          if (transient401 && ((hadAuth && authValid) || this.pairingPhone)) {
+            && isTransientHandshakeMessage(errMsg);
+          if (transient401 && ((hadAuth && authValid) || this.pairingPhone || incompleteLink)) {
             console.log(
-              `[${this.sessionName}] Temporary disconnect (401: ${errMsg || 'unknown'}) — auth kept, will retry`
+              `[${this.sessionName}] Handshake retry ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts} (${errMsg || 'connection drop'})`
             );
             if (this.reconnectAttempts < this.maxReconnectAttempts) {
               this.reconnectAttempts++;
               const delay = Math.min(3000 * this.reconnectAttempts, 15000);
-              this.scheduleReconnect(() => this.connect(), delay);
+              this.scheduleReconnectWithLoginPlan(delay);
             }
             return;
           }
@@ -1053,7 +1197,7 @@ class WhatsAppSession extends EventEmitter {
               this.emit('proxyLinkFailed', this.pendingLoginPlan || { method: 'pairing', phoneNumber: this.pairingPhone });
               return;
             }
-            this.scheduleReconnect(() => this.connect(), delay);
+            this.scheduleReconnectWithLoginPlan(delay);
         } else if (isBadSession && hadAuth && authValid) {
           // Saved session — bad session is usually proxy/IP change; keep auth folder
           if (this.proxyUrl) {
@@ -1067,14 +1211,14 @@ class WhatsAppSession extends EventEmitter {
             console.log(
               `[${this.sessionName}] Tip: avoid switching proxy IP after link; use stable proxy per account slot`
             );
-            this.scheduleReconnect(() => this.connect(), 3000);
+            this.scheduleReconnectWithLoginPlan(3000);
           } else if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
             const delay = Math.min(3000 * this.reconnectAttempts, 15000);
             console.log(
               `[${this.sessionName}] Bad session — retrying direct in ${delay / 1000}s (${this.reconnectAttempts}/${this.maxReconnectAttempts}, auth kept)`
             );
-            this.scheduleReconnect(() => this.connect(), delay);
+            this.scheduleReconnectWithLoginPlan(delay);
           } else {
             console.log(`[${this.sessionName}] Bad session persists — auth kept; restart app or check proxy in proxies.txt`);
           }
@@ -1083,15 +1227,34 @@ class WhatsAppSession extends EventEmitter {
           this.purgeLocalSession();
           this.reconnectAttempts = 0;
           this.emit('loggedOut');
+        } else if (this.isPairingLinkActive()) {
+          this.isLinking = true;
+          this.isLoggedOut = false;
+          this.emit('linkState');
+          if (this.pairingAwaitingUser || this.pairingCodeDisplay) {
+            if (this.pairingCodeDisplay) {
+              this.emit('pairingCode', { code: this.pairingCodeDisplay, phone: this.pairingPhone });
+            }
+            return;
+          }
+          if (this.pairingReconnectAttempts < 3) {
+            this.pairingReconnectAttempts += 1;
+            const delay = Math.min(6000 * this.pairingReconnectAttempts, 18000);
+            console.log(
+              `[${this.sessionName}] Pairing handshake lost — retry ${this.pairingReconnectAttempts}/3 in ${delay / 1000}s`
+            );
+            this.pairingCodeRequested = false;
+            this.scheduleReconnectWithLoginPlan(delay);
+          }
         } else if (this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++;
           const delay = Math.min(3000 * this.reconnectAttempts, 15000);
           console.log(`[${this.sessionName}] Connection lost. Reconnecting in ${delay / 1000}s... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-          this.scheduleReconnect(() => this.connect(), delay);
+          this.scheduleReconnectWithLoginPlan(delay);
         } else {
           console.log(`[${this.sessionName}] Max reconnect attempts (${this.maxReconnectAttempts}) reached. Resetting and retrying...`);
           this.reconnectAttempts = 0;
-          this.scheduleReconnect(() => this.connect(), 30000);
+          this.scheduleReconnectWithLoginPlan(30000);
         }
       }
     });

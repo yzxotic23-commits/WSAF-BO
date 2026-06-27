@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-auto-feeding",
-  "version": "1.0.53",
+  "version": "1.0.54",
   "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
   "main": "electron/main.js",
   "author": "",
@@ -11,7 +11,12 @@
   },
   "scripts": {
     "start": "node index.js",
-    "desktop": "node scripts/ensure-electron.js && electron .",
+    "web": "node web.js",
+    "dev:api": "node web.js",
+    "dev:ui": "npm run dev --prefix client",
+    "build:ui": "npm run build --prefix client",
+    "start:web": "npm run build:ui && npm run dev:api",
+    "desktop": "node scripts/ensure-electron.js && node node_modules/electron/cli.js .",
     "ensure-electron": "node scripts/ensure-electron.js",
     "codex-login": "npx @openai/codex login",
     "codex-proxy": "npx openai-oauth",
@@ -25,6 +30,7 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.16",
+    "better-sqlite3": "^12.11.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "electron-updater": "^6.8.3",

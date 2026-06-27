@@ -27,6 +27,13 @@ function hasPolicyKeywords(text) {
   return POLICY_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
+/** Common WA handshake noise — not a ban/strict-scan signal. */
+function isTransientHandshakeMessage(message) {
+  return /connection\s*failure|connection\s*closed|connection\s*lost|timed\s*out|econnreset|network|stream\s*errored/i.test(
+    message || '',
+  );
+}
+
 /**
  * Classify disconnect / API errors into user-visible policy alerts.
  * Note: exact "strict scan 6 hours" text is usually shown only on the phone app.
@@ -48,17 +55,17 @@ function classifyDisconnect(lastDisconnect) {
   }
 
   if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-    // WA tidak pernah mengirim keyword "ban/restrict" di payload 401 —
-    // strict scan hanya muncul di HP. Treat semua 401 saat aktif sebagai
-    // potentially restricted, bukan sekadar logout biasa.
+    if (isTransientHandshakeMessage(message)) {
+      return null;
+    }
     return {
       type: 'LOGGED_OUT_OR_RESTRICTED',
       severity: 'warning',
       statusCode,
       title: 'Logged out (401) — session ended by WhatsApp',
       detail: message || 'Session invalidated by WA server.',
-      strictScanPossible: true,
-      action: 'Open WA on phone — if you see a "strict scan" or "temporarily limited" notice, wait ~6h before re-linking. If no notice, re-scan QR immediately.',
+      strictScanPossible: false,
+      action: 'If linking fails repeatedly, wait a few minutes and try again. Check the phone app for restriction notices.',
     };
   }
 
@@ -199,4 +206,5 @@ module.exports = {
   classifySendError,
   formatPolicyAlert,
   isStrictLogoutAlert,
+  isTransientHandshakeMessage,
 };

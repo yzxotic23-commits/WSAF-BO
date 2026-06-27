@@ -258,6 +258,91 @@ class ProxyManager {
     console.log('');
     return assigned;
   }
+
+  /**
+   * Probe and assign proxies for specific account slots only (per-pair feeding).
+   * Returns a full-length array; unassigned slots stay null.
+   */
+  async assignWorkingForSlotIndices(totalSlots, slotIndices, getAccountName) {
+    const assigned = new Array(totalSlots).fill(null);
+    if (!slotIndices?.length) return assigned;
+
+    const usedUrls = new Set();
+    const store = this.loadWorkingStore();
+    const updatedStore = { ...store };
+
+    console.log('[PROXY] Probing proxies for selected pair slot(s) only');
+    console.log('');
+
+    for (const i of slotIndices) {
+      const accountName = getAccountName ? getAccountName(i) : `account${i + 1}`;
+      let found = null;
+
+      const candidates = [];
+      const saved = store[accountName];
+      if (saved && this.proxies.includes(saved)) {
+        candidates.push(saved);
+      }
+      const startIdx = i % this.proxies.length;
+      for (let attempt = 0; attempt < this.proxies.length; attempt++) {
+        const url = this.proxies[(startIdx + attempt) % this.proxies.length];
+        if (!candidates.includes(url)) candidates.push(url);
+      }
+
+      for (const url of candidates) {
+        if (usedUrls.has(url) && slotIndices.length > 1) continue;
+
+        const label = this.maskUrl(url);
+        process.stdout.write(`[PROXY] ${accountName}: testing ${label} ... `);
+        const ok = await probeProxy(url);
+        if (ok) {
+          console.log('OK');
+          found = url;
+          usedUrls.add(url);
+          updatedStore[accountName] = url;
+          break;
+        }
+        console.log('fail');
+      }
+
+      if (!found && slotIndices.length > 1) {
+        for (const url of this.proxies) {
+          if (usedUrls.has(url)) continue;
+          const label = this.maskUrl(url);
+          process.stdout.write(`[PROXY] ${accountName}: retry ${label} ... `);
+          const ok = await probeProxy(url);
+          if (ok) {
+            console.log('OK');
+            found = url;
+            usedUrls.add(url);
+            updatedStore[accountName] = url;
+            break;
+          }
+          console.log('fail');
+        }
+      }
+
+      if (!found) {
+        console.log(`[PROXY] ${accountName}: no working proxy — will use direct connection`);
+      } else {
+        console.log(`[PROXY] ${accountName}: assigned ${this.maskUrl(found)}`);
+      }
+
+      assigned[i] = found;
+    }
+
+    this.saveWorkingStore(updatedStore);
+    console.log('');
+    console.log('[PROXY] Assignment summary (selected slots):');
+    for (const i of slotIndices) {
+      const accountName = getAccountName ? getAccountName(i) : `account${i + 1}`;
+      const url = assigned[i];
+      const route = url ? this.maskUrl(url) : 'direct (probe failed or none)';
+      console.log(`  ${accountName}: ${route}`);
+    }
+    console.log('');
+    return assigned;
+  }
 }
 
 module.exports = ProxyManager;

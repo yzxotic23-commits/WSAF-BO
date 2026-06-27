@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMS — Account Ledger</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117; --bg2: #1a1d27; --bg3: #22263a; --bg4: #2a2f47;
+      --border: #2e3350; --accent: #25d366; --accent2: #128c7e;
+      --warn: #f59e0b; --danger: #ef4444; --info: #3b82f6;
+      --purple: #8b5cf6; --pink: #ec4899;
+      --text: #e2e8f0; --muted: #64748b; --muted2: #94a3b8;
+      --radius: 10px;
+    }
+
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* ── SIDEBAR ── */
+    .layout { display: flex; flex: 1; }
+
+    nav.sidebar {
+      width: 220px; min-height: 100vh; background: var(--bg2);
+      border-right: 1px solid var(--border); padding: 0; flex-shrink: 0;
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    }
+
+    .sidebar-brand {
+      display: flex; align-items: center; gap: 8px;
+      padding: 18px 16px 14px; border-bottom: 1px solid var(--border);
+      font-weight: 700; font-size: 15px;
+    }
+    .sidebar-brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+    .sidebar-section { padding: 12px 10px 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+
+    nav.sidebar a {
+      display: flex; align-items: center; gap: 9px;
+      padding: 8px 14px; margin: 1px 6px; border-radius: 7px;
+      text-decoration: none; color: var(--muted2); font-size: 13px;
+      transition: all .12s;
+    }
+    nav.sidebar a:hover { background: var(--bg3); color: var(--text); }
+    nav.sidebar a.active { background: var(--bg3); color: var(--text); font-weight: 600; }
+    nav.sidebar a .icon { font-size: 15px; width: 18px; text-align: center; }
+
+    /* ── MAIN ── */
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 24px; background: var(--bg2); border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+    .topbar h1 { font-size: 16px; font-weight: 700; }
+    .topbar-right { display: flex; align-items: center; gap: 8px; }
+
+    .content { padding: 20px 24px; flex: 1; overflow-y: auto; }
+
+    /* ── STATUS TABS ── */
+    .status-tabs {
+      display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .tab-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 20px; border: 1px solid var(--border);
+      background: var(--bg2); color: var(--muted2); font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all .12s;
+    }
+    .tab-btn:hover { border-color: var(--accent); color: var(--text); }
+    .tab-btn.active { border-color: var(--accent); background: rgba(37,211,102,.1); color: var(--accent); }
+    .tab-btn .count { background: var(--bg3); padding: 1px 7px; border-radius: 10px; font-size: 11px; }
+
+    /* ── SEARCH + FILTERS ── */
+    .filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .search-wrap { position: relative; flex: 1; min-width: 200px; }
+    .search-wrap input {
+      width: 100%; padding: 8px 12px 8px 34px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-size: 13px;
+    }
+    .search-wrap input:focus { outline: none; border-color: var(--accent); }
+    .search-wrap .icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 14px; }
+    select {
+      padding: 8px 12px; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 13px; cursor: pointer;
+    }
+    select:focus { outline: none; border-color: var(--accent); }
+
+    /* ── BTN ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 8px; border: none;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all .12s;
+    }
+    .btn-primary { background: var(--accent); color: #000; }
+    .btn-primary:hover { background: #1fb557; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted2); }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--text); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn-danger { background: rgba(239,68,68,.15); border: 1px solid var(--danger); color: var(--danger); }
+
+    /* ── TABLE ── */
+    .table-wrap { overflow-x: auto; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 700;
+      color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
+      border-bottom: 1px solid var(--border); background: var(--bg3);
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid rgba(46,51,80,.5); transition: background .1s; cursor: pointer; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--bg3); }
+    tbody td { padding: 10px 14px; }
+
+    .empty-state { text-align: center; padding: 48px; color: var(--muted); font-size: 13px; }
+
+    /* ── STATUS BADGES ── */
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; font-weight: 700; padding: 3px 9px;
+      border-radius: 20px; white-space: nowrap;
+    }
+    .badge::before { content: '●'; font-size: 7px; }
+    .badge-registering { background: rgba(100,116,139,.15); color: #94a3b8; }
+    .badge-nurturing   { background: rgba(59,130,246,.15);  color: var(--info); }
+    .badge-standby     { background: rgba(139,92,246,.15);  color: var(--purple); }
+    .badge-in_use      { background: rgba(37,211,102,.15);  color: var(--accent); }
+    .badge-recovering  { background: rgba(245,158,11,.15);  color: var(--warn); }
+    .badge-dead        { background: rgba(239,68,68,.1);    color: var(--danger); }
+
+    /* ── MODAL ── */
+    .modal-bg {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
+      z-index: 200; align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-bg.open { display: flex; }
+    .modal {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 14px;
+      width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto;
+    }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 20px; border-bottom: 1px solid var(--border);
+    }
+    .modal-header h2 { font-size: 16px; font-weight: 700; }
+    .modal-body { padding: 20px; }
+    .modal-footer { display: flex; gap: 8px; justify-content: flex-end; padding: 16px 20px; border-top: 1px solid var(--border); }
+
+    /* ── DETAIL PANEL ── */
+    .detail-bg {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5);
+      z-index: 150; justify-content: flex-end;
+    }
+    .detail-bg.open { display: flex; }
+    .detail-panel {
+      background: var(--bg2); border-left: 1px solid var(--border);
+      width: 420px; max-width: 100%; height: 100vh; overflow-y: auto;
+    }
+    .detail-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 20px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg2); z-index: 1;
+    }
+    .detail-section { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .detail-section h3 { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 12px; }
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .detail-field .label { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+    .detail-field .value { font-size: 13px; font-weight: 500; }
+
+    /* ── FORM ── */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-field { display: flex; flex-direction: column; gap: 5px; }
+    .form-field label { font-size: 12px; font-weight: 600; color: var(--muted2); }
+    .form-field input, .form-field select, .form-field textarea {
+      padding: 8px 12px; background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 13px;
+    }
+    .form-field input:focus, .form-field select:focus, .form-field textarea:focus { outline: none; border-color: var(--accent); }
+    .form-field.full { grid-column: 1 / -1; }
+
+    /* ── HISTORY ── */
+    .history-item { display: flex; gap: 10px; margin-bottom: 12px; }
+    .history-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex-shrink: 0; margin-top: 5px; }
+    .history-dot.active { background: var(--accent); }
+    .history-body .when { font-size: 11px; color: var(--muted); }
+    .history-body .what { font-size: 13px; }
+
+    /* ── STATUS CHANGE ── */
+    .status-flow { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .status-flow .arrow { color: var(--muted); align-self: center; }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="dot"></div>
+      AMS
+    </div>
+    <div class="sidebar-section">Account</div>
+    <a href="/ams/accounts" class="active"><span class="icon">📋</span> Account Ledger</a>
+    <a href="/ams/nurturing"><span class="icon">🌱</span> Nurturing Pipeline</a>
+    <a href="/ams/activation"><span class="icon">⚡</span> Activation Desk</a>
+    <div class="sidebar-section">Operations</div>
+    <a href="/ams/workorders"><span class="icon">📝</span> Work Orders</a>
+    <a href="/portal" target="_blank"><span class="icon">🔗</span> Client Portal</a>
+    <div class="sidebar-section">Resources</div>
+    <a href="/ams/ips"><span class="icon">🌐</span> IP Ledger</a>
+    <a href="/ams/ip-audit"><span class="icon">🔍</span> IP Audit</a>
+    <a href="/ams/devices"><span class="icon">📱</span> Devices</a>
+    <a href="/ams/sims"><span class="icon">💳</span> SIM Cards</a>
+    <div class="sidebar-section">Analytics</div>
+    <a href="/dashboard"><span class="icon">📊</span> Feeding Dashboard</a>
+    <div class="sidebar-section">System</div>
+    <a href="/"><span class="icon">⚙️</span> WSAF App</a>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <h1>Account Ledger</h1>
+      <div class="topbar-right">
+        <select id="site-filter" onchange="applyFilters()">
+          <option value="">All Sites</option>
+        </select>
+        <select id="brand-filter" onchange="applyFilters()">
+          <option value="">All Brands</option>
+        </select>
+        <button class="btn btn-primary" onclick="openAddModal()">+ Add Account</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- Status tabs -->
+      <div class="status-tabs" id="status-tabs">
+        <button class="tab-btn active" data-status="" onclick="setStatus('')">All <span class="count" id="cnt-all">0</span></button>
+        <button class="tab-btn" data-status="registering" onclick="setStatus('registering')">Registering <span class="count" id="cnt-registering">0</span></button>
+        <button class="tab-btn" data-status="nurturing" onclick="setStatus('nurturing')">Nurturing <span class="count" id="cnt-nurturing">0</span></button>
+        <button class="tab-btn" data-status="standby" onclick="setStatus('standby')">Standby <span class="count" id="cnt-standby">0</span></button>
+        <button class="tab-btn" data-status="in_use" onclick="setStatus('in_use')">In Use <span class="count" id="cnt-in_use">0</span></button>
+        <button class="tab-btn" data-status="recovering" onclick="setStatus('recovering')">Recovering <span class="count" id="cnt-recovering">0</span></button>
+        <button class="tab-btn" data-status="dead" onclick="setStatus('dead')">Dead <span class="count" id="cnt-dead">0</span></button>
+      </div>
+
+      <!-- Filters -->
+      <div class="filters">
+        <div class="search-wrap">
+          <span class="icon">🔍</span>
+          <input type="text" id="search-input" placeholder="Search by name, phone, owner…" oninput="debounceSearch()" />
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Account Name</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Site</th>
+              <th>Brand</th>
+              <th>IP</th>
+              <th>Device</th>
+              <th>Owner</th>
+              <th>Created</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="accounts-tbody">
+            <tr><td colspan="10" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD / EDIT MODAL -->
+<div class="modal-bg" id="add-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Add Account</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid" id="modal-form">
+        <div class="form-field">
+          <label>Account Name *</label>
+          <input type="text" id="f-name" placeholder="e.g. SBMY-001" />
+        </div>
+        <div class="form-field">
+          <label>Phone Number</label>
+          <input type="text" id="f-phone" placeholder="+60…" />
+        </div>
+        <div class="form-field">
+          <label>Status</label>
+          <select id="f-status">
+            <option value="registering">Registering</option>
+            <option value="nurturing">Nurturing</option>
+            <option value="standby">Standby</option>
+            <option value="in_use">In Use</option>
+            <option value="recovering">Recovering</option>
+            <option value="dead">Dead</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Channel</label>
+          <input type="text" id="f-channel" placeholder="e.g. WhatsApp" />
+        </div>
+        <div class="form-field">
+          <label>Site</label>
+          <select id="f-site"></select>
+        </div>
+        <div class="form-field">
+          <label>Brand</label>
+          <select id="f-brand"></select>
+        </div>
+        <div class="form-field">
+          <label>Owner</label>
+          <input type="text" id="f-owner" placeholder="e.g. Alex" />
+        </div>
+        <div class="form-field">
+          <label>IP</label>
+          <select id="f-ip"><option value="">— None —</option></select>
+        </div>
+        <div class="form-field full">
+          <label>Note</label>
+          <textarea id="f-note" rows="2" placeholder="Optional note…"></textarea>
+        </div>
+        <div class="form-field full" id="f-reason-wrap" style="display:none">
+          <label>Reason for status change</label>
+          <input type="text" id="f-reason" placeholder="Why is the status changing?" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAccount()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL PANEL -->
+<div class="detail-bg" id="detail-panel">
+  <div class="detail-panel">
+    <div class="detail-header">
+      <div>
+        <div style="font-size:15px;font-weight:700" id="dp-name">—</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px" id="dp-phone">—</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="dp-badge"></span>
+        <button class="btn btn-ghost btn-sm" onclick="closeDetail()">✕</button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <h3>Details</h3>
+      <div class="detail-grid" id="dp-grid"></div>
+    </div>
+
+    <div class="detail-section">
+      <h3>Actions</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap" id="dp-actions"></div>
+    </div>
+
+    <div class="detail-section">
+      <h3>Status History</h3>
+      <div id="dp-history"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── state ────────────────────────────────────────────────────────────────────
+let currentStatus = '';
+let searchTimer = null;
+let editingId = null;
+let detailAccount = null;
+let meta = { sites: [], brands: [] };
+let allIps = [];
+
+const STATUS_LABELS = {
+  registering: 'Registering', nurturing: 'Nurturing', standby: 'Standby',
+  in_use: 'In Use', recovering: 'Recovering', dead: 'Dead',
+};
+
+const NEXT_STATUS = {
+  registering: ['nurturing', 'dead'],
+  nurturing:   ['standby', 'recovering', 'dead'],
+  standby:     ['in_use', 'dead'],
+  in_use:      ['recovering', 'standby', 'dead'],
+  recovering:  ['standby', 'dead'],
+  dead:        [],
+};
+
+// ── init ─────────────────────────────────────────────────────────────────────
+async function init() {
+  const [metaRes, ipsRes] = await Promise.all([
+    fetch('/api/ams/meta').then(r => r.json()),
+    fetch('/api/ams/ips').then(r => r.json()),
+  ]);
+  meta = metaRes;
+  allIps = ipsRes;
+  populateSelects();
+  await loadCounts();
+  await loadAccounts();
+}
+
+function populateSelects() {
+  const siteF = document.getElementById('site-filter');
+  const brandF = document.getElementById('brand-filter');
+  const fSite = document.getElementById('f-site');
+  const fBrand = document.getElementById('f-brand');
+  const fIp = document.getElementById('f-ip');
+
+  siteF.innerHTML = '<option value="">All Sites</option>' + meta.sites.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  brandF.innerHTML = '<option value="">All Brands</option>' + meta.brands.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+  fSite.innerHTML = '<option value="">— None —</option>' + meta.sites.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  fBrand.innerHTML = '<option value="">— None —</option>' + meta.brands.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+  fIp.innerHTML = '<option value="">— None —</option>' + allIps.filter(ip => ip.active).map(ip => `<option value="${ip.id}">${ip.address}${ip.port ? ':'+ip.port : ''}</option>`).join('');
+}
+
+async function loadCounts() {
+  const data = await fetch('/api/ams/summary').then(r => r.json());
+  const by = data.accounts.byStatus || {};
+  const total = data.accounts.total || 0;
+  document.getElementById('cnt-all').textContent = total;
+  for (const s of ['registering','nurturing','standby','in_use','recovering','dead']) {
+    const el = document.getElementById('cnt-' + s);
+    if (el) el.textContent = by[s] || 0;
+  }
+}
+
+async function loadAccounts() {
+  const search = document.getElementById('search-input').value.trim();
+  const site_id = document.getElementById('site-filter').value;
+  const brand_id = document.getElementById('brand-filter').value;
+  const params = new URLSearchParams();
+  if (currentStatus) params.set('status', currentStatus);
+  if (site_id)       params.set('site_id', site_id);
+  if (brand_id)      params.set('brand_id', brand_id);
+  if (search)        params.set('search', search);
+
+  const data = await fetch('/api/ams/accounts?' + params).then(r => r.json());
+  renderTable(data.accounts || []);
+}
+
+function renderTable(accounts) {
+  const tbody = document.getElementById('accounts-tbody');
+  if (!accounts.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No accounts found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = accounts.map(a => `
+    <tr onclick="openDetail(${a.id})">
+      <td><strong>${a.name}</strong></td>
+      <td>${a.phone_number || '—'}</td>
+      <td><span class="badge badge-${a.status}">${STATUS_LABELS[a.status] || a.status}</span></td>
+      <td>${a.site_name || '—'}</td>
+      <td>${a.brand_name || '—'}</td>
+      <td>${a.ip_address ? a.ip_address + (a.ip_port ? ':'+a.ip_port : '') : '—'}</td>
+      <td>${a.device_code ? a.device_code + (a.shelf ? ' · '+a.shelf+(a.slot?'/'+a.slot:'') : '') : '—'}</td>
+      <td>${a.owner || '—'}</td>
+      <td>${a.created_at ? a.created_at.split('T')[0] : '—'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openEdit(${a.id})">Edit</button></td>
+    </tr>`).join('');
+}
+
+// ── filters ──────────────────────────────────────────────────────────────────
+function setStatus(s) {
+  currentStatus = s;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.status === s));
+  loadAccounts();
+}
+
+function applyFilters() { loadAccounts(); }
+
+function debounceSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadAccounts, 300);
+}
+
+// ── add/edit modal ────────────────────────────────────────────────────────────
+function openAddModal() {
+  editingId = null;
+  document.getElementById('modal-title').textContent = 'Add Account';
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-phone').value = '';
+  document.getElementById('f-status').value = 'registering';
+  document.getElementById('f-channel').value = '';
+  document.getElementById('f-site').value = '';
+  document.getElementById('f-brand').value = '';
+  document.getElementById('f-owner').value = '';
+  document.getElementById('f-ip').value = '';
+  document.getElementById('f-note').value = '';
+  document.getElementById('f-reason-wrap').style.display = 'none';
+  document.getElementById('add-modal').classList.add('open');
+}
+
+async function openEdit(id) {
+  editingId = id;
+  const a = await fetch('/api/ams/accounts/' + id).then(r => r.json());
+  document.getElementById('modal-title').textContent = 'Edit Account';
+  document.getElementById('f-name').value = a.name || '';
+  document.getElementById('f-phone').value = a.phone_number || '';
+  document.getElementById('f-status').value = a.status || 'registering';
+  document.getElementById('f-channel').value = a.channel || '';
+  document.getElementById('f-site').value = a.site_id || '';
+  document.getElementById('f-brand').value = a.brand_id || '';
+  document.getElementById('f-owner').value = a.owner || '';
+  document.getElementById('f-ip').value = a.ip_id || '';
+  document.getElementById('f-note').value = a.note || '';
+  document.getElementById('f-reason-wrap').style.display = 'block';
+  document.getElementById('add-modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('add-modal').classList.remove('open');
+}
+
+async function saveAccount() {
+  const body = {
+    name: document.getElementById('f-name').value.trim(),
+    phone_number: document.getElementById('f-phone').value.trim() || null,
+    status: document.getElementById('f-status').value,
+    channel: document.getElementById('f-channel').value.trim() || null,
+    site_id: document.getElementById('f-site').value || null,
+    brand_id: document.getElementById('f-brand').value || null,
+    owner: document.getElementById('f-owner').value.trim() || null,
+    ip_id: document.getElementById('f-ip').value || null,
+    note: document.getElementById('f-note').value.trim() || null,
+    reason: document.getElementById('f-reason').value.trim() || null,
+  };
+  if (!body.name) { alert('Account name is required'); return; }
+
+  const url = editingId ? '/api/ams/accounts/' + editingId : '/api/ams/accounts';
+  const method = editingId ? 'PATCH' : 'POST';
+  await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  closeModal();
+  await loadCounts();
+  await loadAccounts();
+}
+
+// ── detail panel ──────────────────────────────────────────────────────────────
+async function openDetail(id) {
+  const a = await fetch('/api/ams/accounts/' + id).then(r => r.json());
+  detailAccount = a;
+
+  document.getElementById('dp-name').textContent = a.name;
+  document.getElementById('dp-phone').textContent = a.phone_number || 'No phone';
+  document.getElementById('dp-badge').innerHTML = `<span class="badge badge-${a.status}">${STATUS_LABELS[a.status]||a.status}</span>`;
+
+  document.getElementById('dp-grid').innerHTML = [
+    ['Site',    a.site_name  || '—'],
+    ['Brand',   a.brand_name || '—'],
+    ['Owner',   a.owner || '—'],
+    ['Channel', a.channel || '—'],
+    ['IP',      a.ip_address ? (a.ip_address + (a.ip_port?':'+a.ip_port:'')) : '—'],
+    ['Device',  a.device_code ? (a.device_code + (a.shelf?' · '+a.shelf+(a.slot?'/'+a.slot:''):'')) : '—'],
+    ['Nurture start', a.nurture_start ? a.nurture_start.split('T')[0] : '—'],
+    ['Created', a.created_at ? a.created_at.split('T')[0] : '—'],
+    ['Note',    a.note || '—'],
+  ].map(([k,v]) => `<div class="detail-field"><div class="label">${k}</div><div class="value">${v}</div></div>`).join('');
+
+  // Action buttons — transition to next valid statuses
+  const nexts = NEXT_STATUS[a.status] || [];
+  document.getElementById('dp-actions').innerHTML =
+    `<button class="btn btn-ghost btn-sm" onclick="openEdit(${a.id})">✏️ Edit</button>` +
+    nexts.map(s => {
+      const cls = s === 'dead' ? 'btn-danger' : 'btn-ghost';
+      return `<button class="btn ${cls} btn-sm" onclick="changeStatus(${a.id},'${s}')">${STATUS_LABELS[s]}</button>`;
+    }).join('') +
+    (a.status !== 'dead' ? `<button class="btn btn-danger btn-sm" onclick="markBanned(${a.id})">⚠️ Mark Banned</button>` : '');
+
+  // History
+  const hist = a.history || [];
+  document.getElementById('dp-history').innerHTML = hist.length ? hist.map((h, i) => `
+    <div class="history-item">
+      <div class="history-dot ${i===0?'active':''}"></div>
+      <div class="history-body">
+        <div class="when">${h.changed_at ? h.changed_at.replace('T',' ').slice(0,16) : '—'}${h.changed_by?' · '+h.changed_by:''}</div>
+        <div class="what">${h.from_status ? STATUS_LABELS[h.from_status]+'→' : ''}${STATUS_LABELS[h.to_status]||h.to_status}${h.reason?' — '+h.reason:''}</div>
+      </div>
+    </div>`).join('') : '<div style="color:var(--muted);font-size:13px">No history yet</div>';
+
+  document.getElementById('detail-panel').classList.add('open');
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.remove('open');
+}
+
+async function changeStatus(id, newStatus) {
+  const reason = prompt(`Reason for moving to "${STATUS_LABELS[newStatus]}"? (optional)`);
+  await fetch('/api/ams/accounts/' + id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus, reason: reason || null }),
+  });
+  await loadCounts();
+  await loadAccounts();
+  if (detailAccount?.id === id) await openDetail(id);
+}
+
+async function markBanned(id) {
+  const reason = prompt('Ban reason (optional):');
+  await fetch('/api/ams/accounts/' + id + '/ban', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ban_reason: reason || null, detection_mode: 'manual' }),
+  });
+  await loadCounts();
+  await loadAccounts();
+  if (detailAccount?.id === id) await openDetail(id);
+}
+
+// close on backdrop click
+document.getElementById('add-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+document.getElementById('detail-panel').addEventListener('click', e => { if (e.target === e.currentTarget) closeDetail(); });
+
+init();
+</script>
+</body>
+</html>

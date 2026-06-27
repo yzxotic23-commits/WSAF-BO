@@ -1,0 +1,195 @@
+================================================================================
+JIRA — ERROR HISTORY LOG
+Ticket : MLKB-5274
+Story  : Whatsapp Auto Feeding
+Title  : Stability Review & Baseline Check (WSAF)
+Purpose: Record of errors and issues reported during testing and releases
+         (copy into Jira Description, Comment, or Attachment)
+================================================================================
+
+HOW TO USE IN JIRA
+------------------
+Paste Section A into "Interruption Log" or Comments.
+Paste Section B summary table into Description or a linked doc.
+Reference Section C for errors fixed by rollback to v1.0.21-restored.
+
+================================================================================
+SECTION A — CHRONOLOGICAL ERROR LOG
+================================================================================
+
+#1 | Development setup | Windows
+Error: "npm is not recognized" in PowerShell terminal.
+Impact: Could not run or test the app from source.
+Status: Resolved — Node.js added to user PATH.
+
+#2 | Development setup | Windows
+Error: Codex login failed — child process could not find npx.
+Impact: AI feeding could not use Codex until login completed.
+Status: Resolved — wrapper scripts and terminal PATH updated.
+
+#3 | AI / environment | Windows
+Error: Codex token not found; Ollama not installed or not running.
+Impact: Start feeding blocked or AI unavailable message.
+Status: Open — user must complete Codex login or install Ollama fallback.
+
+#4 | Desktop app launch | Windows
+Error: Electron binary missing after install (app would not open).
+Impact: npm run desktop failed.
+Status: Resolved — ensure-electron script added.
+
+#5 | User input | Windows
+Error: Typo command "npm run dekstop" — app did not start.
+Impact: User thought app was broken.
+Status: Resolved — user education.
+
+#6 | UI | Windows
+Error: Interface appeared too small (zoom level wrong).
+Impact: Poor usability on main screen.
+Status: Resolved in dev build — zoom reset on app open.
+
+#7 | Login — phone number | Windows / Mac
+Error: Pairing code shown as invalid; login failed after entering code on phone.
+Impact: Cannot link account via phone number method.
+Status: Open on v1.0.21 — still needs fix (Task 2).
+
+#8 | Login — QR | Windows / Mac
+Error: QR login stuck after pairing-related updates (v1.0.27–1.0.29).
+Messages seen: "Completing QR link — please wait", QR expired loop (4/10, 5/10).
+Impact: Account cannot finish linking; user blocked from feeding.
+Status: Should improve on v1.0.21-restored — verify on checklist.
+
+#9 | Login — QR switch | Windows / Mac
+Error: After pairing attempt, switch back to QR did not work reliably.
+Impact: User trapped in broken login flow.
+Status: Rolled back with v1.0.21 — verify.
+
+#10 | Main screen — profile | Windows / Mac
+Error: Sidebar showed "Account 1 / Account 2" instead of real WhatsApp name.
+Impact: User could not confirm correct account linked.
+Status: Broke in v1.0.29+ — should improve on v1.0.21-restored; verify.
+
+#11 | Main screen — Start feeding | Windows / Mac
+Error: Start feeding button stayed disabled although login looked successful.
+Impact: Core feature unusable.
+Status: Broke in v1.0.29+ — should improve on v1.0.21-restored; verify.
+
+#12 | Activity log | Windows / Mac
+Error: System log filled with unreadable black blocks during QR scan.
+Impact: Log useless for troubleshooting; looked like app crash.
+Status: Caused by v1.0.29+ builds — should not appear on v1.0.21-restored.
+
+#13 | Feeding flow | Windows / Mac
+Error: After Start feeding, terminal showed "Connection closed (auth saved, not logged out)" for all accounts.
+User felt: App broke or logged out.
+Impact: User panic; stopped trusting feeding flow.
+Note: This can be normal handoff to background feeding but was not explained.
+Status: Messaging fix needed (Task 4/5).
+
+#14 | Feeding flow | Windows / Mac
+Error: User report — "auto feeding benar-benar tidak bisa digunakan" on newer versions.
+Impact: Blocker for production use.
+Status: Led to rollback decision; retest on v1.0.21-restored.
+
+#15 | Terminal display | Windows
+Error: Strange characters in terminal (e.g. ΓÇö instead of dash).
+Impact: Hard to read logs; looks unprofessional.
+Status: Minor — Windows encoding display issue.
+
+#16 | Proxy | Windows / Mac
+Error: Proxy list loading or saving inconsistent; proxies not reflected in UI.
+Impact: Users with proxy setup cannot rely on settings.
+Status: Open — verify on v1.0.21 (Task 3).
+
+#17 | App update — Mac | macOS
+Error: "Update check failed — Cannot download … status 404"
+File requested did not match file on GitHub release (v1.0.29).
+Impact: Mac users cannot update in app.
+Status: Fixed in release process for later versions; Mac users on old builds still see this — use manual DMG v1.0.21-restored.
+
+#18 | App update — Mac | macOS
+Error: "Code signature did not pass validation: code has no resources but signature indicates they must be present"
+Occurred: After download completed, during install (v1.0.31).
+Impact: Mac auto-update completely broken.
+Status: Rolled back; Mac should use manual DMG install only until signed release.
+
+#19 | App update — Mac | macOS
+Error: "Code signature did not pass validation: code failed to satisfy specified code requirement(s)"
+Occurred: v1.0.31 / v1.0.32 update attempt.
+Impact: Same as #18 — blocker for in-app Mac update.
+Status: Rolled back; manual install recommended.
+
+#20 | Release versions | Windows / Mac
+Error: Versions 1.0.22 through 1.0.32 caused multiple regressions (login, feeding, update).
+User quote: "makin hancur aplikasinya"
+Impact: Production unusable on those builds.
+Status: Rolled back to v1.0.21-restored (June 2026).
+
+#21 | Multiple instances | Windows
+Error: Opening app twice caused conflicts (addressed around v1.0.24).
+Impact: Unpredictable behaviour.
+Status: Verify on v1.0.21-restored.
+
+#22 | Build / CI | GitHub Actions
+Error: Intermittent Windows build failures (installer size, icon, NSIS) across v1.0.23–1.0.26.
+Impact: Delayed or broken Windows releases.
+Status: Resolved in later CI fixes; not user-facing on stable 1.0.21.
+
+================================================================================
+SECTION B — SUMMARY TABLE (FOR JIRA)
+================================================================================
+
+| ID | Area        | Platform | Severity | Still open after rollback? |
+|----|-------------|----------|----------|----------------------------|
+| 1  | Dev setup   | Windows  | Blocker  | No                         |
+| 2  | Dev setup   | Windows  | Blocker  | No                         |
+| 3  | AI setup    | Both     | Blocker  | Yes (environment)          |
+| 4  | App launch  | Windows  | Blocker  | No                         |
+| 7  | Phone login | Both     | Major    | Yes                        |
+| 8  | QR login    | Both     | Blocker  | Verify on 1.0.21           |
+| 10 | Profile name| Both     | Major    | Verify on 1.0.21           |
+| 11 | Start feed  | Both     | Blocker  | Verify on 1.0.21           |
+| 12 | Activity log| Both     | Major    | Should be fixed            |
+| 13 | Feeding UX  | Both     | Major    | Yes (clarity)              |
+| 14 | Feeding     | Both     | Blocker  | Verify on 1.0.21           |
+| 16 | Proxy       | Both     | Major    | Yes                        |
+| 17 | Mac update  | Mac      | Blocker  | Use manual DMG             |
+| 18 | Mac update  | Mac      | Blocker  | Use manual DMG             |
+| 19 | Mac update  | Mac      | Blocker  | Use manual DMG             |
+| 20 | Release     | Both     | Blocker  | Avoid v1.0.22–1.0.32       |
+
+================================================================================
+SECTION C — QUICK COPY FOR JIRA COMMENT
+================================================================================
+
+Error history summary (WSAF):
+
+User hit login failures (QR stuck, pairing invalid), Start feeding disabled,
+unreadable activity log, and feeding flow confusion on builds v1.0.27–1.0.32.
+Mac update failed with 404 missing file, then code signature validation errors
+on v1.0.31–1.0.32. Team rolled back to v1.0.21-restored. Dev environment errors
+(npm PATH, Electron, Codex) were fixed separately. Open items: phone login,
+proxy load, feeding UX messaging, Mac manual update only until next stable
+release. Full log attached: MLKB-5274-error-history-log.txt
+
+================================================================================
+SECTION D — RETROSPECTIVE SUMMARY (OPTIONAL JIRA FIELD)
+================================================================================
+
+What went wrong:
+New features and fixes between v1.0.22 and v1.0.32 were released without
+full regression on both Windows and Mac. Login and feeding changes conflicted
+with each other. Mac auto-update was attempted on unsigned builds and failed
+repeatedly.
+
+What went right:
+Rollback to v1.0.21-restored was completed. GitHub release pipeline still
+produces Windows and Mac installers. User data and sessions were preserved
+across reinstall.
+
+Decision:
+Use v1.0.21-restored as baseline. No v2.0 until stability checklist passes.
+Mac updates via manual DMG until signing strategy is decided.
+
+================================================================================
+END — MLKB-5274 ERROR HISTORY LOG
+================================================================================

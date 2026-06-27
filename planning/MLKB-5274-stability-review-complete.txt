@@ -1,0 +1,245 @@
+================================================================================
+JIRA TICKET : MLKB-5274
+TASK TITLE  : Stability Review & Baseline Check (WSAF)
+STORY       : Whatsapp Auto Feeding
+DUE         : 08/06/2026 — 7:30 PM (GMT+7)
+TOOLS       : GitHub, Jira
+================================================================================
+
+This document is filled from project history, user reports, rollback notes, and
+release review. Use it as the working answer to the task description. Mark each
+checklist item Pass or Fail when tested on a real Windows PC and Mac with
+v1.0.21-restored.
+
+================================================================================
+TASK DESCRIPTION (WHAT THIS REVIEW COVERS)
+================================================================================
+
+We compared problems reported before and after rolling back to version 1.0.21.
+We built a test checklist for login, proxies, feeding, updates, and the main
+screen. We also listed what to keep, fix, or remove before starting new work.
+
+Baseline build for testing:
+https://github.com/yzxotic23-commits/WSAF-BO/releases/tag/v1.0.21-restored
+
+Versions 1.0.22 through 1.0.32 are not recommended. They were rolled back
+because of login, feeding, and update failures.
+
+================================================================================
+1. ISSUE COMPARISON — AFTER ROLLBACK
+================================================================================
+
+PROBLEMS THAT SHOULD BE GONE (fixed by going back to 1.0.21)
+-------------------------------------------------------------
+| Issue | Impact | Notes after rollback |
+|-------|--------|----------------------|
+| Mac update downloads wrong file (404) | Blocker | Caused by bad update file names in v1.0.29–30 |
+| Mac update code signature errors | Blocker | Squirrel auto-install failed on unsigned builds v1.0.31–32 |
+| System log filled with black blocks | Major | QR art was sent into activity log in broken builds |
+| Start feeding blocked while accounts looked linked | Blocker | Session state logic broke in v1.0.29+ |
+| QR login stuck on "Completing QR link" | Blocker | Introduced during pairing/QR fixes v1.0.27–29 |
+| Phone pairing breaks QR switch | Major | Socket and UI changes in v1.0.27–28 |
+| Profile name stuck as "Account 1 / 2" | Major | Profile sync tied to broken registration check |
+| Confusing "Connection closed" treated as logout | Minor | Normal when feeding starts; messaging was unclear |
+
+PROBLEMS THAT MAY STILL EXIST (verify on 1.0.21-restored)
+---------------------------------------------------------
+| Issue | Impact | Notes |
+|-------|--------|-------|
+| Phone number login not reliable | Major | Was weak before the broken releases; still on roadmap |
+| Proxy list slow or fails to load | Major | User reported proxy loading issues |
+| QR expires many times before scan | Major | Seen on account1 during testing |
+| Mac cannot auto-update in app | Major | Expected for unsigned Mac builds — use manual DMG |
+| Windows update may offer wrong newer version | Minor | User should ignore offers above 1.0.21 until new stable release |
+| AI not ready if Codex not logged in | Major | Environment setup, not only app version |
+| Multiple app instances cause conflicts | Major | Only one instance should run |
+
+PROBLEMS THAT ARE ENVIRONMENT / USER SETUP (not rollback)
+---------------------------------------------------------
+| Issue | Impact | Notes |
+|-------|--------|-------|
+| npm not found in terminal | Blocker for dev | PATH issue on Windows dev machine |
+| Codex token missing | Blocker for AI | Needs one-time Codex login |
+| Ollama not installed | Major for fallback | Optional local AI |
+| Gatekeeper blocks Mac app first open | Minor | Right-click → Open |
+
+================================================================================
+2. REGRESSION TEST CHECKLIST (15+ ITEMS)
+================================================================================
+
+Mark each: Pass / Fail / Not tested
+Test on: Windows ___   Mac ___
+
+LOGIN
+-----
+| # | Test case | Win | Mac |
+|---|-----------|-----|-----|
+| L1 | App opens without crash | | |
+| L2 | Link account 1 via QR scan succeeds | | |
+| L3 | Link account 2 via QR scan succeeds | | |
+| L4 | Sidebar shows linked status for both accounts | | |
+| L5 | Account names appear (not only "Account 1/2") | | |
+| L6 | Start feeding button enabled when both linked | | |
+| L7 | Clear all sessions resets and allows fresh QR link | | |
+| L8 | Phone number login (if available) works or shows clear message | | |
+
+PROXIES
+-------
+| # | Test case | Win | Mac |
+|---|-----------|-----|-----|
+| P1 | Open Settings and view proxy list | | |
+| P2 | Save proxy list and see updated count | | |
+| P3 | Test proxy shows success or failure result | | |
+| P4 | Proxy assigned to correct account slot | | |
+| P5 | Feeding still works with direct connection (no proxy) | | |
+
+FEEDING
+-------
+| # | Test case | Win | Mac |
+|---|-----------|-----|-----|
+| F1 | Start feeding begins without frozen button | | |
+| F2 | Chat messages appear during feeding | | |
+| F3 | Activity log shows readable text during feeding | | |
+| F4 | Stop feeding works | | |
+| F5 | After feeding ends, accounts show online again | | |
+| F6 | Feeding complete message appears in English | | |
+
+UPDATES
+-------
+| # | Test case | Win | Mac |
+|---|-----------|-----|-----|
+| U1 | Check for update runs without crash | | |
+| U2 | Windows update download/install path acceptable | | |
+| U3 | Mac update shows manual DMG path OR clear message (no signature error) | | |
+| U4 | Installing v1.0.21-restored from GitHub works | | |
+
+MAIN SCREEN
+-----------
+| # | Test case | Win | Mac |
+|---|-----------|-----|-----|
+| M1 | Sidebar account list updates in real time | | |
+| M2 | Settings open and save language / delays | | |
+| M3 | Activity log readable (no garbled blocks) | | |
+| M4 | Only one app instance runs at a time | | |
+
+================================================================================
+3. KEEP / FIX / REMOVE LIST
+================================================================================
+
+KEEP (works or worth keeping on 1.0.21 baseline)
+------------------------------------------------
+- Desktop app with QR linking from sidebar
+- Start and stop feeding from the main screen
+- Chat preview and activity log during feeding
+- Settings for language, delays, and proxy list
+- Saved WhatsApp sessions between app restarts
+- AI via Codex or local Ollama fallback
+- Windows installer and GitHub release pipeline
+- User data stored outside install folder (Windows + Mac)
+- Rollback release v1.0.21-restored as current production baseline
+
+FIX (planned — matches Jira tasks 2–6 next week)
+--------------------------------------------------
+- Phone number login stability and clear user messaging
+- Proxy list load, save, test, and per-account assignment
+- Start feeding reliability and sidebar "linked" accuracy
+- Profile name sync after successful QR link
+- Activity log noise and readability
+- Mac update path: manual DMG download with clear in-app guidance
+- Reconnect accounts automatically after feeding ends
+- Error messages in plain English on the main screen
+
+REMOVE (do not bring back without redesign)
+-------------------------------------------
+- Recommended use of versions 1.0.22 through 1.0.32
+- Mac in-app auto-install via Squirrel on unsigned builds
+- Post-build ad-hoc signing that broke update validation
+- QR scan output inside activity log
+- Pairing UI behaviour that blocks QR reconnect
+- Update manifest publishing without file name verification
+- Duplicate or conflicting proxy logic between desktop and background process
+
+================================================================================
+4. STABILITY DEFINITION NOTE
+================================================================================
+
+WSAF is "stable" when ALL of the following are true on v1.0.21-restored:
+
+1. Both WhatsApp accounts can be linked by QR without getting stuck.
+2. The main screen shows both accounts as linked with correct readiness to feed.
+3. Start feeding runs at least one full pair session with visible messages.
+4. Stop or natural end of feeding brings accounts back online without new QR scan.
+5. Activity log stays human-readable during login and feeding.
+6. Proxy list can be saved and tested from Settings (or direct connection works).
+7. Windows users can install and run from the official GitHub release.
+8. Mac users can install from DMG and open the app (with right-click Open if needed).
+9. Mac users are not forced through broken in-app auto-update signature errors.
+10. No recommended production use of versions 1.0.22–1.0.32 until a new QA-passed release.
+
+================================================================================
+5. EXPECTED OUTCOME / RESULT (TASK COMPLETION)
+================================================================================
+
+Done when:
+- Checklist above is filled with Pass/Fail on Windows and Mac.
+- Issue comparison table is agreed with the team.
+- Keep / Fix / Remove list is agreed before Task 2 starts.
+- Stability definition is accepted as the gate for any new release.
+- Screenshots attached in Jira for every Fail item.
+- Follow-up tickets below are created or linked in Jira.
+
+================================================================================
+6. DELIVERABLES (COPY TO JIRA FIELD)
+================================================================================
+
+1. Regression test checklist (18 cases, Pass/Fail, Windows + Mac)
+2. Issue comparison sheet (gone vs may remain vs environment)
+3. Keep / Fix / Remove feature list
+4. Stability definition note (10 minimum flows)
+5. Screenshots for any failed checklist items
+6. Linked follow-up Jira tickets for the rest of the week
+
+Quick one-line for Deliverables field:
+Regression checklist, issue comparison after rollback, Keep/Fix/Remove list,
+stability definition, failure screenshots, and linked follow-up tickets.
+
+================================================================================
+7. FOLLOW-UP JIRA TICKETS (DRAFT)
+================================================================================
+
+Task 2 — Fix account linking by QR and phone number
+Acceptance: Both accounts link by QR without stuck state; activity log clean;
+Start feeding enabled when truly linked.
+
+Task 3 — Improve proxy list loading and testing
+Acceptance: Save proxy list updates UI immediately; test shows clear result;
+proxies stay on correct accounts after feeding.
+
+Task 4 — Reliable start, stop, and reconnect for feeding
+Acceptance: Start feeding never stuck when linked; accounts return online after
+feeding; clear errors only when something is actually wrong.
+
+Task 5 — Polish main screen, chat view, and activity log
+Acceptance: Log readable; chat layout tidy; sidebar status matches real state.
+
+Task 6 — Safe release plan and final QA sign-off
+Acceptance: Windows update tested; Mac uses manual DMG guide; no broken
+manifest or signature release published.
+
+================================================================================
+8. NOTES FROM USER SESSIONS (AUDIT TRAIL)
+================================================================================
+
+- User reported app "getting worse" after QR scan and start feeding on newer builds.
+- Login account2 succeeded (profile name shown) but feeding flow then confused user.
+- "Connection closed (auth saved)" appeared when feeding started — normal handoff
+  but looked like failure.
+- System log showed unreadable black blocks during QR — must not return.
+- Mac update failed: missing file (404), then code signature validation errors.
+- User requested rollback to v1.0.21; team restored v1.0.21-restored on GitHub.
+- User requested v2.0 only after stable confirmation — on hold.
+- Planning for next week already mapped in jira-next-week-whatsapp-auto-feeding.txt.
+
+================================================================================
+END OF DOCUMENT — MLKB-5274
+================================================================================

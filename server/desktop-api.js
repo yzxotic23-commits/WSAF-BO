@@ -4,12 +4,13 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const DesktopBridge = require('./bridge');
+const { AmsStore } = require('../src/ams-db');
 
 const PORT = parseInt(process.env.DESKTOP_API_PORT || '47821', 10);
 const PKG = require('../package.json');
 
 function createDesktopApi(options = {}) {
-  const { updater } = options;
+  const { updater, host = '127.0.0.1' } = options;
   const app = express();
   const server = http.createServer(app);
   const io = new Server(server, {
@@ -20,8 +21,30 @@ function createDesktopApi(options = {}) {
     io.emit(event, payload);
   });
 
+  // AMS store — shares app root with WSAF data
+  const amsRoot = process.env.APP_ROOT || process.cwd();
+  const ams = new AmsStore(amsRoot);
+
   app.use(cors());
   app.use(express.json({ limit: '2mb' }));
+
+  // Allow embedding inside AMS web shell (iframe)
+  app.use((_req, res, next) => {
+    res.setHeader(
+      'Content-Security-Policy',
+      "frame-ancestors 'self' http://localhost:3000 http://127.0.0.1:3000 http://localhost:5173 http://127.0.0.1:5173",
+    );
+    next();
+  });
+
+  // Serve compiled frontend (unified React SPA)
+  const clientDist = path.join(__dirname, '..', 'client', 'dist');
+  app.use(express.static(clientDist));
+
+  // Legacy client portal (standalone page, not yet in React)
+  app.get('/portal', (_req, res) => {
+    res.sendFile(path.join(__dirname, 'ams', 'portal.html'));
+  });
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, version: PKG.version });
@@ -88,6 +111,55 @@ function createDesktopApi(options = {}) {
     res.json(bridge.getStatus());
   });
 
+  /** Unified payload for AMS Project dashboard (Phase 4 bridge). */
+  app.get('/api/bridge/summary', (_req, res) => {
+    try {
+      const status = bridge.getStatus();
+      const summary = bridge.getAuditSummary();
+      const accounts = status.accounts || [];
+      const slotsOnline = accounts.filter((a) => a.connected).length;
+      const slotsFeeding = accounts.filter((a) => a.feedingActive).length;
+      const slotsLinking = accounts.filter((a) => a.linking).length;
+
+      res.json({
+        ok: true,
+        version: PKG.version,
+        reachable: true,
+        engine: {
+          accountCount: status.accountCount,
+          pairCount: status.pairCount,
+          feedingRunning: Boolean(status.feedingRunning),
+          feedingStarting: Boolean(status.feedingStarting),
+          feedingLaunchPhase: status.feedingLaunchPhase || null,
+          slotsOnline,
+          slotsOffline: Math.max(0, accounts.length - slotsOnline - slotsLinking),
+          slotsFeeding,
+          slotsLinking,
+          lastFeedingComplete: status.lastFeedingComplete || null,
+        },
+        slots: accounts.map((a) => ({
+          slot: a.slot,
+          label: a.label || a.name,
+          phone: a.phone || null,
+          connected: Boolean(a.connected),
+          linking: Boolean(a.linking),
+          feedingActive: Boolean(a.feedingActive),
+        })),
+        feeding: {
+          summary: {
+            totalFeedingVolume: summary.totalFeedingVolume ?? 0,
+            successVolume: summary.successVolume ?? 0,
+            restrictVolume: summary.restrictVolume ?? 0,
+            bannedVolume: summary.bannedVolume ?? 0,
+            successRate: summary.successRate ?? 0,
+          },
+        },
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   app.post('/api/refresh', async (_req, res) => {
     try {
       res.json(await bridge.refreshAccounts());
@@ -145,6 +217,30 @@ function createDesktopApi(options = {}) {
       const status = bridge.getStatus();
       bridge.emit('status', status);
       res.json(status);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/slots/:slot/display-label', (req, res) => {
+    try {
+      const slot = parseInt(req.params.slot, 10);
+      if (Number.isNaN(slot) || slot < 0) {
+        res.status(400).json({ error: 'Invalid slot' });
+        return;
+      }
+      const accountName = req.body?.accountName || req.body?.account_name;
+      if (!accountName) {
+        res.status(400).json({ error: 'accountName required' });
+        return;
+      }
+      const row = bridge.setSlotDisplayLabel(slot, accountName, {
+        phone: req.body?.phone || req.body?.phone_number || null,
+        siteKey: req.body?.siteKey || req.body?.site_key || null,
+        location: req.body?.location || null,
+        ipAddress: req.body?.ipAddress || req.body?.ip_address || null,
+      });
+      res.json({ ok: true, slot, label: row });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -226,10 +322,12 @@ function createDesktopApi(options = {}) {
       const method = req.body?.method || 'qr';
       const phoneNumber = req.body?.phoneNumber || null;
       const clearIncomplete = Boolean(req.body?.clearIncomplete);
+      const refreshPairing = Boolean(req.body?.refreshPairing);
       res.json(await bridge.connectAccount(slot, {
         method: method === 'pairing' ? 'pairing' : 'qr',
         phoneNumber: method === 'pairing' ? phoneNumber : undefined,
         clearIncomplete,
+        refreshPairing,
       }));
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -307,9 +405,23 @@ function createDesktopApi(options = {}) {
     }
   });
 
-  app.post('/api/feeding/start', async (_req, res) => {
+  app.post('/api/accounts/remove-pair', async (req, res) => {
     try {
-      res.json(await bridge.startFeeding());
+      const pairIndex = parseInt(req.body?.pairIndex, 10);
+      if (!Number.isFinite(pairIndex)) {
+        res.status(400).json({ ok: false, error: 'pairIndex is required' });
+        return;
+      }
+      res.json(await bridge.removePair(pairIndex));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/feeding/start', async (req, res) => {
+    try {
+      const pairIndex = req.body?.pairIndex;
+      res.json(await bridge.startFeeding({ pairIndex }));
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -327,10 +439,27 @@ function createDesktopApi(options = {}) {
     res.json(bridge.readEnvFile());
   });
 
+  app.post('/api/audit/sync', (_req, res) => {
+    try {
+      const synced = bridge.syncLinkedSlotsAudit();
+      res.json({
+        ok: true,
+        synced: synced.count,
+        ...bridge.getAuditList({ limit: 500, offset: 0 }),
+        summary: bridge.getAuditSummary(),
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get('/api/audit', (req, res) => {
     try {
       const limit = parseInt(req.query.limit || '500', 10);
       const offset = parseInt(req.query.offset || '0', 10);
+      if (offset === 0 && bridge.getAuditList({ limit: 1, offset: 0 }).total === 0) {
+        bridge.syncLinkedSlotsAudit();
+      }
       res.json({
         ...bridge.getAuditList({ limit, offset }),
         summary: bridge.getAuditSummary(),
@@ -370,6 +499,179 @@ function createDesktopApi(options = {}) {
     }
   });
 
+  // ── AMS API ───────────────────────────────────────────────────────────────
+  // Reference data
+  app.get('/api/ams/meta', (_req, res) => {
+    try {
+      res.json({ sites: ams.getSites(), brands: ams.getBrands() });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/ams/summary', (_req, res) => {
+    try { res.json(ams.getSummary()); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Accounts
+  app.get('/api/ams/accounts', (req, res) => {
+    try {
+      const { status, site_id, brand_id, search, limit, offset } = req.query;
+      const accounts = ams.getAccounts({ status, site_id, brand_id, search,
+        limit: limit ? parseInt(limit) : undefined,
+        offset: offset ? parseInt(offset) : undefined });
+      res.json({ accounts, total: accounts.length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/ams/accounts/:id', (req, res) => {
+    try {
+      const a = ams.getAccount(parseInt(req.params.id));
+      if (!a) return res.status(404).json({ error: 'Not found' });
+      res.json(a);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/ams/accounts', (req, res) => {
+    try { res.json(ams.createAccount(req.body || {})); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch('/api/ams/accounts/:id', (req, res) => {
+    try {
+      const a = ams.updateAccount(parseInt(req.params.id), req.body || {});
+      if (!a) return res.status(404).json({ error: 'Not found' });
+      res.json(a);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Ban log
+  app.post('/api/ams/accounts/:id/ban', (req, res) => {
+    try {
+      res.json(ams.recordBan({ ...req.body, account_id: parseInt(req.params.id) }));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch('/api/ams/ban/:id', (req, res) => {
+    try { res.json(ams.updateBanLog(parseInt(req.params.id), req.body || {})); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // IPs
+  app.get('/api/ams/ips', (req, res) => {
+    try {
+      const { active } = req.query;
+      res.json(ams.getIps(active !== undefined ? { active: active === '1' || active === 'true' } : {}));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/ams/ips', (req, res) => {
+    try { res.json(ams.createIp(req.body || {})); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch('/api/ams/ips/:id', (req, res) => {
+    try { res.json(ams.updateIp(parseInt(req.params.id), req.body || {})); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete('/api/ams/ips/:id', (req, res) => {
+    try { res.json(ams.deleteIp(parseInt(req.params.id))); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Devices
+  app.get('/api/ams/devices', (req, res) => {
+    try {
+      const { site_id } = req.query;
+      res.json(ams.getDevices(site_id ? { site_id } : {}));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/ams/devices', (req, res) => {
+    try { res.json(ams.createDevice(req.body || {})); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch('/api/ams/devices/:id', (req, res) => {
+    try { res.json(ams.updateDevice(parseInt(req.params.id), req.body || {})); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // SIMs
+  app.get('/api/ams/sims', (req, res) => {
+    try {
+      const { status, telco, expiring } = req.query;
+      res.json(ams.getSims({ status, telco, expiring: expiring === '1' || expiring === 'true' }));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/ams/sims', (req, res) => {
+    try { res.json(ams.createSim(req.body || {})); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch('/api/ams/sims/:id', (req, res) => {
+    try { res.json(ams.updateSim(parseInt(req.params.id), req.body || {})); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // IP Audits
+  app.get('/api/ams/ips/audit-summary', (_req, res) => {
+    try { res.json(ams.getIpAuditSummary()); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/ams/ips/with-audit', (_req, res) => {
+    try { res.json(ams.getIpsWithAuditStatus()); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/ams/ips/:id/audits', (req, res) => {
+    try { res.json(ams.getIpAudits(parseInt(req.params.id))); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/ams/ips/:id/audit', (req, res) => {
+    try {
+      const record = ams.recordIpAudit({ ...req.body, ip_id: parseInt(req.params.id) });
+      res.json(record);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Work Orders
+  app.get('/api/ams/workorders', (req, res) => {
+    try {
+      const { status, brand_id, type } = req.query;
+      res.json(ams.getWorkOrders({ status, brand_id, type }));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/ams/workorders/counts', (_req, res) => {
+    try { res.json(ams.getWorkOrderCounts()); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/ams/workorders/:id', (req, res) => {
+    try {
+      const wo = ams.getWorkOrder(parseInt(req.params.id));
+      if (!wo) return res.status(404).json({ error: 'Not found' });
+      res.json(wo);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/ams/workorders', (req, res) => {
+    try { res.json(ams.createWorkOrder(req.body || {})); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch('/api/ams/workorders/:id', (req, res) => {
+    try {
+      const wo = ams.updateWorkOrder(parseInt(req.params.id), req.body || {});
+      if (!wo) return res.status(404).json({ error: 'Not found' });
+      res.json(wo);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   io.on('connection', (socket) => {
     socket.emit('status', bridge.getStatus());
     if (updater) socket.emit('update', updater.getState());
@@ -377,6 +679,13 @@ function createDesktopApi(options = {}) {
       socket.emit('chat', { slot: i, history: bridge.getChatHistory(i) });
     }
     socket.on('disconnect', () => {});
+  });
+
+  // SPA fallback — unified FeedFlow React app (HashRouter)
+  const spaIndex = path.join(clientDist, 'index.html');
+  app.get('*', (req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+    res.sendFile(spaIndex, (err) => (err ? next(err) : undefined));
   });
 
   return {
@@ -389,8 +698,8 @@ function createDesktopApi(options = {}) {
     start: () =>
       new Promise((resolve) => {
         process.env.DESKTOP_API_PORT = String(PORT);
-        server.listen(PORT, '127.0.0.1', () => {
-          console.log(`[API] Desktop API http://127.0.0.1:${PORT}`);
+        server.listen(PORT, host, () => {
+          console.log(`[API] Desktop API http://${host}:${PORT}`);
           resolve(PORT);
         });
       }),

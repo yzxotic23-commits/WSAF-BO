@@ -1,0 +1,47 @@
+================================================================================
+JIRA TICKET : MLKB-5274
+TASK TITLE  : Stability Review & Baseline Check (WSAF)
+DUE         : 08/06/2026 — 7:30 PM (GMT+7)
+STORY       : Whatsapp Auto Feeding
+================================================================================
+
+DELIVERABLES
+------------
+
+1. Regression Test Checklist
+   A shared document with at least 15 test cases covering login, proxies,
+   feeding, updates, and the main screen. Each item is tested on Windows and
+   Mac using the restored stable build and marked Pass or Fail.
+
+2. Issue Comparison Sheet
+   A short list showing which problems still happen and which disappeared
+   after rollback. Each issue includes a brief note on impact: blocker,
+   major, or minor.
+
+3. Keep / Fix / Remove List
+   A team-ready list of features and recent changes labelled Keep, Fix, or
+   Remove. This becomes the guide for work in the rest of the week.
+
+4. Stability Definition Note
+   A one-page summary explaining what “stable” means for WSAF before any new
+   development starts. Lists the minimum flows that must work without failure.
+
+5. Screenshots or Screen Recordings
+   Visual proof for every failed checklist item. Examples: login stuck,
+   feeding not starting, proxy not loading, or update errors.
+
+6. Follow-Up Jira Tickets
+   Draft or linked tickets for the remaining week (login, proxy, feeding,
+   UI, release). Each ticket has a clear title and acceptance criteria based
+   on findings from this review.
+
+================================================================================
+QUICK COPY (single paragraph for Jira Deliverables field)
+================================================================================
+
+Regression checklist (Pass/Fail, Windows + Mac), issue comparison after
+rollback, Keep/Fix/Remove feature list, stability definition note,
+screenshots for failures, and linked follow-up Jira tickets for the rest
+of the week.
+
+================================================================================

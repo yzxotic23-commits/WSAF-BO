@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMS — Devices</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0f1117;--bg2:#1a1d27;--bg3:#22263a;
+      --border:#2e3350;--accent:#25d366;--warn:#f59e0b;--danger:#ef4444;--info:#3b82f6;
+      --text:#e2e8f0;--muted:#64748b;--muted2:#94a3b8;--radius:10px;
+    }
+    body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;}
+    .layout{display:flex;flex:1;}
+    nav.sidebar{width:220px;min-height:100vh;background:var(--bg2);border-right:1px solid var(--border);position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0;}
+    .sidebar-brand{display:flex;align-items:center;gap:8px;padding:18px 16px 14px;border-bottom:1px solid var(--border);font-weight:700;font-size:15px;}
+    .sidebar-brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent);}
+    .sidebar-section{padding:12px 10px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
+    nav.sidebar a{display:flex;align-items:center;gap:9px;padding:8px 14px;margin:1px 6px;border-radius:7px;text-decoration:none;color:var(--muted2);font-size:13px;transition:all .12s;}
+    nav.sidebar a:hover{background:var(--bg3);color:var(--text);}
+    nav.sidebar a.active{background:var(--bg3);color:var(--text);font-weight:600;}
+    nav.sidebar a .icon{font-size:15px;width:18px;text-align:center;}
+    .main{flex:1;display:flex;flex-direction:column;}
+    .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--bg2);border-bottom:1px solid var(--border);gap:12px;}
+    .topbar h1{font-size:16px;font-weight:700;}
+    .content{padding:20px 24px;flex:1;overflow-y:auto;}
+    .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px;}
+    .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;}
+    .stat-card .lbl{font-size:11px;color:var(--muted);margin-bottom:4px;}
+    .stat-card .val{font-size:24px;font-weight:700;}
+    .stat-card.green .val{color:var(--accent);}
+    .stat-card.yellow .val{color:var(--warn);}
+    .filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+    .search-wrap{position:relative;flex:1;min-width:180px;}
+    .search-wrap input{width:100%;padding:8px 12px 8px 34px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;}
+    .search-wrap input:focus{outline:none;border-color:var(--accent);}
+    .search-wrap .icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;}
+    select{padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;cursor:pointer;}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:all .12s;}
+    .btn-primary{background:var(--accent);color:#000;}
+    .btn-primary:hover{background:#1fb557;}
+    .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--muted2);}
+    .btn-ghost:hover{border-color:var(--accent);color:var(--text);}
+    .btn-sm{padding:5px 10px;font-size:12px;}
+    .table-wrap{overflow-x:auto;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);}
+    table{width:100%;border-collapse:collapse;font-size:13px;}
+    thead th{padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);background:var(--bg3);white-space:nowrap;}
+    tbody tr{border-bottom:1px solid rgba(46,51,80,.5);transition:background .1s;}
+    tbody tr:last-child{border-bottom:none;}
+    tbody tr:hover{background:var(--bg3);}
+    tbody td{padding:10px 14px;}
+    .empty-state{text-align:center;padding:48px;color:var(--muted);font-size:13px;}
+    .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center;padding:20px;}
+    .modal-bg.open{display:flex;}
+    .modal{background:var(--bg2);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;}
+    .modal-header{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--border);}
+    .modal-header h2{font-size:16px;font-weight:700;}
+    .modal-body{padding:20px;}
+    .modal-footer{display:flex;gap:8px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--border);}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .form-field{display:flex;flex-direction:column;gap:5px;}
+    .form-field label{font-size:12px;font-weight:600;color:var(--muted2);}
+    .form-field input,.form-field select{padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;}
+    .form-field input:focus,.form-field select:focus{outline:none;border-color:var(--accent);}
+    .form-field.full{grid-column:1/-1;}
+    .shelf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-top:4px;}
+    .shelf-cell{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 8px;text-align:center;font-size:12px;cursor:pointer;transition:all .12s;}
+    .shelf-cell:hover{border-color:var(--accent);}
+    .shelf-cell .code{font-weight:700;font-size:13px;}
+    .shelf-cell .site{color:var(--muted);font-size:10px;margin-top:2px;}
+    .shelf-cell .slots{font-size:11px;margin-top:2px;}
+    .acct-count-0{color:var(--accent);}
+    .acct-count-some{color:var(--muted2);}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="sidebar-brand"><div class="dot"></div>AMS</div>
+    <div class="sidebar-section">Account</div>
+    <a href="/ams/accounts"><span class="icon">📋</span> Account Ledger</a>
+    <a href="/ams/nurturing"><span class="icon">🌱</span> Nurturing Pipeline</a>
+    <a href="/ams/activation"><span class="icon">⚡</span> Activation Desk</a>
+    <div class="sidebar-section">Operations</div>
+    <a href="/ams/workorders"><span class="icon">📝</span> Work Orders</a>
+    <a href="/portal" target="_blank"><span class="icon">🔗</span> Client Portal</a>
+    <div class="sidebar-section">Resources</div>
+    <a href="/ams/ips"><span class="icon">🌐</span> IP Ledger</a>
+    <a href="/ams/ip-audit"><span class="icon">🔍</span> IP Audit</a>
+    <a href="/ams/devices" class="active"><span class="icon">📱</span> Devices</a>
+    <a href="/ams/sims"><span class="icon">💳</span> SIM Cards</a>
+    <div class="sidebar-section">Analytics</div>
+    <a href="/dashboard"><span class="icon">📊</span> Feeding Dashboard</a>
+    <div class="sidebar-section">System</div>
+    <a href="/"><span class="icon">⚙️</span> WSAF App</a>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <h1>Device Ledger</h1>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="site-filter" onchange="load()">
+          <option value="">All Sites</option>
+        </select>
+        <button class="btn btn-primary" onclick="openAdd()">+ Add Device</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="stat-row">
+        <div class="stat-card"><div class="lbl">Total Devices</div><div class="val" id="st-total">—</div></div>
+        <div class="stat-card green"><div class="lbl">Active</div><div class="val" id="st-active">—</div></div>
+        <div class="stat-card"><div class="lbl">Assigned Accounts</div><div class="val" id="st-assigned">—</div></div>
+      </div>
+
+      <div class="filters">
+        <div class="search-wrap">
+          <span class="icon">🔍</span>
+          <input type="text" id="search" placeholder="Search device code, shelf…" oninput="debounce()" />
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Device Code</th>
+              <th>Site</th>
+              <th>Shelf</th>
+              <th>Slot</th>
+              <th>Brand</th>
+              <th>Owner</th>
+              <th>Total Accounts</th>
+              <th>Active Accounts</th>
+              <th>Note</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="dev-tbody"><tr><td colspan="10" class="empty-state">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Add Device</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-field full">
+          <label>Device Code *</label>
+          <input type="text" id="f-code" placeholder="e.g. DEV-001" />
+        </div>
+        <div class="form-field">
+          <label>Site</label>
+          <select id="f-site"></select>
+        </div>
+        <div class="form-field">
+          <label>Brand</label>
+          <select id="f-brand"></select>
+        </div>
+        <div class="form-field">
+          <label>Shelf</label>
+          <input type="text" id="f-shelf" placeholder="e.g. A" />
+        </div>
+        <div class="form-field">
+          <label>Slot</label>
+          <input type="text" id="f-slot" placeholder="e.g. 01" />
+        </div>
+        <div class="form-field full">
+          <label>Owner</label>
+          <input type="text" id="f-owner" placeholder="e.g. Alex" />
+        </div>
+        <div class="form-field full">
+          <label>Note</label>
+          <input type="text" id="f-note" placeholder="Optional" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="save()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let allDevices = [];
+let meta = { sites: [], brands: [] };
+let searchTimer = null;
+
+async function load() {
+  const siteId = document.getElementById('site-filter').value;
+  const params = new URLSearchParams();
+  if (siteId) params.set('site_id', siteId);
+  [allDevices, meta] = await Promise.all([
+    fetch('/api/ams/devices?' + params).then(r => r.json()),
+    fetch('/api/ams/meta').then(r => r.json()),
+  ]);
+  populateSiteFilter();
+  populateFormSelects();
+  render(allDevices);
+  updateStats(allDevices);
+}
+
+function populateSiteFilter() {
+  const sf = document.getElementById('site-filter');
+  const cur = sf.value;
+  sf.innerHTML = '<option value="">All Sites</option>' + meta.sites.map(s => `<option value="${s.id}" ${s.id == cur ? 'selected' : ''}>${s.name}</option>`).join('');
+}
+
+function populateFormSelects() {
+  document.getElementById('f-site').innerHTML = '<option value="">— None —</option>' + meta.sites.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  document.getElementById('f-brand').innerHTML = '<option value="">— None —</option>' + meta.brands.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+}
+
+function render(devices) {
+  const search = document.getElementById('search').value.trim().toLowerCase();
+  const filtered = search ? devices.filter(d => d.code.toLowerCase().includes(search) || (d.shelf||'').toLowerCase().includes(search)) : devices;
+  const tbody = document.getElementById('dev-tbody');
+  if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No devices found</td></tr>'; return; }
+  tbody.innerHTML = filtered.map(d => `<tr>
+    <td><strong>${d.code}</strong></td>
+    <td>${d.site_name || '—'}</td>
+    <td>${d.shelf || '—'}</td>
+    <td>${d.slot || '—'}</td>
+    <td>${d.brand_name || '—'}</td>
+    <td>${d.owner || '—'}</td>
+    <td>${d.account_count || 0}</td>
+    <td>${d.active_count || 0}</td>
+    <td>${d.note || '—'}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="openEdit(${d.id})">Edit</button></td>
+  </tr>`).join('');
+}
+
+function updateStats(devices) {
+  document.getElementById('st-total').textContent = devices.length;
+  document.getElementById('st-active').textContent = devices.filter(d => d.status === 'active').length;
+  document.getElementById('st-assigned').textContent = devices.reduce((s, d) => s + (d.account_count || 0), 0);
+}
+
+function debounce() { clearTimeout(searchTimer); searchTimer = setTimeout(() => render(allDevices), 200); }
+
+function openAdd() {
+  document.getElementById('modal-title').textContent = 'Add Device';
+  ['f-code','f-shelf','f-slot','f-owner','f-note'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-site').value = '';
+  document.getElementById('f-brand').value = '';
+  document.getElementById('modal').classList.add('open');
+}
+
+function openEdit(id) {
+  const d = allDevices.find(x => x.id === id);
+  if (!d) return;
+  document.getElementById('modal-title').textContent = 'Edit Device';
+  document.getElementById('f-code').value = d.code;
+  document.getElementById('f-shelf').value = d.shelf || '';
+  document.getElementById('f-slot').value = d.slot || '';
+  document.getElementById('f-owner').value = d.owner || '';
+  document.getElementById('f-note').value = d.note || '';
+  document.getElementById('f-site').value = d.site_id || '';
+  document.getElementById('f-brand').value = d.brand_id || '';
+  document.getElementById('modal').dataset.editId = id;
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  delete document.getElementById('modal').dataset.editId;
+}
+
+async function save() {
+  const editId = document.getElementById('modal').dataset.editId;
+  const body = {
+    code: document.getElementById('f-code').value.trim(),
+    site_id: document.getElementById('f-site').value || null,
+    brand_id: document.getElementById('f-brand').value || null,
+    shelf: document.getElementById('f-shelf').value.trim() || null,
+    slot: document.getElementById('f-slot').value.trim() || null,
+    owner: document.getElementById('f-owner').value.trim() || null,
+    note: document.getElementById('f-note').value.trim() || null,
+  };
+  if (!body.code) { alert('Device code is required'); return; }
+  const url = editId ? '/api/ams/devices/' + editId : '/api/ams/devices';
+  const method = editId ? 'PATCH' : 'POST';
+  await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  closeModal(); load();
+}
+
+document.getElementById('modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+load();
+</script>
+</body>
+</html>

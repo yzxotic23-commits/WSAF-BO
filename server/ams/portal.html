@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMS — Client Portal</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0f1117;--bg2:#1a1d27;--bg3:#22263a;--bg4:#2a2f47;
+      --border:#2e3350;--accent:#25d366;--accent2:#128c7e;
+      --warn:#f59e0b;--danger:#ef4444;--info:#3b82f6;--purple:#8b5cf6;
+      --text:#e2e8f0;--muted:#64748b;--muted2:#94a3b8;--radius:10px;
+    }
+    body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+
+    .portal-header{background:var(--bg2);border-bottom:1px solid var(--border);padding:16px 32px;display:flex;align-items:center;justify-content:space-between;}
+    .portal-logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;}
+    .portal-logo .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent);}
+    .portal-subtitle{font-size:12px;color:var(--muted2);}
+
+    .portal-body{max-width:860px;margin:0 auto;padding:32px 20px;}
+
+    .section-title{font-size:16px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+
+    /* Request form card */
+    .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:28px;}
+    .card-title{font-size:14px;font-weight:700;margin-bottom:18px;color:var(--text);}
+
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+    .form-grid .full{grid-column:1/-1;}
+    .form-row label{display:block;font-size:11px;color:var(--muted2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;}
+    .form-row input,.form-row select,.form-row textarea{
+      width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:7px;
+      padding:9px 12px;color:var(--text);font-size:13px;
+    }
+    .form-row textarea{resize:vertical;min-height:80px;}
+    .form-row input:focus,.form-row select:focus,.form-row textarea:focus{outline:none;border-color:var(--accent2);}
+
+    .btn{padding:10px 22px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:opacity .12s;}
+    .btn:hover{opacity:.85;}
+    .btn-primary{background:var(--accent);color:#000;}
+    .btn-secondary{background:var(--bg3);color:var(--text);border:1px solid var(--border);}
+
+    /* Request type pills */
+    .type-pills{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;}
+    .type-pill{padding:8px 18px;border-radius:20px;border:1px solid var(--border);background:var(--bg3);color:var(--muted2);font-size:13px;cursor:pointer;transition:all .15s;}
+    .type-pill:hover{border-color:var(--accent2);color:var(--text);}
+    .type-pill.selected{border-color:var(--accent);background:rgba(37,211,102,.1);color:var(--accent);}
+
+    /* Order list */
+    .order-row{background:var(--bg3);border-radius:8px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+    .order-row .left .ref{font-size:11px;color:var(--muted2);font-family:monospace;margin-bottom:2px;}
+    .order-row .left .title{font-size:13px;font-weight:600;margin-bottom:4px;}
+    .order-row .left .meta{font-size:11px;color:var(--muted2);}
+    .status-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:4px 12px;border-radius:20px;font-weight:600;white-space:nowrap;flex-shrink:0;}
+    .status-pill.open{background:rgba(59,130,246,.12);color:var(--info);}
+    .status-pill.in_progress{background:rgba(245,158,11,.12);color:var(--warn);}
+    .status-pill.done{background:rgba(37,211,102,.12);color:var(--accent);}
+    .status-pill.cancelled{background:rgba(100,116,139,.12);color:var(--muted2);}
+
+    .empty-state{text-align:center;color:var(--muted);padding:32px;font-size:13px;}
+
+    .success-banner{display:none;background:rgba(37,211,102,.1);border:1px solid var(--accent2);border-radius:8px;padding:14px 18px;margin-bottom:18px;color:var(--accent);font-size:13px;font-weight:600;}
+    .success-banner.show{display:block;}
+  </style>
+</head>
+<body>
+  <div class="portal-header">
+    <div class="portal-logo">
+      <div class="dot"></div>
+      AMS Client Portal
+    </div>
+    <div class="portal-subtitle">Submit and track your account requests</div>
+  </div>
+
+  <div class="portal-body">
+
+    <!-- Submit request -->
+    <div class="section-title">📋 Submit a Request</div>
+    <div class="card">
+      <div class="card-title">What do you need?</div>
+      <div class="type-pills" id="type-pills">
+        <div class="type-pill selected" data-type="new_account" onclick="selectType(this,'new_account')">🆕 New Account</div>
+        <div class="type-pill" data-type="account_swap" onclick="selectType(this,'account_swap')">🔄 Account Swap</div>
+        <div class="type-pill" data-type="top_up" onclick="selectType(this,'top_up')">💰 Top Up</div>
+        <div class="type-pill" data-type="other" onclick="selectType(this,'other')">📌 Other</div>
+      </div>
+
+      <div id="success-banner" class="success-banner"></div>
+
+      <div class="form-grid">
+        <div class="form-row full">
+          <label>Title / Summary *</label>
+          <input type="text" id="f-title" placeholder="Brief description of your request" />
+        </div>
+        <div class="form-row">
+          <label>Your Name / Team</label>
+          <input type="text" id="f-requester" placeholder="Who is requesting?" />
+        </div>
+        <div class="form-row">
+          <label>Brand</label>
+          <select id="f-brand"><option value="">— Select brand —</option></select>
+        </div>
+        <div class="form-row">
+          <label>Quantity Needed</label>
+          <input type="number" id="f-quantity" value="1" min="1" />
+        </div>
+        <div class="form-row">
+          <label>Priority</label>
+          <select id="f-priority">
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Needed By (Date)</label>
+          <input type="date" id="f-due" />
+        </div>
+        <div class="form-row full">
+          <label>Details</label>
+          <textarea id="f-description" placeholder="Describe your requirement in detail..."></textarea>
+        </div>
+      </div>
+
+      <div style="margin-top:18px;display:flex;gap:10px;">
+        <button class="btn btn-primary" onclick="submitRequest()">Submit Request</button>
+        <button class="btn btn-secondary" onclick="resetForm()">Clear</button>
+      </div>
+    </div>
+
+    <!-- Track orders -->
+    <div class="section-title" style="justify-content:space-between;">
+      <span>🔍 Your Requests</span>
+      <button class="btn btn-secondary" style="padding:6px 14px;font-size:11px;" onclick="loadMyOrders()">↻ Refresh</button>
+    </div>
+
+    <div id="my-orders">
+      <div class="empty-state">Loading...</div>
+    </div>
+  </div>
+
+<script>
+  let selectedType = 'new_account';
+  let myRequester = '';
+
+  async function loadMeta() {
+    const r = await fetch('/api/ams/meta');
+    const meta = await r.json();
+    const sel = document.getElementById('f-brand');
+    meta.brands.forEach(b => { sel.innerHTML += `<option value="${b.id}">${b.name}</option>`; });
+  }
+
+  function selectType(el, type) {
+    document.querySelectorAll('.type-pill').forEach(p => p.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedType = type;
+  }
+
+  async function submitRequest() {
+    const title = document.getElementById('f-title').value.trim();
+    if (!title) { alert('Please enter a title for your request'); return; }
+    const requester = document.getElementById('f-requester').value.trim();
+    if (requester) myRequester = requester;
+
+    const data = {
+      type: selectedType,
+      title,
+      requester: requester || null,
+      priority: document.getElementById('f-priority').value,
+      quantity: parseInt(document.getElementById('f-quantity').value) || 1,
+      due_date: document.getElementById('f-due').value || null,
+      description: document.getElementById('f-description').value || null,
+      brand_id: document.getElementById('f-brand').value ? parseInt(document.getElementById('f-brand').value) : null,
+    };
+
+    const res = await fetch('/api/ams/workorders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const wo = await res.json();
+    const banner = document.getElementById('success-banner');
+    banner.textContent = `✅ Request submitted! Reference: ${wo.ref} — Our team will review it shortly.`;
+    banner.classList.add('show');
+    resetForm(false);
+    loadMyOrders();
+    setTimeout(() => banner.classList.remove('show'), 8000);
+  }
+
+  function resetForm(clearBanner = true) {
+    ['title','requester','description'].forEach(f => document.getElementById('f-'+f).value = '');
+    document.getElementById('f-quantity').value = '1';
+    document.getElementById('f-due').value = '';
+    document.getElementById('f-priority').value = 'normal';
+    document.getElementById('f-brand').value = '';
+    selectedType = 'new_account';
+    document.querySelectorAll('.type-pill').forEach(p => p.classList.remove('selected'));
+    document.querySelector('[data-type="new_account"]').classList.add('selected');
+    if (clearBanner) document.getElementById('success-banner').classList.remove('show');
+  }
+
+  async function loadMyOrders() {
+    const orders = await fetch('/api/ams/workorders').then(r => r.json());
+    const container = document.getElementById('my-orders');
+    if (!orders.length) { container.innerHTML = '<div class="empty-state">No requests yet — submit one above!</div>'; return; }
+    container.innerHTML = orders.slice(0,20).map(wo => {
+      const typeLabel = { new_account:'🆕 New Account', account_swap:'🔄 Swap', top_up:'💰 Top Up', other:'📌 Other' }[wo.type] || wo.type;
+      const created = new Date(wo.created_at).toLocaleDateString();
+      const due = wo.due_date ? ` · Due ${wo.due_date}` : '';
+      const qty = wo.quantity > 1 ? ` · ×${wo.quantity}` : '';
+      return `<div class="order-row">
+        <div class="left">
+          <div class="ref">${esc(wo.ref)}</div>
+          <div class="title">${esc(wo.title)}</div>
+          <div class="meta">${typeLabel}${qty} · ${created}${due}${wo.brand_name ? ' · ' + esc(wo.brand_name) : ''}</div>
+        </div>
+        <div class="status-pill ${wo.status}">${statusLabel(wo.status)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function statusLabel(s) {
+    return { open: '🔵 Open', in_progress: '🟡 In Progress', done: '✅ Done', cancelled: '⚫ Cancelled' }[s] || s;
+  }
+
+  function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  (async () => { await loadMeta(); await loadMyOrders(); })();
+</script>
+</body>
+</html>

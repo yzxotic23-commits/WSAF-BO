@@ -15,11 +15,13 @@ const ProxyManager = require('./src/proxy-manager');
 const {
   reportFeedingChat,
   reportFeedingPairResults,
+  reportFeedingSessionStart,
   reportAuditEntry,
   reportFeedingComplete,
   reportProfileRefresh,
   reportStrictLogout,
 } = require('./src/feeding-reporter');
+const { readSlotDisplayLabel } = require('./src/slot-display-labels');
 
 const MIN_DELAY = parseInt(process.env.MIN_DELAY || '30') * 1000;
 const MAX_DELAY = parseInt(process.env.MAX_DELAY || '90') * 1000;
@@ -63,6 +65,22 @@ function sessionSlotIndex(session) {
 
 function getAccountLabel(slotIndex) {
   return `Account${accountStart() + slotIndex}`;
+}
+
+function resolveSessionLabel(session, slotIndex) {
+  const fromWa = session?.getDisplayName?.() || session?.syncProfileNameFromDisk?.() || null;
+  if (fromWa) return fromWa;
+  const fromAms = readSlotDisplayLabel(getAppRoot(), slotIndex);
+  if (fromAms) return fromAms;
+  return getAccountLabel(slotIndex);
+}
+
+function attachSessionLabelSync(session, slotIndex, labels, key) {
+  session.on('profileName', ({ profileName }) => {
+    if (!profileName) return;
+    labels[key] = profileName;
+    reportProfileRefresh().catch(() => {});
+  });
 }
 
 /**
@@ -212,6 +230,32 @@ const LOGIN_PREFS_PATH = path.join(getAppRoot(), 'auth', '_login-prefs.json');
 
 function isDesktopFeeding() {
   return process.env.DESKTOP_FEEDING === '1' || !process.stdin.isTTY;
+}
+
+/** 0-based pair index when desktop starts one pair only; null = all pairs. */
+function getFeedingPairIndex() {
+  const raw = process.env.FEEDING_PAIR_INDEX;
+  if (raw === undefined || raw === '') return null;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+function getPairsToRun() {
+  const single = getFeedingPairIndex();
+  if (single !== null) {
+    if (single >= pairCount()) {
+      throw new Error(`Invalid FEEDING_PAIR_INDEX=${single} (only ${pairCount()} pair(s) configured)`);
+    }
+    return [single];
+  }
+  return Array.from({ length: pairCount() }, (_, p) => p);
+}
+
+function getFeedingSlotIndices() {
+  const single = getFeedingPairIndex();
+  if (single === null) return null;
+  return [single * 2, single * 2 + 1];
 }
 
 /** Push profile name updates to desktop sidebar while CLI feeding runs. */
@@ -469,8 +513,7 @@ async function runPairSession(
   sessionB,
   language,
   pairNum,
-  labelA,
-  labelB,
+  pairLabels,
   controller,
   aiA,
   aiB,
@@ -494,11 +537,11 @@ async function runPairSession(
   const lidB = sessionB.getMyLid();  // Account B's own LID (as seen by A)
   if (lidA) {
     sessionB.learnPartnerLid(lidA, 'creds_seed');
-    log(pairNum, `LID seed: ${labelA} → ${lidA}`);
+    log(pairNum, `LID seed: ${pairLabels.A} → ${lidA}`);
   }
   if (lidB) {
     sessionA.learnPartnerLid(lidB, 'creds_seed');
-    log(pairNum, `LID seed: ${labelB} → ${lidB}`);
+    log(pairNum, `LID seed: ${pairLabels.B} → ${lidB}`);
   }
 
   let chatMessageCount = 0;
@@ -515,7 +558,7 @@ async function runPairSession(
   let deliveryWarnShown = false;
   let lastChatFrom = '';
   let lastChatTo = '';
-  let waitingForLabel = labelB;
+  let waitingForLabel = pairLabels.B;
   let replyingAsLabel = '';
   let finishPair = null;
   const chatTranscript = [];
@@ -600,7 +643,7 @@ async function runPairSession(
       }
 
       const idleSec = Math.floor((Date.now() - waitingSince) / 1000);
-      const waitingSession = waitingForLabel === labelA ? sessionA : sessionB;
+      const waitingSession = waitingForLabel === pairLabels.A ? sessionA : sessionB;
       const partnerConnected = isPartnerAvailable(waitingSession);
       const recvA = inboundCount.A;
       const recvB = inboundCount.B;
@@ -636,7 +679,7 @@ async function runPairSession(
         } else if (PAIR_MAX_NUDGES === 0) {
           // nudges disabled
         } else {
-          const waitingSide = waitingForLabel === labelA ? 'A' : 'B';
+          const waitingSide = waitingForLabel === pairLabels.A ? 'A' : 'B';
           if (
             lastChatTo === waitingForLabel &&
             lastChatFrom &&
@@ -654,17 +697,17 @@ async function runPairSession(
             return;
           }
 
-          const fromA = waitingForLabel === labelB;
+          const fromA = waitingForLabel === pairLabels.B;
           const nudgeSession = fromA ? sessionA : sessionB;
           const nudgeJid = fromA ? jidB : jidA;
-          const fromLabel = fromA ? labelA : labelB;
-          const toLabel = fromA ? labelB : labelA;
+          const fromLabel = fromA ? pairLabels.A : pairLabels.B;
+          const toLabel = fromA ? pairLabels.B : pairLabels.A;
 
           lastNudgeAt = Date.now();
           log(
             pairNum,
             `No reply ${idleSec}s — nudge ${fromLabel} -> ${toLabel} ` +
-            `(waiting for ${waitingForLabel}; recv ${labelA}=${recvA} ${labelB}=${recvB})`
+            `(waiting for ${waitingForLabel}; recv ${pairLabels.A}=${recvA} ${pairLabels.B}=${recvB})`
           );
           try {
             isNudging = true;
@@ -697,7 +740,7 @@ async function runPairSession(
         log(
           pairNum,
           `Waiting for ${waitingForLabel}... ${idleSec}s ${msgCount(chatMessageCount)} ` +
-          `wa-connected=${partnerConnected} recv(${labelA}=${recvA},${labelB}=${recvB})`
+          `wa-connected=${partnerConnected} recv(${pairLabels.A}=${recvA},${pairLabels.B}=${recvB})`
         );
       }
     }, 15000);
@@ -714,7 +757,7 @@ async function runPairSession(
   };
 
   log(pairNum, `Started | ${language} | max ${MAX_MESSAGES} msgs`);
-  log(pairNum, `${labelA}: ${sessionA.getPhone()} | ${labelB}: ${sessionB.getPhone()}`);
+  log(pairNum, `${pairLabels.A}: ${sessionA.getPhone()} | ${pairLabels.B}: ${sessionB.getPhone()}`);
 
   if (!isPartnerAvailable(sessionA) || !isPartnerAvailable(sessionB)) {
     stopPair('Account not connected at session start');
@@ -751,8 +794,8 @@ async function runPairSession(
       );
     }, sessionA, sessionB);
 
-    onLoggedOutA = () => stopPair(`${labelA} logged out`);
-    onLoggedOutB = () => stopPair(`${labelB} logged out`);
+    onLoggedOutA = () => stopPair(`${pairLabels.A} logged out`);
+    onLoggedOutB = () => stopPair(`${pairLabels.B} logged out`);
     sessionA.on('loggedOut', onLoggedOutA);
     sessionB.on('loggedOut', onLoggedOutB);
 
@@ -774,8 +817,8 @@ async function runPairSession(
         stopPair(`${label}: ${alert.type} — check phone for WA restriction`);
       }
     };
-    sessionA.on('policyAlert', onPolicyAlert(labelA, sessionA));
-    sessionB.on('policyAlert', onPolicyAlert(labelB, sessionB));
+    sessionA.on('policyAlert', onPolicyAlert(pairLabels.A, sessionA));
+    sessionB.on('policyAlert', onPolicyAlert(pairLabels.B, sessionB));
 
     const onStrictLogout = (label, session) => ({ alert }) => {
       if (!isDesktopFeeding()) return;
@@ -783,16 +826,16 @@ async function runPairSession(
       reportStrictLogout(slot, alert).catch(() => {});
       stopPair(`${label}: strict logout — session removed; check phone for WA limit`);
     };
-    sessionA.on('strictLogout', onStrictLogout(labelA, sessionA));
-    sessionB.on('strictLogout', onStrictLogout(labelB, sessionB));
+    sessionA.on('strictLogout', onStrictLogout(pairLabels.A, sessionA));
+    sessionB.on('strictLogout', onStrictLogout(pairLabels.B, sessionB));
 
     processInbound = async (side, sender, text) => {
       if (controller.isPairStopped(pairNum)) return;
       if (chatMessageCount >= MAX_MESSAGES) return;
 
       const isA = side === 'A';
-      const recvLabel = isA ? labelB : labelA;
-      const sendLabel = isA ? labelA : labelB;
+      const recvLabel = isA ? pairLabels.B : pairLabels.A;
+      const sendLabel = isA ? pairLabels.A : pairLabels.B;
 
       if (isEchoText(text, sendLabel)) {
         if (DEBUG_MESSAGES) {
@@ -872,7 +915,7 @@ async function runPairSession(
           ignoredInboundLog[side] = true;
           log(
             pairNum,
-            `[WARN] ${side === 'A' ? labelA : labelB} ignored inbound ` +
+            `[WARN] ${side === 'A' ? pairLabels.A : pairLabels.B} ignored inbound ` +
             `(sender=${sender || '?'} chat=${remoteJid || '?'} expected=${partnerJid})`
           );
         }
@@ -884,8 +927,8 @@ async function runPairSession(
       });
     };
 
-    sessionA.on('message', onInbound('A', sessionA, jidB, labelB));
-    sessionB.on('message', onInbound('B', sessionB, jidA, labelA));
+    sessionA.on('message', onInbound('A', sessionA, jidB, pairLabels.B));
+    sessionB.on('message', onInbound('B', sessionB, jidA, pairLabels.A));
 
     (async () => {
       try {
@@ -900,12 +943,12 @@ async function runPairSession(
         }
 
         isReplying = true;
-        replyingAsLabel = labelA;
+        replyingAsLabel = pairLabels.A;
         const openerDelay = randomDelay();
-        logTyping(pairNum, labelA, Math.round(Math.min(openerDelay, 15000) / 1000));
+        logTyping(pairNum, pairLabels.A, Math.round(Math.min(openerDelay, 15000) / 1000));
         await sleep(Math.min(openerDelay, 15000));
 
-        const opener = await aiA.generateOpener(labelA, labelB);
+        const opener = await aiA.generateOpener(pairLabels.A, pairLabels.B);
         const topic = aiA.sessionTopic;
         aiB.setSessionTopic(topic);
 
@@ -915,7 +958,7 @@ async function runPairSession(
         if (!sent) {
           isReplying = false;
           replyingAsLabel = '';
-          stopPair(`Opener send failed — ${labelB} may be logged out`);
+          stopPair(`Opener send failed — ${pairLabels.B} may be logged out`);
           return;
         }
 
@@ -924,12 +967,12 @@ async function runPairSession(
 
         chatMessageCount++;
         totalMessagesSent++;
-        recordOutbound(labelA, opener);
-        markWaitingFor(labelB);
-        lastChatFrom = labelA;
-        lastChatTo = labelB;
-        recordChat(labelA, opener);
-        logOut(pairNum, labelA, labelB, opener, chatMessageCount);
+        recordOutbound(pairLabels.A, opener);
+        markWaitingFor(pairLabels.B);
+        lastChatFrom = pairLabels.A;
+        lastChatTo = pairLabels.B;
+        recordChat(pairLabels.A, opener);
+        logOut(pairNum, pairLabels.A, pairLabels.B, opener, chatMessageCount);
         startIdleWatch();
       } catch (err) {
         isReplying = false;
@@ -944,30 +987,48 @@ async function runPairSession(
 async function runAllPairs(sessions, language, accountProxies = []) {
   const controller = new PairChatController();
   const pairConfigs = [];
+  const pairsToRun = getPairsToRun();
 
   console.log('');
-  console.log(`[SESSION] ${pairCount()} pair(s) | ${language}`);
+  if (pairsToRun.length === 1) {
+    console.log(`[SESSION] Pair ${pairsToRun[0] + 1} only | ${language}`);
+  } else {
+    console.log(`[SESSION] ${pairCount()} pair(s) | ${language}`);
+  }
 
-  for (let p = 0; p < pairCount(); p++) {
+  for (const p of pairsToRun) {
     const aiA = new AIProvider();
     const aiB = new AIProvider();
     aiA.language = language;
     aiB.language = language;
 
-    const labelA = getAccountLabel(p * 2);
-    const labelB = getAccountLabel(p * 2 + 1);
+    const sessionA = sessions[p * 2];
+    const sessionB = sessions[p * 2 + 1];
+    const labels = {
+      A: resolveSessionLabel(sessionA, p * 2),
+      B: resolveSessionLabel(sessionB, p * 2 + 1),
+    };
+    attachSessionLabelSync(sessionA, p * 2, labels, 'A');
+    attachSessionLabelSync(sessionB, p * 2 + 1, labels, 'B');
+    const labelA = labels.A;
+    const labelB = labels.B;
     aiA.setLogTag(`[Pair ${p + 1}] [${labelA}]`);
     aiB.setLogTag(`[Pair ${p + 1}] [${labelB}]`);
 
     pairConfigs.push({
       pairNum: p + 1,
-      sessionA: sessions[p * 2],
-      sessionB: sessions[p * 2 + 1],
+      sessionA,
+      sessionB,
+      labels,
       labelA,
       labelB,
       aiA,
       aiB,
     });
+  }
+
+  if (isDesktopFeeding()) {
+    await reportFeedingSessionStart(sessions, accountProxies);
   }
 
   await Promise.all(
@@ -979,14 +1040,13 @@ async function runAllPairs(sessions, language, accountProxies = []) {
   }
   console.log('');
 
-  const tasks = pairConfigs.map(({ pairNum, sessionA, sessionB, labelA, labelB, aiA, aiB }) =>
+  const tasks = pairConfigs.map(({ pairNum, sessionA, sessionB, labels, aiA, aiB }) =>
     runPairSession(
       sessionA,
       sessionB,
       language,
       pairNum,
-      labelA,
-      labelB,
+      labels,
       controller,
       aiA,
       aiB,
@@ -1006,7 +1066,7 @@ async function runAllPairs(sessions, language, accountProxies = []) {
   const stopped = results.filter((r) => r?.status === 'stopped').length;
 
   console.log('');
-  console.log(`[SESSION] Done: ${completed} | Stopped: ${stopped} | Total: ${pairCount()}`);
+  console.log(`[SESSION] Done: ${completed} | Stopped: ${stopped} | Total: ${pairsToRun.length}`);
 
   if (isDesktopFeeding()) {
     await reportFeedingPairResults(results, sessions, accountProxies);
@@ -1015,27 +1075,45 @@ async function runAllPairs(sessions, language, accountProxies = []) {
   return results;
 }
 
-async function assignAccountProxies(proxyManager) {
+async function assignAccountProxies(proxyManager, options = {}) {
+  const onlySlots = options.onlySlots || null;
   const probeEnabled = process.env.PROXY_PROBE !== 'false';
   let accountProxies;
 
   if (probeEnabled) {
-    accountProxies = await proxyManager.assignWorkingForAccounts(
-      accountCount(),
-      (i) => getAccountName(i)
-    );
+    if (onlySlots?.length) {
+      accountProxies = await proxyManager.assignWorkingForSlotIndices(
+        accountCount(),
+        onlySlots,
+        (i) => getAccountName(i)
+      );
+    } else {
+      accountProxies = await proxyManager.assignWorkingForAccounts(
+        accountCount(),
+        (i) => getAccountName(i)
+      );
+    }
   } else {
-    accountProxies = proxyManager.assignForAccounts(accountCount());
+    accountProxies = new Array(accountCount()).fill(null);
+    const slots = onlySlots || Array.from({ length: accountCount() }, (_, i) => i);
+    for (const i of slots) {
+      accountProxies[i] = proxyManager.getProxyAt(i);
+    }
     console.log('[PROXY] PROXY_PROBE=false — using fixed slot order (no rotation test)');
   }
 
   const n = proxyManager.proxies.length;
+  const slotsChecked = onlySlots || Array.from({ length: accountCount() }, (_, i) => i);
 
-  if (n > 0 && n < accountCount() && !probeEnabled) {
-    console.log(`[PROXY] ${n} proxy(ies) for ${accountCount()} accounts — slots reuse proxies round-robin`);
+  if (n > 0 && n < slotsChecked.length && !probeEnabled) {
+    console.log(`[PROXY] ${n} proxy(ies) for ${slotsChecked.length} account slot(s) — round-robin reuse`);
   }
 
-  for (let p = 0; p < pairCount(); p++) {
+  const pairsToLog = onlySlots?.length === 2
+    ? [Math.floor(onlySlots[0] / 2)]
+    : Array.from({ length: pairCount() }, (_, p) => p);
+
+  for (const p of pairsToLog) {
     const slotA = p * 2;
     const slotB = p * 2 + 1;
     const proxyA = accountProxies[slotA];
@@ -1229,11 +1307,12 @@ async function fallbackToDirectLink(session, plan, sessionName, proxyManager, pr
   await session.connect(plan);
 }
 
-async function connectAllSessions(hasProxies, proxyManager, accountProxies) {
-  const sessions = [];
+async function connectAllSessions(hasProxies, proxyManager, accountProxies, options = {}) {
+  const slotIndices = options.onlySlots || Array.from({ length: accountCount() }, (_, i) => i);
+  const sessions = new Array(accountCount()).fill(null);
   const loginPlans = await prepareLoginPlans();
 
-  for (let i = 0; i < accountCount(); i++) {
+  for (const i of slotIndices) {
     const sessionName = getAccountName(i);
     let plan = loginPlans.get(sessionName) || { method: 'qr' };
 
@@ -1284,7 +1363,9 @@ async function connectAllSessions(hasProxies, proxyManager, accountProxies) {
       }
     }
 
-    sessions.push(session);
+    sessions[i] = session;
+    session.syncProfileNameFromDisk?.();
+    session.captureProfileName?.('post-connect');
   }
 
   return sessions;
@@ -1362,29 +1443,33 @@ function formatLiveRoute(session, assignedProxy, proxyManager) {
 }
 
 function printConnectedSummary(sessions, hasProxies, proxyManager, accountProxies) {
-  const connected = sessions.filter((s) => s.isConnected && !s.isLoggedOut);
+  const connected = sessions.filter((s) => s && s.isConnected && !s.isLoggedOut);
   const ready = connected.length;
+  const expected = sessions.filter(Boolean).length || accountCount();
 
   console.log('');
   console.log('='.repeat(50));
-  if (ready === accountCount()) {
+  if (ready === expected && expected === accountCount()) {
     console.log(`All ${accountCount()} accounts connected! (${pairCount()} pair${pairCount() > 1 ? 's' : ''})`);
+  } else if (ready === expected) {
+    console.log(`Selected ${ready}/${expected} account(s) connected for this feeding run`);
   } else {
-    console.log(`Connected: ${ready}/${accountCount()} — fix failed accounts before feeding`);
+    console.log(`Connected: ${ready}/${expected} — fix failed accounts before feeding`);
   }
   console.log('='.repeat(50));
 
   for (let p = 0; p < pairCount(); p++) {
     const sessionA = sessions[p * 2];
     const sessionB = sessions[p * 2 + 1];
+    if (!sessionA && !sessionB) continue;
     const slotA = p * 2;
     const slotB = p * 2 + 1;
-    const phoneA = sessionA.getPhone() || '(not linked)';
-    const phoneB = sessionB.getPhone() || '(not linked)';
-    const nameA = sessionA.getDisplayName?.() || getAccountLabel(slotA);
-    const nameB = sessionB.getDisplayName?.() || getAccountLabel(slotB);
-    const statusA = sessionA.isConnected ? 'ok' : 'OFFLINE';
-    const statusB = sessionB.isConnected ? 'ok' : 'OFFLINE';
+    const phoneA = sessionA?.getPhone() || '(not linked)';
+    const phoneB = sessionB?.getPhone() || '(not linked)';
+    const nameA = sessionA?.getDisplayName?.() || getAccountLabel(slotA);
+    const nameB = sessionB?.getDisplayName?.() || getAccountLabel(slotB);
+    const statusA = sessionA?.isConnected ? 'ok' : 'OFFLINE';
+    const statusB = sessionB?.isConnected ? 'ok' : 'OFFLINE';
     const routeA = formatLiveRoute(sessionA, accountProxies[slotA], proxyManager);
     const routeB = formatLiveRoute(sessionB, accountProxies[slotB], proxyManager);
     console.log(`  Pair ${p + 1}: ${phoneA} <-> ${phoneB}`);
@@ -1545,12 +1630,18 @@ async function runDesktopFeedingOnce() {
 
   const proxyManager = new ProxyManager();
   const hasProxies = proxyManager.load();
-  const accountProxies = hasProxies ? await assignAccountProxies(proxyManager) : [];
+  const singlePair = getFeedingPairIndex();
+  const onlySlots = getFeedingSlotIndices();
+  const accountProxies = hasProxies
+    ? await assignAccountProxies(proxyManager, { onlySlots })
+    : [];
 
   printAuthStatusSummary();
 
-  const sessions = await connectAllSessions(hasProxies, proxyManager, accountProxies);
-  activeSessions = sessions;
+  const sessions = await connectAllSessions(hasProxies, proxyManager, accountProxies, {
+    onlySlots,
+  });
+  activeSessions = sessions.filter(Boolean);
 
   console.log('');
   console.log('Waiting for stable connection...');
@@ -1558,17 +1649,34 @@ async function runDesktopFeedingOnce() {
 
   printConnectedSummary(sessions, hasProxies, proxyManager, accountProxies);
 
-  const ready = sessions.filter((s) => s.isConnected && !s.isLoggedOut).length;
-  if (ready < accountCount()) {
-    console.error(
-      `[FEEDING] Only ${ready}/${accountCount()} accounts connected. Link all accounts in the desktop app first.`
-    );
-    process.exit(1);
+  if (singlePair !== null) {
+    const slotA = singlePair * 2;
+    const slotB = slotA + 1;
+    const readyA = sessions[slotA]?.isConnected && !sessions[slotA]?.isLoggedOut;
+    const readyB = sessions[slotB]?.isConnected && !sessions[slotB]?.isLoggedOut;
+    if (!readyA || !readyB) {
+      console.error(
+        `[FEEDING] Pair ${singlePair + 1} not connected (${readyA ? 1 : 0}/2 accounts). Link both accounts first.`
+      );
+      process.exit(1);
+    }
+  } else {
+    const ready = sessions.filter((s) => s?.isConnected && !s?.isLoggedOut).length;
+    if (ready < accountCount()) {
+      console.error(
+        `[FEEDING] Only ${ready}/${accountCount()} accounts connected. Link all accounts in the desktop app first.`
+      );
+      process.exit(1);
+    }
   }
 
   const language = process.env.LANGUAGE || 'English';
   console.log(`[OK] Language: ${language} (from .env)`);
-  console.log(`\n--- Desktop feeding (${pairCount()} pair${pairCount() > 1 ? 's' : ''}) ---\n`);
+  const pairsToRun = getPairsToRun();
+  const feedingLabel = pairsToRun.length === 1
+    ? `Pair ${pairsToRun[0] + 1}`
+    : `${pairCount()} pair${pairCount() > 1 ? 's' : ''}`;
+  console.log(`\n--- Desktop feeding (${feedingLabel}) ---\n`);
   totalMessagesSent = 0;
   const results = await runAllPairs(sessions, language, accountProxies);
 
@@ -1578,7 +1686,7 @@ async function runDesktopFeedingOnce() {
   await reportFeedingComplete({
     completed,
     stopped,
-    totalPairs: pairCount(),
+    totalPairs: pairsToRun.length,
     messagesSent: totalMessagesSent,
     success: stopped === 0,
   });
@@ -1589,7 +1697,7 @@ async function runDesktopFeedingOnce() {
   console.log('='.repeat(50));
 
   for (const session of sessions) {
-    await session.shutdown();
+    if (session) await session.shutdown();
   }
   process.exit(0);
 }

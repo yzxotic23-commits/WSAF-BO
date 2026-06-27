@@ -3,125 +3,141 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const https = require('https');
+const os = require('os');
 
 const root = path.join(__dirname, '..');
 const electronDir = path.join(root, 'node_modules', 'electron');
-const pathTxt = path.join(electronDir, 'path.txt');
 const distDir = path.join(electronDir, 'dist');
-const exeName = process.platform === 'win32' ? 'electron.exe' : 'electron';
-const exe = path.join(distDir, exeName);
+const pathTxt = path.join(electronDir, 'path.txt');
+
+function getPlatformPath() {
+  switch (process.platform) {
+    case 'darwin':
+      return 'Electron.app/Contents/MacOS/Electron';
+    case 'win32':
+      return 'electron.exe';
+    case 'linux':
+      return 'electron';
+    default:
+      throw new Error(`Unsupported platform: ${process.platform}`);
+  }
+}
+
+function getArchiveSuffix() {
+  const { platform, arch } = process;
+  if (platform === 'win32') {
+    return arch === 'ia32' ? 'win32-ia32' : 'win32-x64';
+  }
+  if (platform === 'darwin') {
+    return arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
+  }
+  if (platform === 'linux') {
+    return arch === 'arm64' ? 'linux-arm64' : 'linux-x64';
+  }
+  throw new Error(`Unsupported platform: ${platform} ${arch}`);
+}
 
 function isReady() {
-  return fs.existsSync(pathTxt) && fs.existsSync(exe);
-}
-
-function findElectronExe(dir) {
-  if (!fs.existsSync(dir)) return null;
-  const direct = path.join(dir, exeName);
-  if (fs.existsSync(direct)) return direct;
-  for (const name of fs.readdirSync(dir)) {
-    const full = path.join(dir, name);
-    try {
-      if (!fs.statSync(full).isDirectory()) continue;
-    } catch {
-      continue;
-    }
-    const hit = findElectronExe(full);
-    if (hit) return hit;
+  const platformPath = getPlatformPath();
+  if (!fs.existsSync(path.join(distDir, platformPath))) {
+    return false;
   }
-  return null;
-}
-
-function copyDirContents(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const name of fs.readdirSync(src)) {
-    const from = path.join(src, name);
-    const to = path.join(dest, name);
-    if (fs.statSync(from).isDirectory()) {
-      copyDirContents(from, to);
-    } else {
-      fs.copyFileSync(from, to);
-    }
+  if (!fs.existsSync(pathTxt)) {
+    return false;
+  }
+  try {
+    return fs.readFileSync(pathTxt, 'utf8').trim() === platformPath;
+  } catch {
+    return false;
   }
 }
 
-function downloadSync(url, dest) {
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
-    const follow = (u) => {
-      https
-        .get(u, { headers: { 'User-Agent': 'node' } }, (res) => {
-          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            file.close();
-            try {
-              fs.unlinkSync(dest);
-            } catch { /* noop */ }
-            follow(res.headers.location);
-            return;
-          }
-          if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode} for ${u}`));
-            return;
-          }
-          res.pipe(file);
-          file.on('finish', () => file.close(resolve));
-        })
-        .on('error', reject);
-    };
+function writePathTxt() {
+  fs.writeFileSync(pathTxt, getPlatformPath(), 'utf8');
+}
+
+function downloadFileSync(url, dest) {
+  const follow = (currentUrl) => {
+    execSync(
+      `curl -fsSL ${JSON.stringify(currentUrl)} -o ${JSON.stringify(dest)}`,
+      { stdio: 'inherit' }
+    );
+  };
+
+  if (process.platform === 'win32') {
+    execSync(
+      `powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri ${JSON.stringify(url)} -OutFile ${JSON.stringify(dest)}"`,
+      { stdio: 'inherit' }
+    );
+    return;
+  }
+
+  try {
     follow(url);
+  } catch {
+    // curl -f fails on redirect chains to some hosts; retry via Node redirect follower.
+    const tmp = `${dest}.part`;
+    const done = require('child_process').spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `const fs=require('fs');const https=require('https');
+const url=${JSON.stringify(url)};
+const dest=${JSON.stringify(tmp)};
+const go=(u)=>https.get(u,{headers:{'User-Agent':'node'}},(res)=>{
+  if(res.statusCode>=300&&res.statusCode<400&&res.headers.location)return go(res.headers.location);
+  if(res.statusCode!==200){process.exit(2);return;}
+  const f=fs.createWriteStream(dest);res.pipe(f);f.on('finish',()=>f.close());
+}).on('error',()=>process.exit(3));go(url);`,
+      ],
+      { stdio: 'inherit' }
+    );
+    if (done.status !== 0) {
+      throw new Error(`Download failed for ${url}`);
+    }
+    fs.renameSync(tmp, dest);
+  }
+}
+
+function extractZipSync(zipPath, destDir) {
+  fs.mkdirSync(destDir, { recursive: true });
+  if (process.platform === 'win32') {
+    execSync(
+      `powershell -NoProfile -Command "Expand-Archive -Path ${JSON.stringify(zipPath)} -DestinationPath ${JSON.stringify(destDir)} -Force"`,
+      { stdio: 'inherit' }
+    );
+    return;
+  }
+  execSync(`unzip -o ${JSON.stringify(zipPath)} -d ${JSON.stringify(destDir)}`, {
+    stdio: 'inherit',
   });
 }
 
-function installElectron() {
-  const version = require(path.join(electronDir, 'package.json')).version;
-  const zipName = `electron-v${version}-win32-x64.zip`;
-  const url = `https://github.com/electron/electron/releases/download/v${version}/${zipName}`;
-  const zipPath = path.join(require('os').tmpdir(), zipName);
-  const extractDir = path.join(electronDir, '_extract_tmp');
+function installElectronSync() {
+  const pkg = require(path.join(electronDir, 'package.json'));
+  const suffix = getArchiveSuffix();
+  const zipName = `electron-v${pkg.version}-${suffix}.zip`;
+  const url = `https://github.com/electron/electron/releases/download/v${pkg.version}/${zipName}`;
+  const zipPath = path.join(os.tmpdir(), zipName);
+  const platformPath = getPlatformPath();
 
-  console.log('[electron] Downloading', version, '…');
+  console.log('[electron] Installing binary for', suffix, '…');
 
-  fs.rmSync(extractDir, { recursive: true, force: true });
   fs.rmSync(distDir, { recursive: true, force: true });
-
-  execSync(
-    `powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri '${url}' -OutFile '${zipPath.replace(/'/g, "''")}'"`,
-    { stdio: 'inherit' }
-  );
+  downloadFileSync(url, zipPath);
 
   if (!fs.existsSync(zipPath) || fs.statSync(zipPath).size < 1_000_000) {
     throw new Error(`Download failed or too small: ${zipPath}`);
   }
 
-  fs.mkdirSync(extractDir, { recursive: true });
+  extractZipSync(zipPath, distDir);
 
-  if (process.platform === 'win32') {
-    execSync(
-      `powershell -NoProfile -Command "Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${extractDir.replace(/'/g, "''")}' -Force"`,
-      { stdio: 'inherit' }
-    );
-  } else {
-    execSync(`unzip -o "${zipPath}" -d "${extractDir}"`, { stdio: 'inherit' });
+  if (!fs.existsSync(path.join(distDir, platformPath))) {
+    throw new Error(`Binary not found after extract: ${platformPath}`);
   }
 
-  const found = findElectronExe(extractDir);
-  if (!found) {
-    throw new Error(`electron binary not found inside ${zipName}`);
-  }
-
-  const payloadRoot = path.dirname(found);
-  fs.mkdirSync(distDir, { recursive: true });
-  copyDirContents(payloadRoot, distDir);
-
-  if (!fs.existsSync(exe)) {
-    throw new Error(`Expected ${exe} after extract`);
-  }
-
-  fs.writeFileSync(pathTxt, exeName, 'utf8');
-  fs.rmSync(extractDir, { recursive: true, force: true });
-
-  console.log('[electron] Ready:', exe);
+  writePathTxt();
+  console.log('[electron] Ready:', path.join(distDir, platformPath));
 }
 
 function main() {
@@ -129,19 +145,34 @@ function main() {
     return;
   }
 
+  if (!fs.existsSync(path.join(electronDir, 'package.json'))) {
+    console.error('[electron] node_modules/electron belum terpasang. Jalankan: npm install');
+    process.exit(1);
+  }
+
+  const platformPath = getPlatformPath();
+  if (fs.existsSync(path.join(distDir, platformPath)) && !fs.existsSync(pathTxt)) {
+    writePathTxt();
+    console.log('[electron] Ready:', path.join(distDir, platformPath));
+    return;
+  }
+
   try {
-    installElectron();
+    installElectronSync();
   } catch (err) {
     console.error('[electron] Install failed:', err.message);
     console.error('Coba: tutup semua app Electron, lalu:');
-    console.error('  Remove-Item -Recurse -Force node_modules\\electron');
-    console.error('  npm install electron');
+    if (process.platform === 'win32') {
+      console.error('  Remove-Item -Recurse -Force node_modules\\electron\\dist');
+    } else {
+      console.error('  rm -rf node_modules/electron/dist node_modules/electron/path.txt');
+    }
     console.error('  npm run ensure-electron');
     process.exit(1);
   }
 
   if (!isReady()) {
-    console.error('[electron] path.txt atau electron.exe masih hilang.');
+    console.error('[electron] path.txt atau binary masih hilang setelah install.');
     process.exit(1);
   }
 }

@@ -1,0 +1,129 @@
+.sidebar {
+  width: var(--ff-sidebar-width);
+  min-height: 100vh;
+  background: var(--ff-bg-secondary);
+  border-right: 1px solid var(--ff-border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 14px 14px;
+  border-bottom: 1px solid var(--ff-border);
+}
+
+.sidebar-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ff-radius);
+  background: var(--ff-wa-soft);
+  color: var(--ff-wa);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.sidebar-version {
+  font-size: 11px;
+  color: var(--ff-text-tertiary);
+}
+
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 8px 16px;
+}
+
+.sidebar-group + .sidebar-group {
+  margin-top: 4px;
+}
+
+.sidebar-section {
+  padding: 10px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ff-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  margin: 1px 0;
+  border-radius: var(--ff-radius);
+  color: var(--ff-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background var(--ff-transition), color var(--ff-transition);
+}
+
+.sidebar-link:hover {
+  background: var(--ff-bg-hover);
+  color: var(--ff-text);
+}
+
+.sidebar-link.active {
+  background: var(--ff-bg-active);
+  color: var(--ff-text);
+  font-weight: 600;
+}
+
+.sidebar-ext {
+  margin-left: auto;
+  opacity: 0.45;
+}
+
+.sidebar-footer {
+  padding: 10px 8px 12px;
+  border-top: 1px solid var(--ff-border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-footer-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--ff-radius);
+  color: var(--ff-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background var(--ff-transition);
+  width: 100%;
+  text-align: left;
+}
+
+.sidebar-footer-btn:hover {
+  background: var(--ff-bg-hover);
+  color: var(--ff-text);
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    display: none;
+  }
+}

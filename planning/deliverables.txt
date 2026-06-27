@@ -1,0 +1,230 @@
+================================================================================
+WSAF / FEEDFLOW — JIRA DELIVERABLES
+Story: Whatsapp Auto Feeding
+Updated: 20/06/2026
+================================================================================
+
+================================================================================
+MLKB-5274 — Stability Review & Baseline Check (WSAF)
+Due: 08/06/2026 — 7:30 PM (GMT+7)
+Tools: GitHub, Jira
+Baseline: v1.0.21-restored
+================================================================================
+
+DELIVERABLES
+------------
+
+1. Regression Test Checklist
+   A shared document with at least 15 test cases covering login, proxies,
+   feeding, updates, and the main screen. Each item is tested on Windows and
+   Mac using the restored stable build and marked Pass or Fail.
+
+2. Issue Comparison Sheet
+   A short list showing which problems still happen and which disappeared
+   after rollback. Each issue includes a brief note on impact: blocker,
+   major, or minor.
+
+3. Keep / Fix / Remove List
+   A team-ready list of features and recent changes labelled Keep, Fix, or
+   Remove. This becomes the guide for work in the rest of the week.
+
+4. Stability Definition Note
+   A one-page summary explaining what “stable” means for WSAF before any new
+   development starts. Lists the minimum flows that must work without failure.
+
+5. Screenshots or Screen Recordings
+   Visual proof for every failed checklist item. Examples: login stuck,
+   feeding not starting, proxy not loading, or update errors.
+
+6. Follow-Up Jira Tickets
+   Draft or linked tickets for the remaining week (login, proxy, feeding,
+   UI, release). Each ticket has a clear title and acceptance criteria based
+   on findings from this review.
+
+QUICK COPY (Jira Deliverables field)
+----------------------------------
+Regression checklist (Pass/Fail, Windows + Mac), issue comparison after
+rollback, Keep/Fix/Remove feature list, stability definition note,
+screenshots for failures, and linked follow-up Jira tickets for the rest
+of the week.
+
+Related files:
+- planning/MLKB-5274-stability-review-complete.txt
+- planning/MLKB-5274-error-history-log.txt
+
+================================================================================
+MLKB-5293 — Proxy List Loading & Reliability
+Due: 09/06/2026 — 5:30 PM (GMT+7)
+Tools: GitHub, Jira, FeedFlow app
+================================================================================
+
+DELIVERABLES
+------------
+
+1. Proxy Settings Test Report
+   Written results from saving, loading, and testing the proxy list in Settings.
+   Covers: list count updates immediately after save (no restart), invalid
+   entries show a clear error, and broken/slow proxies show pass or fail within
+   a reasonable wait time.
+
+2. Account Assignment Verification
+   Notes or screenshot showing each proxy stays on the correct account slot
+   before feeding, during feeding, and after stop feeding. Confirms desktop
+   preview and background feeding use the same proxy assignment.
+
+3. Activity Log Privacy Check
+   Screenshot or log excerpt proving proxy lines in System log use masked
+   addresses only (no full username/password). Example format:
+   host:port or masked URL — never full credentials.
+
+4. Direct Connection vs Proxy Note
+   Short user-facing note (in README or Settings help) explaining when to use
+   direct connection vs proxy list, and what happens if a proxy fails during
+   link or feeding.
+
+5. End-to-End Run Evidence (Screenshot)
+   Screenshot of FeedFlow running with both accounts linked and feeding active:
+   - 2/2 linked, AI feeding active
+   - Both account names visible (e.g. Geri, mrs.jems)
+   - System log readable — feeding started, AI active, pair mapping OK
+   - Proves save/load and connection path did not block feeding on v1.0.21-restored
+
+6. Pass/Fail Summary Table
+   One table: Save proxy list | Load on reopen | Test proxy | Assign to account |
+   Survive after feeding | Masked in log — each marked Pass or Fail on Windows
+   (and Mac if tested).
+
+QUICK COPY (Jira Deliverables field)
+----------------------------------
+Proxy settings test report (save/load/test without restart); account assignment
+verification before/during/after feeding; activity log privacy check (masked
+proxies only); direct vs proxy user note; end-to-end run screenshot (2/2 linked,
+AI feeding active, readable system log); Pass/Fail summary table on Windows/Mac.
+
+EVIDENCE FROM RUN (09/06/2026 — attach screenshot to Jira)
+----------------------------------------------------------
+Screenshot shows FeedFlow on v1.0.21-restored:
+- Status: 2/2 linked, 0 online during active feeding, 1 pair
+- Accounts: Geri (Account 1) and mrs.jems (Account 2) — names synced
+- Feeding: AI feeding active; live chat between both accounts (Chinese)
+- System log (Feeding tab): Codex OAuth ready, LID mapping for both numbers,
+  Pair 1 started — log clean and readable (no black blocks, no raw credentials)
+
+This supports Expected Outcome: feeding runs with current proxy/direct setup;
+system log stays usable for troubleshooting.
+
+RETROSPECTIVE SUMMARY (optional Jira field)
+-------------------------------------------
+Proxy list save and load works without app restart on tested build. System log
+masks proxy details. Full proxy rotation edge cases still need Mac retest if
+only Windows was verified today. Feeding screenshot confirms end-to-end path
+is not blocked by proxy handling on direct connection.
+
+INTERRUPTION LOG (optional Jira field)
+--------------------------------------
+None — test completed with live feeding run and screenshot captured.
+
+================================================================================
+MLKB-5456 — UI Clarity, Accessibility & Workflow Usability Review
+Due: 20/06/2026 — 5:00 PM (GMT+7)
+Tools: FeedFlow PRO
+Baseline: ui-overrides.css + ui-patch.js (runtime UI layer)
+================================================================================
+
+DELIVERABLES
+------------
+
+1. UI Review Checklist (Pass / Needs work)
+   Screen-by-screen audit on FeedFlow PRO main flows:
+   - Sidebar: linked / online / feeding stats + add-account actions
+   - QR login and phone pairing (pairing code overlay)
+   - Settings modal (General, Proxy, Session tabs)
+   - Start / Stop feeding and chat preview during feeding
+   - Feeding complete / stopped summary overlay
+   - Activity log (Feeding + System tabs)
+   - In-app update toast (Later / Update Now)
+   Each area marked Pass or Needs work with a one-line note.
+
+2. UI Improvements Implemented Log
+   Documented changes already shipped in the runtime UI layer:
+   - English-only user-facing strings for feeding popup, cancel, defaults (v1.0.46)
+   - Shorter single-line “AI not available” notice (v1.0.45)
+   - Pairing code popup: blur backdrop, centered layout, visible “Log in with QR code”
+     switch (v1.0.47–v1.0.49)
+   - WhatsApp Web–style pairing overlay: 8-digit code boxes, step timeline,
+     edit phone, aria-modal dialog (ui-patch.js + ui-overrides.css)
+   - Settings modal: ghost-click guard, inline Saved toast, full-width action
+     buttons per tab, confirm dialog above settings sheet
+   - Fix Start feeding staying disabled after saving Settings (v1.0.50)
+   - Sidebar header: stats + toolbar on one stable row; stat pills scroll on
+     narrow width
+   - Chat bubble layout: fixed padding/time overlap at common window sizes
+   - Feeding complete card: clear English title, subtitle, dismiss action
+   - Update corner toast: no blink on focus; Later dismisses per version;
+     Update Now only when download ready (v1.0.41–v1.0.42)
+
+3. Workflow Usability Notes (Before → After)
+   Short narrative for operators:
+   - Link account: pairing code is readable (boxed digits + steps) and user can
+     switch back to QR without getting stuck
+   - Configure: Settings saves without accidentally closing on first click;
+     feeding can start immediately after save
+   - Run feeding: status pills and chat preview reflect active session;
+     completion popup explains outcome in plain English
+   - Troubleshoot: System log lines readable; proxy values masked in log
+
+4. Accessibility Quick Pass
+   - Pairing overlay: role="dialog", aria-modal, aria-live on code boxes
+   - Sidebar actions: role="group" + aria-label on header action cluster
+   - Focus: edit-phone and QR-switch are keyboard-clickable buttons
+   - Remaining gaps logged in backlog (see item 5)
+
+5. Workflow Enhancement Backlog (documented opportunities)
+   Items reviewed but not in scope for today — ready for follow-up tickets:
+   - Phone login reliability messaging (still weaker than QR path)
+   - Mac update path: clearer manual download guidance in-app
+   - Activity log: further noise reduction during link / libsignal events
+   - Settings: inline help for direct connection vs proxy list
+   - Sidebar: stronger visual distinction linking vs feeding vs offline
+   - Optional: React source rebuild to replace runtime patch layer long-term
+
+6. Before / After Screenshot Set (attach to Jira)
+   Minimum 6 captures on Windows FeedFlow PRO:
+   - Sidebar header (stats + actions aligned)
+   - Pairing code overlay (8-digit boxes + steps + QR switch)
+   - Settings modal (Saved toast + tab actions)
+   - Feeding active (chat preview + status pills)
+   - Feeding complete overlay (English summary)
+   - System log excerpt (readable, masked proxy)
+
+QUICK COPY (Jira Deliverables field)
+----------------------------------
+UI review checklist (sidebar, pairing, settings, feeding, complete popup,
+activity log, update toast — Pass/Needs work); implemented improvements log
+(English copy, pairing overlay, settings save/ghost-click fix, start-feeding
+after settings, sidebar layout, chat bubbles, feeding complete card, update
+toast UX); before→after workflow usability notes; accessibility quick pass
+(dialog ARIA, action groups); documented enhancement backlog for follow-up
+tickets; before/after screenshot set (6 screens) attached to ticket.
+
+RETROSPECTIVE SUMMARY (optional Jira field)
+-------------------------------------------
+Reviewed FeedFlow PRO end-to-end on the runtime UI layer (ui-overrides.css +
+ui-patch.js). Main workflow pain points from earlier stability review are
+addressed in pairing, settings, feeding start, and completion messaging.
+Runtime patches keep UX shippable without React rebuild. Remaining gaps
+(phone login edge cases, Mac update copy, log noise) are captured as backlog
+items for next sprint.
+
+INTERRUPTION LOG (optional Jira field)
+--------------------------------------
+None — review and documentation completed in one session.
+
+Related files:
+- client/dist/assets/ui-overrides.css
+- client/dist/assets/ui-patch.js
+- planning/deliverables-MLKB-5456-ui-review.txt
+
+================================================================================
+END
+================================================================================

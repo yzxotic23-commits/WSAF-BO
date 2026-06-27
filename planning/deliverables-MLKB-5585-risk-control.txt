@@ -1,0 +1,124 @@
+================================================================================
+JIRA TICKET : MLKB-5585
+TASK TITLE  : Risk Control & Account Consistency Validation Review
+DUE         : 27/06/2026 — 7:30 PM (GMT+7)
+STORY       : Whatsapp Auto Feeding
+CATEGORY    : Act
+TOOLS       : FeedFlow PRO, Jira
+EXPECTED    : Risk control, validation, and continuous improvement framework
+              established for AMS operations
+================================================================================
+
+DELIVERABLES
+------------
+
+1. Operational Findings Summary
+   Written summary of validation results from live FeedFlow PRO runs, including:
+   - Windows install / launch issues (unsigned build, SmartScreen, version choice)
+   - Multi-pair feeding behaviour when PAIR_COUNT > 2 (pair 1–2 OK, pair 3+ no AI reply)
+   - Proxy/IP assignment gaps when account count exceeds available proxies
+   - Partner message filtering / LID mapping impact on newly linked pairs
+   - AI provider load (Codex rate limit) under parallel multi-pair feeding
+   Each finding tagged: Blocker | Major | Minor.
+
+2. Account Consistency Validation Checklist
+   Pass/Fail checklist covering AMS account slots vs FeedFlow pairs:
+   - PAIR_COUNT in .env matches UI pair count
+   - All accounts linked before Start feeding (N/N linked)
+   - Each pair maps to correct account slots (pair 1 = account1+2, pair 2 = account3+4, etc.)
+   - Profile/display names consistent between sidebar, chat preview, and feeding log
+   - Partner-only message routing — no cross-pair message bleed
+   - Auth/session folders exist per account slot after link
+   Tested on Windows with 2-pair baseline and 3+ pair scenario.
+
+3. Risk Control Matrix
+   Table of operational risks with control, owner, and severity:
+   - Same IP / shared proxy within a pair → bot messages fail to arrive
+   - Insufficient proxies for account count → pair 3+ falls back to direct
+   - New pair without manual warm-up → inbound ignored (strict partner filter)
+   - Parallel AI calls exceed Codex limit → pair 3+ silent / fallback only
+   - Wrong Windows build installed → app does not open or unstable behaviour
+   - Data loss on update → sessions/settings wiped (mitigated in v1.0.48+)
+   Each row: Risk | Likelihood | Impact | Current Control | Gap | Action.
+
+4. Proxy & IP Governance Standard
+   Short operational rule set for AMS/FeedFlow runs:
+   - Minimum 1 unique working proxy per account (3 pairs = 6 proxies)
+   - Never run bot-to-bot feeding with both accounts on same IP
+   - Verify [PROXY] Assignment summary in System log before feeding
+   - Warn / block Start feeding when pair shares proxy or uses direct fallback
+   - Document direct-connection exception criteria (dev/test only).
+
+5. Multi-Pair Feeding Validation Report
+   Evidence from controlled test runs:
+   - 2-pair run: opener, AI reply, nudge, completion — Pass/Fail
+   - 3+ pair run: each pair receives opener and at least one AI round-trip — Pass/Fail
+   - System log excerpts per pair ([Pair 1], [Pair 2], [Pair 3] …)
+   - Screenshot of linked accounts + feeding log for failed pairs
+   - Note on manual warm-up requirement (1 test message between new pair accounts).
+
+6. Preventive Governance Mechanisms
+   List of preventive controls to adopt in AMS operations:
+   - Pre-feeding gate: all linked + proxy check + PAIR_COUNT sync
+   - Version policy: approved release list (e.g. avoid v1.0.22–1.0.32; track latest stable)
+   - New pair onboarding SOP: link → manual ping → verify log → start feeding
+   - Post-feeding review: audit log + pair result summary per run
+   - Escalation path when pair stops or ignored inbound warnings appear.
+
+7. Improvement Action List (Keep / Fix / Monitor)
+   Prioritised actions from validation:
+   - Fix: enforce unique proxy per account before multi-pair feeding
+   - Fix: surface clear UI warning when proxy count < account count
+   - Fix: improve pair 3+ startup diagnostics (ignored inbound, opener failed)
+   - Monitor: Codex rate limit under 4+ parallel AI instances
+   - Monitor: Windows install blocker (SmartScreen / unsigned exe)
+   - Keep: strict partner-only routing (v1.0.53) — document warm-up requirement
+
+8. Follow-Up Jira Tickets
+   Draft or linked tickets with acceptance criteria, e.g.:
+   - Multi-pair proxy pre-check before Start feeding
+   - Feeding UI warning when PAIR_COUNT > available proxies
+   - Windows install troubleshooting doc / approved release pointer
+   - Automated pair health check in System log summary
+
+9. Screenshots / Log Evidence
+   Attachments for Jira:
+   - [PROXY] assignment summary (2-pair vs 3-pair)
+   - System log showing [Pair 3] ignored inbound or no activity
+   - Successful 2-pair feeding run for baseline comparison
+   - Windows install issue (if reproduced): Task Manager / CMD error
+
+================================================================================
+QUICK COPY — paste into Jira “Deliverables” field
+================================================================================
+
+Operational findings summary (install, multi-pair feeding, proxy/IP gaps, LID
+filter, AI rate limit); account consistency validation checklist (Pass/Fail,
+2-pair + 3+ pair on Windows); risk control matrix; proxy & IP governance
+standard (min 1 proxy per account); multi-pair feeding validation report with
+log excerpts and screenshots; preventive governance mechanisms (pre-feeding
+gate, version policy, new-pair SOP); improvement action list (Keep/Fix/Monitor);
+follow-up Jira tickets; screenshots/log evidence.
+
+================================================================================
+OPTIONAL — Retrospective Summary (Jira field)
+================================================================================
+
+Pair 1–2 feeding stable on tested build. Pair 3+ failures traced mainly to
+insufficient unique proxies (same IP / direct fallback) and strict partner
+message filter on newly linked accounts without manual warm-up. Windows install
+issues likely environment-related (unsigned build / SmartScreen). Risk control
+framework drafted; proxy-per-account rule and pre-feeding validation proposed
+as primary preventive controls for AMS operations.
+
+================================================================================
+OPTIONAL — Interruption Log (Jira field)
+================================================================================
+
+Field report from operator: 3+ pair feeding — AI appears stuck on pair 1 & 2;
+pair 3+ no AI response. Windows install — app does not open after installer
+(v1.0.52). Validation paused for proxy count check and log review.
+
+================================================================================
+END — MLKB-5585
+================================================================================

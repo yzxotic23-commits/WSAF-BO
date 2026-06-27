@@ -1,0 +1,108 @@
+================================================================================
+JIRA TICKET : MLKB-5456
+TASK TITLE  : 20/06/2026 — Review and enhance user interface clarity,
+              accessibility, and workflow usability
+DUE         : 20/06/2026 — 5:00 PM (GMT+7)
+STORY       : Whatsapp Auto Feeding
+TOOLS       : FeedFlow PRO
+BASELINE    : FeedFlow desktop (ui-overrides.css + ui-patch.js runtime layer)
+================================================================================
+
+DELIVERABLES
+------------
+
+1. UI Review Checklist (Pass / Needs work)
+   Screen-by-screen audit on FeedFlow PRO main flows:
+   - Sidebar: linked / online / feeding stats + add-account actions
+   - QR login and phone pairing (pairing code overlay)
+   - Settings modal (General, Proxy, Session tabs)
+   - Start / Stop feeding and chat preview during feeding
+   - Feeding complete / stopped summary overlay
+   - Activity log (Feeding + System tabs)
+   - In-app update toast (Later / Update Now)
+   Each area marked Pass or Needs work with a one-line note.
+
+2. UI Improvements Implemented Log
+   Documented changes already shipped in the runtime UI layer:
+   - English-only user-facing strings for feeding popup, cancel, defaults (v1.0.46)
+   - Shorter single-line “AI not available” notice (v1.0.45)
+   - Pairing code popup: blur backdrop, centered layout, visible “Log in with QR code”
+     switch (v1.0.47–v1.0.49)
+   - WhatsApp Web–style pairing overlay: 8-digit code boxes, step timeline,
+     edit phone, aria-modal dialog (ui-patch.js + ui-overrides.css)
+   - Settings modal: ghost-click guard, inline Saved toast, full-width action
+     buttons per tab, confirm dialog above settings sheet
+   - Fix Start feeding staying disabled after saving Settings (v1.0.50)
+   - Sidebar header: stats + toolbar on one stable row; stat pills scroll on
+     narrow width
+   - Chat bubble layout: fixed padding/time overlap at common window sizes
+   - Feeding complete card: clear English title, subtitle, dismiss action
+   - Update corner toast: no blink on focus; Later dismisses per version;
+     Update Now only when download ready (v1.0.41–v1.0.42)
+
+3. Workflow Usability Notes (Before → After)
+   Short narrative for operators:
+   - Link account: pairing code is readable (boxed digits + steps) and user can
+     switch back to QR without getting stuck
+   - Configure: Settings saves without accidentally closing on first click;
+     feeding can start immediately after save
+   - Run feeding: status pills and chat preview reflect active session;
+     completion popup explains outcome in plain English
+   - Troubleshoot: System log lines readable; proxy values masked in log
+
+4. Accessibility Quick Pass
+   - Pairing overlay: role="dialog", aria-modal, aria-live on code boxes
+   - Sidebar actions: role="group" + aria-label on header action cluster
+   - Focus: edit-phone and QR-switch are keyboard-clickable buttons
+   - Remaining gaps logged in backlog (see item 5)
+
+5. Workflow Enhancement Backlog (documented opportunities)
+   Items reviewed but not in scope for today — ready for follow-up tickets:
+   - Phone login reliability messaging (still weaker than QR path)
+   - Mac update path: clearer manual download guidance in-app
+   - Activity log: further noise reduction during link / libsignal events
+   - Settings: inline help for direct connection vs proxy list
+   - Sidebar: stronger visual distinction linking vs feeding vs offline
+   - Optional: React source rebuild to replace runtime patch layer long-term
+
+6. Before / After Screenshot Set (attach to Jira)
+   Minimum 6 captures on Windows FeedFlow PRO:
+   - Sidebar header (stats + actions aligned)
+   - Pairing code overlay (8-digit boxes + steps + QR switch)
+   - Settings modal (Saved toast + tab actions)
+   - Feeding active (chat preview + status pills)
+   - Feeding complete overlay (English summary)
+   - System log excerpt (readable, masked proxy)
+
+================================================================================
+QUICK COPY — paste into Jira “Deliverables” field
+================================================================================
+
+UI review checklist (sidebar, pairing, settings, feeding, complete popup,
+activity log, update toast — Pass/Needs work); implemented improvements log
+(English copy, pairing overlay, settings save/ghost-click fix, start-feeding
+after settings, sidebar layout, chat bubbles, feeding complete card, update
+toast UX); before→after workflow usability notes; accessibility quick pass
+(dialog ARIA, action groups); documented enhancement backlog for follow-up
+tickets; before/after screenshot set (6 screens) attached to ticket.
+
+================================================================================
+OPTIONAL — Retrospective Summary (Jira field)
+================================================================================
+
+Reviewed FeedFlow PRO end-to-end on the runtime UI layer (ui-overrides.css +
+ui-patch.js). Main workflow pain points from earlier stability review are
+addressed in pairing, settings, feeding start, and completion messaging.
+Runtime patches keep UX shippable without React rebuild. Remaining gaps
+(phone login edge cases, Mac update copy, log noise) are captured as backlog
+items for next sprint.
+
+================================================================================
+OPTIONAL — Interruption Log (Jira field)
+================================================================================
+
+None — review and documentation completed in one session.
+
+================================================================================
+END — MLKB-5456
+================================================================================

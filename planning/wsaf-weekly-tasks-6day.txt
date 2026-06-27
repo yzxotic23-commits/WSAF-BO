@@ -1,0 +1,208 @@
+================================================================================
+WSAF — WEEKLY TASK PLAN (6 DAYS × 1 TASK / DAY)
+Story    : Whatsapp Auto Feeding
+Project  : FeedFlow PRO (WSAF)
+Format   : Main Task | Category | Goals 1–6 ↔ Deliverables 1–6
+Updated  : 20/06/2026
+================================================================================
+
+Copy each row block into spreadsheet: No Task | Main Task | Category | Goals | Deliverables
+
+================================================================================
+T1 — DAY 1 | MONITORING
+================================================================================
+No Task     : T1
+Main Task   : WhatsApp Auto Feeding (WSAF) — Production Monitoring, Health Checks
+              & Stability Oversight
+Category    : Strategic
+
+Goals
+-----
+1. Monitor FeedFlow desktop app health on Windows and Mac (launch, API bridge,
+   background process, session persistence).
+2. Monitor account linking status — QR, phone pairing, sidebar linked/online
+   counts, and false “not linked” states.
+3. Monitor feeding sessions — start/stop, pair mapping, AI availability, chat
+   preview activity, and post-feeding reconnect behaviour.
+4. Monitor proxy list load/save, probe results, assignment per account slot, and
+   direct-connection fallback during link and feeding.
+5. Monitor activity log quality (Feeding + System tabs) — readable lines, masked
+   credentials, error spikes, libsignal noise.
+6. Monitor in-app update flow — version check, download state, Later/Update Now
+   behaviour, alignment with GitHub release baseline.
+
+Deliverables
+------------
+1. Daily Production Monitoring Report (Windows + Mac snapshot).
+2. Account Link & Sidebar Status Validation Summary.
+3. Feeding Session Monitoring Log (active pairs, AI path, reconnect notes).
+4. Proxy & Connection Health Check Report.
+5. Activity Log Review Notes + anomaly highlights.
+6. Update Status & Version Alignment Note + escalation list for blockers.
+
+================================================================================
+T2 — DAY 2 | BUG FIND AND FIXES
+================================================================================
+No Task     : T2
+Main Task   : WhatsApp Auto Feeding (WSAF) — Bug Investigation, Root Cause
+              Analysis & Production Fixes
+Category    : Strategic
+
+Goals
+-----
+1. Triage bugs from Day 1 monitoring, operator feedback, and activity log alerts
+   by severity (blocker / major / minor).
+2. Investigate login and pairing failures — QR expiry, phone code invalid,
+   pairing overlay stuck, switch QR/phone regression.
+3. Investigate feeding blockers — Start disabled after Settings save, false
+   not-linked errors, feeding stops unexpectedly, accounts not returning online.
+4. Investigate proxy and session issues — wrong assignment, save not persisting,
+   probe false negatives, session wiped after update.
+5. Perform root cause analysis with reproduction steps, log excerpts, and
+   affected build/version for each major bug.
+6. Implement fixes, validate on test build, and run targeted regression on
+   login → settings → start feeding → stop feeding paths.
+
+Deliverables
+------------
+1. Bug Triage & Priority List (with owner and target fix).
+2. Login / Pairing Bug Investigation Report.
+3. Feeding Flow Bug Analysis & Reproduction Notes.
+4. Root Cause Analysis Document (one section per major bug).
+5. Bug Fix Validation Report (what changed, build/version tested).
+6. Targeted Regression Test Results (Pass/Fail checklist).
+
+================================================================================
+T3 — DAY 3 | OPTIMIZE FEATURE
+================================================================================
+No Task     : T3
+Main Task   : WhatsApp Auto Feeding (WSAF) — Feature Optimization, Workflow
+              Improvements & UX Enhancement
+Category    : Strategic
+
+Goals
+-----
+1. Optimize pairing code overlay — readable 8-digit boxes, step timeline, edit
+   phone, QR switch without getting stuck.
+2. Optimize Settings workflow — ghost-click guard, inline Saved feedback,
+   full-width tab actions, feeding ready immediately after save.
+3. Optimize sidebar and status pills — stable header layout, clear linked /
+   online / feeding distinction at common window widths.
+4. Optimize chat preview and feeding-complete summary — bubble layout, English
+   completion popup, stopped vs success states.
+5. Optimize activity log presentation — reduce noise, improve Feeding vs System
+   tab usefulness for operators.
+6. Optimize update corner toast — no focus blink, Later dismiss per version,
+   Update Now only when download is ready.
+
+Deliverables
+------------
+1. Pairing Flow Optimization Summary (before/after + screenshots).
+2. Settings & Post-Save Feeding Readiness Improvement Log.
+3. Sidebar / Status UI Enhancement Notes.
+4. Chat Preview & Feeding Complete UX Validation Report.
+5. Activity Log Usability Improvement Summary.
+6. Update Toast UX Optimization Report + screenshot set.
+
+================================================================================
+T4 — DAY 4 | PROXY & SESSION RELIABILITY
+================================================================================
+No Task     : T4
+Main Task   : WhatsApp Auto Feeding (WSAF) — Proxy Reliability, Session
+              Persistence & Connection Path Hardening
+Category    : Strategic
+
+Goals
+-----
+1. Validate proxy list save/load without app restart and correct slot assignment
+   before, during, and after feeding.
+2. Validate proxy probe accuracy and user-facing pass/fail feedback in Settings.
+3. Validate direct connection vs proxy path when proxy fails during link or feed.
+4. Validate WhatsApp session persistence across app restart and desktop update
+   (user data outside app bundle).
+5. Validate masked proxy output in System log — no full credentials exposed.
+6. Harden edge cases found in Days 1–3 (rotation, reassignment, reconnect).
+
+Deliverables
+------------
+1. Proxy Save / Load / Probe Test Report (Pass/Fail table).
+2. Account-to-Proxy Assignment Verification (before / during / after feeding).
+3. Direct vs Proxy Fallback Behaviour Note (user-facing).
+4. Session Persistence Verification Report (restart + update scenario).
+5. Activity Log Privacy Check (masked proxy evidence).
+6. Connection Path Hardening Summary + remaining edge-case backlog.
+
+================================================================================
+T5 — DAY 5 | UI CLARITY & WORKFLOW USABILITY
+================================================================================
+No Task     : T5
+Main Task   : WhatsApp Auto Feeding (WSAF) — UI Clarity, Accessibility Review
+              & Operator Workflow Usability
+Category    : Strategic
+
+Goals
+-----
+1. Review all main screens for clarity — sidebar, pairing, settings, feeding,
+   complete popup, activity log, update toast (Pass / Needs work per screen).
+2. Review English copy consistency — errors, buttons, feeding messages, AI
+   unavailable notice, completion summary.
+3. Review accessibility basics — dialog aria attributes, action group labels,
+   keyboard-clickable controls on pairing and settings flows.
+4. Document before→after workflow notes for operators: link → configure → run
+   feeding → troubleshoot.
+5. Capture UI improvement backlog items not fixed this week (phone login copy,
+   Mac update guidance, log noise, inline proxy help).
+6. Produce before/after screenshot set for stakeholder review.
+
+Deliverables
+------------
+1. UI Review Checklist (Pass / Needs work, all main flows).
+2. English Copy & Messaging Consistency Audit.
+3. Accessibility Quick Pass Report (gaps + fixes applied).
+4. Operator Workflow Usability Notes (before → after).
+5. UI Enhancement Backlog for Follow-Up Tickets.
+6. Before / After Screenshot Pack (minimum 6 screens).
+
+================================================================================
+T6 — DAY 6 | RELEASE VALIDATION & WEEKLY SIGN-OFF
+================================================================================
+No Task     : T6
+Main Task   : WhatsApp Auto Feeding (WSAF) — End-to-End Validation, Release
+              Readiness & Weekly Stability Sign-Off
+Category    : Strategic
+
+Goals
+-----
+1. Run full regression checklist on Windows and Mac — login, proxy, feeding,
+   stop, reconnect, settings, update check.
+2. Validate end-to-end feeding run — 2/2 linked, AI active, chat visible,
+   clean completion or stop flow, accounts online afterward.
+3. Confirm no blocker regressions from Week fixes (Days 2–5 changes).
+4. Prepare release notes / changelog for tested build version.
+5. Update README-DESKTOP and operator guidance for known limits (phone login,
+   Mac update path, recommended baseline version).
+6. Sign off weekly stability definition — minimum flows that must pass before
+   next development or release promotion.
+
+Deliverables
+------------
+1. Full Regression Checklist Results (Windows + Mac, Pass/Fail).
+2. End-to-End Feeding Run Evidence (screenshot + log excerpt).
+3. Regression & Fix Impact Summary (no new blockers).
+4. Release Notes / Changelog Draft for tested build.
+5. Updated Operator / Desktop README Notes.
+6. Weekly Stability Sign-Off Document + linked follow-up tickets.
+
+================================================================================
+QUICK REFERENCE — ONE LINE PER DAY (spreadsheet Main Task column)
+================================================================================
+T1 | WSAF — Production Monitoring, Health Checks & Stability Oversight
+T2 | WSAF — Bug Investigation, Root Cause Analysis & Production Fixes
+T3 | WSAF — Feature Optimization, Workflow Improvements & UX Enhancement
+T4 | WSAF — Proxy Reliability, Session Persistence & Connection Hardening
+T5 | WSAF — UI Clarity, Accessibility Review & Operator Workflow Usability
+T6 | WSAF — End-to-End Validation, Release Readiness & Weekly Sign-Off
+
+================================================================================
+END
+================================================================================

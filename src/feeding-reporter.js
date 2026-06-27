@@ -39,9 +39,44 @@ async function reportAuditEntry(entry) {
   }
 }
 
+function getAccountLabelFromSlot(slot) {
+  try {
+    const { getAccountStart } = require('./app-config');
+    return `Account${getAccountStart() + slot}`;
+  } catch {
+    return `Account${slot + 1}`;
+  }
+}
+
+async function reportFeedingSessionStart(sessions, accountProxies) {
+  if (process.env.DESKTOP_FEEDING !== '1' || !Array.isArray(sessions)) return;
+  const runId = process.env.FEEDING_RUN_ID || null;
+  const { readSlotDisplayLabel } = require('./slot-display-labels');
+  const appRoot = process.env.APP_ROOT || process.cwd();
+
+  for (let slot = 0; slot < sessions.length; slot++) {
+    const session = sessions[slot];
+    if (!session) continue;
+    const accountName = session.getDisplayName?.()
+      || readSlotDisplayLabel(appRoot, slot)
+      || getAccountLabelFromSlot(slot);
+    await reportAuditEntry({
+      runId,
+      slot,
+      sessionName: session.sessionName,
+      accountName,
+      reason: 'feeding_started',
+      proxyUrl: session.proxyUrl || accountProxies[slot] || null,
+      pairIndex: Math.floor(slot / 2),
+    });
+  }
+}
+
 async function reportFeedingPairResults(results, sessions, accountProxies) {
   if (process.env.DESKTOP_FEEDING !== '1' || !Array.isArray(results)) return;
   const runId = process.env.FEEDING_RUN_ID || null;
+  const { readSlotDisplayLabel } = require('./slot-display-labels');
+  const appRoot = process.env.APP_ROOT || process.cwd();
 
   for (const r of results) {
     const pairIndex = (r.pairNum || 1) - 1;
@@ -53,8 +88,9 @@ async function reportFeedingPairResults(results, sessions, accountProxies) {
     for (const slot of [slotA, slotB]) {
       const session = sessions[slot];
       if (!session) continue;
-      const accountName =
-        session.getDisplayName?.() || getAccountLabelFromSlot(slot);
+      const accountName = session.getDisplayName?.()
+        || readSlotDisplayLabel(appRoot, slot)
+        || getAccountLabelFromSlot(slot);
       await reportAuditEntry({
         runId,
         slot,
@@ -66,15 +102,6 @@ async function reportFeedingPairResults(results, sessions, accountProxies) {
         pairIndex,
       });
     }
-  }
-}
-
-function getAccountLabelFromSlot(slot) {
-  try {
-    const { getAccountStart } = require('./app-config');
-    return `Account${getAccountStart() + slot}`;
-  } catch {
-    return `Account${slot + 1}`;
   }
 }
 
@@ -119,6 +146,7 @@ async function reportStrictLogout(slot, alert) {
 module.exports = {
   reportFeedingChat,
   reportAuditEntry,
+  reportFeedingSessionStart,
   reportFeedingPairResults,
   reportProfileRefresh,
   reportFeedingComplete,

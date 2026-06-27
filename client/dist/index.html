@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#008069" />
+    <meta name="theme-color" content="#e65f2b" />
     <title>FeedFlow — WhatsApp Auto Feeding</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" />
@@ -11,9 +11,20 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        document.documentElement.classList.add('ams-theme');
+        var embed = new URLSearchParams(location.search).get('embed') === 'ams'
+          || window.self !== window.top;
+        if (embed) {
+          document.documentElement.classList.add('ams-embed');
+        }
+      })();
+    </script>
     <script type="module" src="./assets/index-CbZz9OZp.js"></script>
-    <link rel="stylesheet" href="./assets/index-BaqgFg_X.css">
-    <link rel="stylesheet" href="./assets/ui-overrides.css">
+    <link rel="stylesheet" href="./assets/index-BaqgFg_X.css" />
+    <link rel="stylesheet" href="./assets/ui-overrides.css" />
+    <link rel="stylesheet" href="./assets/ui-overrides-ams.css" />
     <script defer src="./assets/ui-patch.js"></script>
   </head>
   <body>

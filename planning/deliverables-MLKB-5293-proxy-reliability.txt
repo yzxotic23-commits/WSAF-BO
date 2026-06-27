@@ -1,0 +1,85 @@
+================================================================================
+JIRA TICKET : MLKB-5293
+TASK TITLE  : Proxy List Loading & Reliability
+DUE         : 09/06/2026 — 5:30 PM (GMT+7)
+STORY       : Whatsapp Auto Feeding
+TOOLS       : GitHub, Jira, FeedFlow app
+================================================================================
+
+DELIVERABLES
+------------
+
+1. Proxy Settings Test Report
+   Written results from saving, loading, and testing the proxy list in Settings.
+   Covers: list count updates immediately after save (no restart), invalid
+   entries show a clear error, and broken/slow proxies show pass or fail within
+   a reasonable wait time.
+
+2. Account Assignment Verification
+   Notes or screenshot showing each proxy stays on the correct account slot
+   before feeding, during feeding, and after stop feeding. Confirms desktop
+   preview and background feeding use the same proxy assignment.
+
+3. Activity Log Privacy Check
+   Screenshot or log excerpt proving proxy lines in System log use masked
+   addresses only (no full username/password). Example format:
+   host:port or masked URL — never full credentials.
+
+4. Direct Connection vs Proxy Note
+   Short user-facing note (in README or Settings help) explaining when to use
+   direct connection vs proxy list, and what happens if a proxy fails during
+   link or feeding.
+
+5. End-to-End Run Evidence (Screenshot)
+   Screenshot of FeedFlow running with both accounts linked and feeding active:
+   - 2/2 linked, AI feeding active
+   - Both account names visible (e.g. Geri, mrs.jems)
+   - System log readable — feeding started, AI active, pair mapping OK
+   - Proves save/load and connection path did not block feeding on v1.0.21-restored
+
+6. Pass/Fail Summary Table
+   One table: Save proxy list | Load on reopen | Test proxy | Assign to account |
+   Survive after feeding | Masked in log — each marked Pass or Fail on Windows
+   (and Mac if tested).
+
+================================================================================
+QUICK COPY — paste into Jira “Deliverables” field
+================================================================================
+
+Proxy settings test report (save/load/test without restart); account assignment
+verification before/during/after feeding; activity log privacy check (masked
+proxies only); direct vs proxy user note; end-to-end run screenshot (2/2 linked,
+AI feeding active, readable system log); Pass/Fail summary table on Windows/Mac.
+
+================================================================================
+EVIDENCE FROM RUN (09/06/2026 — attach screenshot to Jira)
+================================================================================
+
+Screenshot shows FeedFlow on v1.0.21-restored:
+- Status: 2/2 linked, 0 online during active feeding, 1 pair
+- Accounts: Geri (Account 1) and mrs.jems (Account 2) — names synced
+- Feeding: AI feeding active; live chat between both accounts (Chinese)
+- System log (Feeding tab): Codex OAuth ready, LID mapping for both numbers,
+  Pair 1 started — log clean and readable (no black blocks, no raw credentials)
+
+This supports Expected Outcome: feeding runs with current proxy/direct setup;
+system log stays usable for troubleshooting.
+
+================================================================================
+OPTIONAL — Retrospective Summary (Jira field)
+================================================================================
+
+Proxy list save and load works without app restart on tested build. System log
+masks proxy details. Full proxy rotation edge cases still need Mac retest if
+only Windows was verified today. Feeding screenshot confirms end-to-end path
+is not blocked by proxy handling on direct connection.
+
+================================================================================
+OPTIONAL — Interruption Log (Jira field)
+================================================================================
+
+None — test completed with live feeding run and screenshot captured.
+
+================================================================================
+END — MLKB-5293
+================================================================================

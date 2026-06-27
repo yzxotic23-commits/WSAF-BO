@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMS — Activation Desk</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117; --bg2: #1a1d27; --bg3: #22263a; --bg4: #2a2f47;
+      --border: #2e3350; --accent: #25d366; --accent2: #128c7e;
+      --warn: #f59e0b; --danger: #ef4444; --info: #3b82f6;
+      --purple: #8b5cf6; --pink: #ec4899;
+      --text: #e2e8f0; --muted: #64748b; --muted2: #94a3b8;
+      --radius: 10px;
+    }
+
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    .layout { display: flex; flex: 1; }
+
+    nav.sidebar {
+      width: 220px; min-height: 100vh; background: var(--bg2);
+      border-right: 1px solid var(--border); flex-shrink: 0;
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    }
+    .sidebar-brand { display: flex; align-items: center; gap: 8px; padding: 18px 16px 14px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 15px; }
+    .sidebar-brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .sidebar-section { padding: 12px 10px 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+    nav.sidebar a { display: flex; align-items: center; gap: 9px; padding: 8px 14px; margin: 1px 6px; border-radius: 7px; text-decoration: none; color: var(--muted2); font-size: 13px; transition: all .12s; }
+    nav.sidebar a:hover { background: var(--bg3); color: var(--text); }
+    nav.sidebar a.active { background: var(--bg3); color: var(--text); font-weight: 600; }
+    nav.sidebar a .icon { font-size: 15px; width: 18px; text-align: center; }
+
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px 14px; border-bottom: 1px solid var(--border); background: var(--bg2); flex-shrink: 0; }
+    .topbar h1 { font-size: 18px; font-weight: 700; }
+    .topbar-actions { display: flex; gap: 10px; align-items: center; }
+    .content { flex: 1; overflow-y: auto; padding: 24px 28px; }
+
+    .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+    .stat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+    .stat-card .label { font-size: 11px; color: var(--muted2); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+    .stat-card .value { font-size: 26px; font-weight: 700; }
+    .stat-card .value.blue { color: var(--info); }
+    .stat-card .value.green { color: var(--accent); }
+    .stat-card .value.yellow { color: var(--warn); }
+    .stat-card .value.purple { color: var(--purple); }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 380px; gap: 20px; align-items: start; }
+    @media (max-width: 1100px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .panel-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .panel-header h2 { font-size: 14px; font-weight: 700; }
+    .panel-body { padding: 0; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; padding: 10px 14px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-bottom: 1px solid var(--border); background: var(--bg3); }
+    td { padding: 12px 14px; border-bottom: 1px solid rgba(46,51,80,.5); vertical-align: middle; }
+    tr { cursor: pointer; transition: background .1s; }
+    tr:hover td { background: var(--bg3); }
+    tr.selected td { background: rgba(37,211,102,.06); }
+
+    .check { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 700; }
+    .check.done { background: rgba(37,211,102,.15); color: var(--accent); }
+    .check.pending { background: rgba(100,116,139,.15); color: var(--muted); }
+
+    .progress-wrap { display: flex; align-items: center; gap: 8px; }
+    .progress-bar { flex: 1; height: 6px; background: var(--bg4); border-radius: 4px; overflow: hidden; max-width: 80px; }
+    .progress-fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width .2s; }
+
+    .wo-row { padding: 12px 16px; border-bottom: 1px solid rgba(46,51,80,.5); font-size: 12px; }
+    .wo-row:last-child { border-bottom: none; }
+    .wo-row .ref { font-family: monospace; font-size: 10px; color: var(--muted2); margin-bottom: 3px; }
+    .wo-row .title { font-weight: 600; margin-bottom: 4px; }
+    .wo-row .meta { color: var(--muted2); font-size: 11px; }
+
+    .wizard { padding: 20px; }
+    .wizard-empty { text-align: center; color: var(--muted); padding: 48px 20px; font-size: 13px; }
+    .wizard-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+    .wizard-sub { font-size: 12px; color: var(--muted2); margin-bottom: 20px; }
+
+    .step-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+    .step {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 14px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+    }
+    .step.done { border-color: rgba(37,211,102,.3); }
+    .step-num {
+      width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; background: var(--bg4); color: var(--muted2);
+    }
+    .step.done .step-num { background: rgba(37,211,102,.2); color: var(--accent); }
+    .step-body { flex: 1; min-width: 0; }
+    .step-label { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+    .step-field select, .step-field input {
+      width: 100%; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+      padding: 7px 10px; color: var(--text); font-size: 12px;
+    }
+    .step-field select:focus, .step-field input:focus { outline: none; border-color: var(--accent2); }
+    .step-actions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .btn { padding: 8px 16px; border-radius: 7px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; transition: opacity .12s; }
+    .btn:hover { opacity: .85; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #000; }
+    .btn-secondary { background: var(--bg4); color: var(--text); border: 1px solid var(--border); }
+    .btn-info { background: rgba(59,130,246,.15); color: var(--info); border: 1px solid rgba(59,130,246,.3); }
+    .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+    .qr-box {
+      margin-top: 12px; padding: 16px; background: #fff; border-radius: 10px;
+      display: none; flex-direction: column; align-items: center; gap: 10px;
+    }
+    .qr-box.show { display: flex; }
+    .qr-box canvas { max-width: 180px; }
+    .qr-hint { font-size: 11px; color: var(--muted2); text-align: center; }
+
+    .linked-badge {
+      display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+      padding: 3px 9px; border-radius: 20px; font-weight: 600;
+    }
+    .linked-badge.online { background: rgba(37,211,102,.12); color: var(--accent); }
+    .linked-badge.offline { background: rgba(100,116,139,.12); color: var(--muted2); }
+
+    .refresh-btn {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 7px;
+      padding: 7px 14px; color: var(--text); font-size: 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .refresh-btn:hover { background: var(--bg4); }
+
+    .empty-state { text-align: center; color: var(--muted); padding: 32px; font-size: 13px; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin .7s linear infinite; display: inline-block; }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="sidebar-brand"><div class="dot"></div>AMS</div>
+    <div class="sidebar-section">Account</div>
+    <a href="/ams/accounts"><span class="icon">📋</span> Account Ledger</a>
+    <a href="/ams/activation" class="active"><span class="icon">⚡</span> Activation Desk</a>
+    <a href="/ams/nurturing"><span class="icon">🌱</span> Nurturing Pipeline</a>
+    <div class="sidebar-section">Operations</div>
+    <a href="/ams/workorders"><span class="icon">📝</span> Work Orders</a>
+    <a href="/portal" target="_blank"><span class="icon">🔗</span> Client Portal</a>
+    <div class="sidebar-section">Resources</div>
+    <a href="/ams/ips"><span class="icon">🌐</span> IP Ledger</a>
+    <a href="/ams/ip-audit"><span class="icon">🔍</span> IP Audit</a>
+    <a href="/ams/devices"><span class="icon">📱</span> Devices</a>
+    <a href="/ams/sims"><span class="icon">💳</span> SIM Cards</a>
+    <div class="sidebar-section">Analytics</div>
+    <a href="/dashboard"><span class="icon">📊</span> Feeding Dashboard</a>
+    <div class="sidebar-section">System</div>
+    <a href="/"><span class="icon">⚙️</span> WSAF App</a>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <h1>⚡ Activation Desk</h1>
+      <div class="topbar-actions">
+        <button class="btn btn-primary" onclick="openNewModal()">+ New Activation</button>
+        <button class="refresh-btn" onclick="loadAll()"><span id="refresh-icon">↻</span> Refresh</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="stat-row">
+        <div class="stat-card">
+          <div class="label">Pending Activation</div>
+          <div class="value blue" id="stat-pending">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Ready to Link</div>
+          <div class="value yellow" id="stat-ready">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">WA Linked</div>
+          <div class="value green" id="stat-linked">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Open Requests</div>
+          <div class="value purple" id="stat-wo">—</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Activation Queue</h2>
+            <span style="font-size:11px;color:var(--muted2)">Status: Registering</span>
+          </div>
+          <div class="panel-body">
+            <table>
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Resources</th>
+                  <th>Progress</th>
+                  <th>WSAF</th>
+                  <th>WA</th>
+                </tr>
+              </thead>
+              <tbody id="queue-tbody">
+                <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header"><h2>Activation Wizard</h2></div>
+          <div class="panel-body">
+            <div id="wizard" class="wizard">
+              <div class="wizard-empty">Select an account from the queue to begin activation.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:20px;">
+        <div class="panel-header">
+          <h2>Open Work Orders — New Account</h2>
+          <a href="/ams/workorders" style="font-size:11px;color:var(--info);text-decoration:none;">View all →</a>
+        </div>
+        <div class="panel-body" id="wo-list">
+          <div class="empty-state">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New activation modal -->
+<div id="new-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;width:440px;max-width:95vw;padding:24px;">
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:16px;">New Activation</h3>
+    <div style="margin-bottom:12px;">
+      <label style="display:block;font-size:11px;color:var(--muted2);margin-bottom:5px;text-transform:uppercase;">Account Name *</label>
+      <input type="text" id="new-name" placeholder="e.g. SBMY-002" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:9px 12px;color:var(--text);font-size:13px;" />
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div>
+        <label style="display:block;font-size:11px;color:var(--muted2);margin-bottom:5px;text-transform:uppercase;">Site</label>
+        <select id="new-site" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:9px 12px;color:var(--text);font-size:13px;"></select>
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;color:var(--muted2);margin-bottom:5px;text-transform:uppercase;">Brand</label>
+        <select id="new-brand" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:9px 12px;color:var(--text);font-size:13px;"></select>
+      </div>
+    </div>
+    <div style="margin-bottom:12px;">
+      <label style="display:block;font-size:11px;color:var(--muted2);margin-bottom:5px;text-transform:uppercase;">Phone (optional)</label>
+      <input type="text" id="new-phone" placeholder="+60…" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:9px 12px;color:var(--text);font-size:13px;" />
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button class="btn btn-primary" onclick="createActivation()">Create & Select</button>
+      <button class="btn btn-secondary" onclick="closeNewModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let queue = [];
+  let selectedId = null;
+  let wsafStatus = { accounts: [] };
+  let meta = { sites: [], brands: [] };
+  let resources = { sims: [], devices: [], ips: [] };
+  let activeQrSlot = null;
+
+  const socket = io({ transports: ['websocket', 'polling'] });
+  socket.on('status', (s) => { wsafStatus = s; if (selectedId) renderWizard(); renderQueue(); });
+  socket.on('qr', (data) => {
+    if (data.slot !== activeQrSlot) return;
+    const box = document.getElementById('qr-box');
+    const canvas = document.getElementById('qr-canvas');
+    if (!box || !canvas) return;
+    QRCode.toCanvas(canvas, data.qr, { width: 180, margin: 1 }, (err) => {
+      if (!err) box.classList.add('show');
+    });
+  });
+
+  async function loadAll() {
+    const icon = document.getElementById('refresh-icon');
+    icon.classList.add('spin');
+    try {
+      const [acctRes, statusRes, metaRes, simsRes, devRes, ipsRes, woRes] = await Promise.all([
+        fetch('/api/ams/accounts?status=registering'),
+        fetch('/api/status').catch(() => ({ json: () => ({ accounts: [] }) })),
+        fetch('/api/ams/meta'),
+        fetch('/api/ams/sims'),
+        fetch('/api/ams/devices'),
+        fetch('/api/ams/ips?active=1'),
+        fetch('/api/ams/workorders?type=new_account&status=open'),
+      ]);
+      const acctData = await acctRes.json();
+      wsafStatus = await statusRes.json().catch(() => ({ accounts: [] }));
+      meta = await metaRes.json();
+      resources.sims = await simsRes.json();
+      resources.devices = await devRes.json();
+      resources.ips = await ipsRes.json();
+      const workOrders = await woRes.json();
+
+      queue = acctData.accounts || [];
+      renderStats(workOrders);
+      renderQueue();
+      renderWorkOrders(workOrders);
+      if (selectedId) renderWizard();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      icon.classList.remove('spin');
+    }
+  }
+
+  function getWsafAccount(slot) {
+    if (slot == null) return null;
+    return (wsafStatus.accounts || []).find(a => a.slot === slot) || null;
+  }
+
+  function checklist(a) {
+    const wsaf = getWsafAccount(a.wsaf_slot);
+    return {
+      sim: !!a.sim_id,
+      device: !!a.device_id,
+      ip: !!a.ip_id,
+      phone: !!(a.phone_number && a.phone_number.trim()),
+      slot: a.wsaf_slot != null,
+      linked: !!(wsaf && wsaf.connected),
+    };
+  }
+
+  function progressPct(c) {
+    const keys = ['sim', 'device', 'ip', 'phone', 'slot', 'linked'];
+    const done = keys.filter(k => c[k]).length;
+    return Math.round((done / keys.length) * 100);
+  }
+
+  function renderStats(workOrders) {
+    let ready = 0, linked = 0;
+    for (const a of queue) {
+      const c = checklist(a);
+      if (c.sim && c.device && c.ip && c.phone && c.slot) ready++;
+      if (c.linked) linked++;
+    }
+    document.getElementById('stat-pending').textContent = queue.length;
+    document.getElementById('stat-ready').textContent = ready;
+    document.getElementById('stat-linked').textContent = linked;
+    document.getElementById('stat-wo').textContent = (workOrders || []).length;
+  }
+
+  function renderQueue() {
+    const tbody = document.getElementById('queue-tbody');
+    if (!queue.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No accounts pending activation.<br><button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="openNewModal()">+ New Activation</button></td></tr>';
+      return;
+    }
+    tbody.innerHTML = queue.map(a => {
+      const c = checklist(a);
+      const pct = progressPct(c);
+      const wsaf = getWsafAccount(a.wsaf_slot);
+      const resHtml = ['sim','device','ip'].map(k =>
+        `<span class="check ${c[k] ? 'done' : 'pending'}" title="${k}">${c[k] ? '✓' : '·'}</span>`
+      ).join('');
+      const waBadge = c.linked
+        ? '<span class="linked-badge online">● Online</span>'
+        : (a.wsaf_slot != null ? '<span class="linked-badge offline">○ Offline</span>' : '—');
+      return `<tr class="${selectedId === a.id ? 'selected' : ''}" onclick="selectAccount(${a.id})">
+        <td>
+          <div style="font-weight:600">${esc(a.name)}</div>
+          <div style="font-size:11px;color:var(--muted2)">${esc(a.phone_number || 'No phone')}</div>
+        </td>
+        <td><div style="display:flex;gap:4px">${resHtml}</div></td>
+        <td>
+          <div class="progress-wrap">
+            <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+            <span style="font-size:11px;color:var(--muted2)">${pct}%</span>
+          </div>
+        </td>
+        <td>${a.wsaf_slot != null ? `Slot ${a.wsaf_slot}` : '—'}</td>
+        <td>${waBadge}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderWorkOrders(orders) {
+    const el = document.getElementById('wo-list');
+    if (!orders || !orders.length) {
+      el.innerHTML = '<div class="empty-state">No open new-account requests.</div>';
+      return;
+    }
+    el.innerHTML = orders.slice(0, 5).map(wo => `
+      <div class="wo-row">
+        <div class="ref">${esc(wo.ref)}</div>
+        <div class="title">${esc(wo.title)}</div>
+        <div class="meta">${esc(wo.brand_name || '—')} · Qty ${wo.quantity || 1} · ${esc(wo.requester || '—')}</div>
+        <button class="btn btn-info btn-sm" style="margin-top:8px" onclick="createFromWo('${escAttr(wo.title)}', ${wo.brand_id || 'null'}, ${wo.site_id || 'null'})">Start Activation</button>
+      </div>
+    `).join('');
+  }
+
+  function selectAccount(id) {
+    selectedId = id;
+    activeQrSlot = null;
+    renderQueue();
+    renderWizard();
+  }
+
+  function currentAccount() {
+    return queue.find(a => a.id === selectedId) || null;
+  }
+
+  function renderWizard() {
+    const el = document.getElementById('wizard');
+    const a = currentAccount();
+    if (!a) {
+      el.innerHTML = '<div class="wizard-empty">Select an account from the queue to begin activation.</div>';
+      return;
+    }
+
+    const c = checklist(a);
+    const pct = progressPct(c);
+    const canActivate = pct === 100;
+
+    const simOpts = resources.sims.map(s =>
+      `<option value="${s.id}" ${a.sim_id == s.id ? 'selected' : ''}>${esc(s.phone_number)} (${esc(s.telco || '—')})</option>`
+    ).join('');
+    const devOpts = resources.devices.map(d =>
+      `<option value="${d.id}" ${a.device_id == d.id ? 'selected' : ''}>${esc(d.code)} ${d.shelf ? '· '+esc(d.shelf) : ''}</option>`
+    ).join('');
+    const ipOpts = resources.ips.map(ip =>
+      `<option value="${ip.id}" ${a.ip_id == ip.id ? 'selected' : ''}>${esc(ip.address)}${ip.port ? ':'+esc(ip.port) : ''}</option>`
+    ).join('');
+
+    const slotOpts = (wsafStatus.accounts || []).map(acc =>
+      `<option value="${acc.slot}" ${a.wsaf_slot == acc.slot ? 'selected' : ''}>Slot ${acc.slot} — ${esc(acc.label)} ${acc.connected ? '(online)' : '(offline)'}</option>`
+    ).join('');
+
+    el.innerHTML = `
+      <div class="wizard-title">${esc(a.name)}</div>
+      <div class="wizard-sub">${esc(a.brand_name || 'No brand')} · ${esc(a.site_name || 'No site')} · ${pct}% complete</div>
+
+      <div class="step-list">
+        <div class="step ${c.sim && c.device && c.ip ? 'done' : ''}">
+          <div class="step-num">${c.sim && c.device && c.ip ? '✓' : '1'}</div>
+          <div class="step-body">
+            <div class="step-label">Assign Resources</div>
+            <div class="step-field" style="display:grid;gap:8px;margin-top:6px">
+              <select id="w-sim"><option value="">— SIM —</option>${simOpts}</select>
+              <select id="w-device"><option value="">— Device —</option>${devOpts}</select>
+              <select id="w-ip"><option value="">— IP / Proxy —</option>${ipOpts}</select>
+            </div>
+            <div class="step-actions">
+              <button class="btn btn-secondary btn-sm" onclick="saveResources()">Save Resources</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="step ${c.phone ? 'done' : ''}">
+          <div class="step-num">${c.phone ? '✓' : '2'}</div>
+          <div class="step-body">
+            <div class="step-label">Phone Number</div>
+            <div class="step-field" style="margin-top:6px">
+              <input type="text" id="w-phone" value="${escAttr(a.phone_number || '')}" placeholder="+60…" />
+            </div>
+            <div class="step-actions">
+              <button class="btn btn-secondary btn-sm" onclick="savePhone()">Save Phone</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="step ${c.slot ? 'done' : ''}">
+          <div class="step-num">${c.slot ? '✓' : '3'}</div>
+          <div class="step-body">
+            <div class="step-label">WSAF Slot</div>
+            <div class="step-field" style="margin-top:6px">
+              <select id="w-slot"><option value="">— Select slot —</option>${slotOpts}</select>
+            </div>
+            <div class="step-actions">
+              <button class="btn btn-secondary btn-sm" onclick="saveSlot()">Assign Slot</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="step ${c.linked ? 'done' : ''}">
+          <div class="step-num">${c.linked ? '✓' : '4'}</div>
+          <div class="step-body">
+            <div class="step-label">Link WhatsApp</div>
+            <div class="step-actions">
+              <button class="btn btn-info btn-sm" onclick="linkWhatsApp('qr')" ${a.wsaf_slot == null ? 'disabled' : ''}>Scan QR</button>
+              <button class="btn btn-secondary btn-sm" onclick="linkWhatsApp('pairing')" ${a.wsaf_slot == null ? 'disabled' : ''}>Pairing Code</button>
+              <a href="/" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-block;line-height:1.4">Open WSAF</a>
+            </div>
+            <div class="qr-box" id="qr-box">
+              <canvas id="qr-canvas"></canvas>
+              <div class="qr-hint">Scan with WhatsApp → Linked Devices</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" style="width:100%" onclick="activateAccount()" ${canActivate ? '' : 'disabled'}>
+        ${canActivate ? '✓ Activate — Start Nurturing' : `Complete checklist (${pct}%)`}
+      </button>
+    `;
+  }
+
+  async function patchAccount(id, body) {
+    const res = await fetch(`/api/ams/accounts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Update failed');
+    return res.json();
+  }
+
+  async function saveResources() {
+    const a = currentAccount();
+    if (!a) return;
+    await patchAccount(a.id, {
+      sim_id: val('w-sim') || null,
+      device_id: val('w-device') || null,
+      ip_id: val('w-ip') || null,
+    });
+    await refreshAccount(a.id);
+  }
+
+  async function savePhone() {
+    const a = currentAccount();
+    if (!a) return;
+    await patchAccount(a.id, { phone_number: val('w-phone') });
+    await refreshAccount(a.id);
+  }
+
+  async function saveSlot() {
+    const a = currentAccount();
+    if (!a) return;
+    const slot = val('w-slot');
+    if (slot === '') return alert('Pilih slot WSAF');
+    await patchAccount(a.id, { wsaf_slot: parseInt(slot, 10) });
+    await refreshAccount(a.id);
+  }
+
+  async function linkWhatsApp(method) {
+    const a = currentAccount();
+    if (!a || a.wsaf_slot == null) return;
+    activeQrSlot = a.wsaf_slot;
+    const box = document.getElementById('qr-box');
+    if (box) box.classList.remove('show');
+
+    const body = { method };
+    if (method === 'pairing') {
+      const phone = val('w-phone') || a.phone_number;
+      if (!phone) return alert('Isi nomor telepon dulu untuk pairing code');
+      body.phoneNumber = phone;
+    }
+    await fetch(`/api/connect/${a.wsaf_slot}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function activateAccount() {
+    const a = currentAccount();
+    if (!a) return;
+    if (progressPct(checklist(a)) < 100) return;
+    await patchAccount(a.id, {
+      status: 'nurturing',
+      reason: 'Activation complete — moved to nurturing',
+      changed_by: 'activation-desk',
+    });
+    selectedId = null;
+    await loadAll();
+    alert(`${a.name} activated — now in Nurturing Pipeline.`);
+  }
+
+  async function refreshAccount(id) {
+    const full = await fetch(`/api/ams/accounts/${id}`).then(r => r.json());
+    const idx = queue.findIndex(a => a.id === id);
+    if (idx >= 0) queue[idx] = full;
+    renderStats([]);
+    renderQueue();
+    renderWizard();
+  }
+
+  function openNewModal() {
+    document.getElementById('new-site').innerHTML =
+      '<option value="">— None —</option>' + meta.sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    document.getElementById('new-brand').innerHTML =
+      '<option value="">— None —</option>' + meta.brands.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
+    document.getElementById('new-name').value = '';
+    document.getElementById('new-phone').value = '';
+    document.getElementById('new-modal').style.display = 'flex';
+  }
+
+  function closeNewModal() {
+    document.getElementById('new-modal').style.display = 'none';
+  }
+
+  async function createActivation() {
+    const name = document.getElementById('new-name').value.trim();
+    if (!name) return alert('Account name wajib diisi');
+    const body = {
+      name,
+      status: 'registering',
+      site_id: document.getElementById('new-site').value || null,
+      brand_id: document.getElementById('new-brand').value || null,
+      phone_number: document.getElementById('new-phone').value.trim() || null,
+    };
+    const created = await fetch('/api/ams/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(r => r.json());
+    closeNewModal();
+    selectedId = created.id;
+    await loadAll();
+  }
+
+  function createFromWo(title, brandId, siteId) {
+    openNewModal();
+    document.getElementById('new-name').value = title || '';
+    if (brandId) document.getElementById('new-brand').value = brandId;
+    if (siteId) document.getElementById('new-site').value = siteId;
+  }
+
+  function val(id) {
+    const el = document.getElementById(id);
+    return el ? el.value : '';
+  }
+
+  function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function escAttr(s) {
+    return esc(s).replace(/"/g, '&quot;');
+  }
+
+  document.getElementById('new-modal').addEventListener('click', e => {
+    if (e.target.id === 'new-modal') closeNewModal();
+  });
+
+  loadAll();
+  setInterval(loadAll, 30000);
+</script>
+</body>
+</html>

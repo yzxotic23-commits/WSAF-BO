@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMS — Nurturing Pipeline</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117; --bg2: #1a1d27; --bg3: #22263a; --bg4: #2a2f47;
+      --border: #2e3350; --accent: #25d366; --accent2: #128c7e;
+      --warn: #f59e0b; --danger: #ef4444; --info: #3b82f6;
+      --purple: #8b5cf6; --pink: #ec4899;
+      --text: #e2e8f0; --muted: #64748b; --muted2: #94a3b8;
+      --radius: 10px;
+    }
+
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    .layout { display: flex; flex: 1; }
+
+    nav.sidebar {
+      width: 220px; min-height: 100vh; background: var(--bg2);
+      border-right: 1px solid var(--border); padding: 0; flex-shrink: 0;
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    }
+
+    .sidebar-brand {
+      display: flex; align-items: center; gap: 8px;
+      padding: 18px 16px 14px; border-bottom: 1px solid var(--border);
+      font-weight: 700; font-size: 15px;
+    }
+    .sidebar-brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+    .sidebar-section { padding: 12px 10px 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+
+    nav.sidebar a {
+      display: flex; align-items: center; gap: 9px;
+      padding: 8px 14px; margin: 1px 6px; border-radius: 7px;
+      text-decoration: none; color: var(--muted2); font-size: 13px;
+      transition: all .12s;
+    }
+    nav.sidebar a:hover { background: var(--bg3); color: var(--text); }
+    nav.sidebar a.active { background: var(--bg3); color: var(--text); font-weight: 600; }
+    nav.sidebar a .icon { font-size: 15px; width: 18px; text-align: center; }
+
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 28px 14px; border-bottom: 1px solid var(--border);
+      background: var(--bg2); flex-shrink: 0;
+    }
+    .topbar h1 { font-size: 18px; font-weight: 700; }
+    .topbar-actions { display: flex; gap: 10px; align-items: center; }
+
+    .content { flex: 1; overflow-y: auto; padding: 24px 28px; }
+
+    /* stat cards */
+    .stat-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 24px; }
+    .stat-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 16px 18px;
+    }
+    .stat-card .label { font-size: 11px; color: var(--muted2); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+    .stat-card .value { font-size: 26px; font-weight: 700; }
+    .stat-card .value.green { color: var(--accent); }
+    .stat-card .value.yellow { color: var(--warn); }
+    .stat-card .value.red { color: var(--danger); }
+    .stat-card .value.blue { color: var(--info); }
+    .stat-card .value.purple { color: var(--purple); }
+
+    /* pipeline board */
+    .pipeline-board {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .pipeline-col {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+      display: flex; flex-direction: column; min-height: 200px;
+    }
+
+    .pipeline-col-header {
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .pipeline-col-header .col-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; display: flex; align-items: center; gap: 7px; }
+    .pipeline-col-header .col-count { font-size: 11px; background: var(--bg3); padding: 2px 8px; border-radius: 20px; color: var(--muted2); }
+
+    .pipeline-col-body { padding: 10px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+
+    .pipeline-card {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 14px; cursor: pointer; transition: border-color .12s;
+    }
+    .pipeline-card:hover { border-color: var(--accent2); }
+
+    .pipeline-card .card-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .pipeline-card .card-phone { font-size: 11px; color: var(--muted2); margin-bottom: 8px; }
+    .pipeline-card .card-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+    .pipeline-card .card-meta .tag {
+      font-size: 10px; padding: 2px 7px; border-radius: 4px; background: var(--bg4);
+      color: var(--muted2); white-space: nowrap;
+    }
+    .pipeline-card .card-meta .tag.day1 { background: rgba(37,211,102,.12); color: var(--accent); }
+    .pipeline-card .card-meta .tag.day2 { background: rgba(245,158,11,.12); color: var(--warn); }
+    .pipeline-card .card-meta .tag.day3plus { background: rgba(239,68,68,.12); color: var(--danger); }
+    .pipeline-card .card-meta .tag.slot { background: rgba(59,130,246,.12); color: var(--info); }
+    .pipeline-card .card-meta .tag.owner { background: rgba(139,92,246,.12); color: var(--purple); }
+    .pipeline-card .card-meta .tag.brand { background: rgba(236,72,153,.12); color: var(--pink); }
+    .pipeline-card .card-actions { display: flex; gap: 6px; margin-top: 10px; }
+    .pipeline-card .card-actions button {
+      flex: 1; padding: 5px 6px; font-size: 11px; border: none; border-radius: 5px;
+      cursor: pointer; transition: opacity .12s; font-weight: 600;
+    }
+    .pipeline-card .card-actions button:hover { opacity: .8; }
+    .btn-advance { background: rgba(37,211,102,.15); color: var(--accent); }
+    .btn-ban { background: rgba(239,68,68,.12); color: var(--danger); }
+    .btn-assign { background: rgba(59,130,246,.12); color: var(--info); }
+    .btn-restrict { background: rgba(245,158,11,.12); color: var(--warn); }
+
+    .empty-col { text-align: center; color: var(--muted); font-size: 12px; padding: 28px 12px; }
+
+    /* nurturing detail section */
+    .section-title { font-size: 14px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+
+    .nurturing-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .nurturing-table th {
+      text-align: left; padding: 8px 12px; font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .nurturing-table td { padding: 10px 12px; border-bottom: 1px solid rgba(46,51,80,.5); vertical-align: middle; }
+    .nurturing-table tr:hover td { background: var(--bg3); }
+
+    .day-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 50%; font-size: 11px; font-weight: 700;
+    }
+    .day-badge.d1 { background: rgba(37,211,102,.15); color: var(--accent); }
+    .day-badge.d2 { background: rgba(245,158,11,.15); color: var(--warn); }
+    .day-badge.d3 { background: rgba(239,68,68,.15); color: var(--danger); }
+
+    .progress-bar-wrap { background: var(--bg3); border-radius: 4px; height: 5px; width: 80px; }
+    .progress-bar-fill { height: 100%; border-radius: 4px; transition: width .3s; }
+
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+    .status-dot.green { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+    .status-dot.yellow { background: var(--warn); }
+    .status-dot.red { background: var(--danger); }
+    .status-dot.grey { background: var(--muted); }
+
+    /* modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; display: none; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; width: 460px; max-width: 95vw; padding: 24px; }
+    .modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 18px; }
+    .form-row { margin-bottom: 14px; }
+    .form-row label { display: block; font-size: 11px; color: var(--muted2); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .05em; }
+    .form-row input, .form-row select, .form-row textarea {
+      width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 7px;
+      padding: 8px 11px; color: var(--text); font-size: 13px;
+    }
+    .form-row textarea { resize: vertical; min-height: 60px; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .btn { padding: 9px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity .12s; }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: var(--accent); color: #000; }
+    .btn-secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: var(--danger); color: #fff; }
+
+    .wsaf-status-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; padding: 3px 9px; border-radius: 20px; font-weight: 600;
+    }
+    .wsaf-status-badge.live { background: rgba(37,211,102,.12); color: var(--accent); }
+    .wsaf-status-badge.offline { background: rgba(100,116,139,.12); color: var(--muted2); }
+    .wsaf-status-badge.restrict { background: rgba(245,158,11,.12); color: var(--warn); }
+    .wsaf-status-badge.banned { background: rgba(239,68,68,.12); color: var(--danger); }
+
+    .refresh-btn {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 7px;
+      padding: 7px 14px; color: var(--text); font-size: 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .refresh-btn:hover { background: var(--bg4); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin .7s linear infinite; }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="dot"></div>
+      AMS
+    </div>
+    <div class="sidebar-section">Account</div>
+    <a href="/ams/accounts"><span class="icon">👤</span> Account Ledger</a>
+    <a href="/ams/nurturing" class="active"><span class="icon">🌱</span> Nurturing Pipeline</a>
+    <a href="/ams/activation"><span class="icon">⚡</span> Activation Desk</a>
+    <div class="sidebar-section">Operations</div>
+    <a href="/ams/workorders"><span class="icon">📝</span> Work Orders</a>
+    <a href="/portal" target="_blank"><span class="icon">🔗</span> Client Portal</a>
+    <div class="sidebar-section">Resources</div>
+    <a href="/ams/ips"><span class="icon">🌐</span> IP Ledger</a>
+    <a href="/ams/ip-audit"><span class="icon">🔍</span> IP Audit</a>
+    <a href="/ams/devices"><span class="icon">📱</span> Devices</a>
+    <a href="/ams/sims"><span class="icon">💳</span> SIM Cards</a>
+    <div class="sidebar-section">Analytics</div>
+    <a href="/dashboard"><span class="icon">📊</span> Feeding Dashboard</a>
+    <div class="sidebar-section">System</div>
+    <a href="/"><span class="icon">⚙️</span> WSAF App</a>
+  </nav>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <h1>🌱 Nurturing Pipeline</h1>
+      <div class="topbar-actions">
+        <button class="refresh-btn" onclick="loadAll()">
+          <span id="refresh-icon">↻</span> Refresh
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- Stat row -->
+      <div class="stat-row">
+        <div class="stat-card">
+          <div class="label">Registering</div>
+          <div class="value blue" id="cnt-registering">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Nurturing</div>
+          <div class="value green" id="cnt-nurturing">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Day 1 (Fresh)</div>
+          <div class="value green" id="cnt-d1">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Day 2</div>
+          <div class="value yellow" id="cnt-d2">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Day 3+ (Late)</div>
+          <div class="value red" id="cnt-d3plus">—</div>
+        </div>
+      </div>
+
+      <!-- Pipeline Kanban board -->
+      <div class="pipeline-board" id="pipeline-board">
+        <div class="pipeline-col">
+          <div class="pipeline-col-header">
+            <div class="col-title"><span>📋</span> Registering</div>
+            <span class="col-count" id="col-cnt-registering">0</span>
+          </div>
+          <div class="pipeline-col-body" id="col-registering">
+            <div class="empty-col">No accounts registering</div>
+          </div>
+        </div>
+        <div class="pipeline-col">
+          <div class="pipeline-col-header">
+            <div class="col-title"><span>🌱</span> Nurturing</div>
+            <span class="col-count" id="col-cnt-nurturing">0</span>
+          </div>
+          <div class="pipeline-col-body" id="col-nurturing">
+            <div class="empty-col">No accounts nurturing</div>
+          </div>
+        </div>
+        <div class="pipeline-col">
+          <div class="pipeline-col-header">
+            <div class="col-title"><span>✅</span> Standby</div>
+            <span class="col-count" id="col-cnt-standby">0</span>
+          </div>
+          <div class="pipeline-col-body" id="col-standby">
+            <div class="empty-col">No accounts on standby</div>
+          </div>
+        </div>
+        <div class="pipeline-col">
+          <div class="pipeline-col-header">
+            <div class="col-title"><span>🔄</span> Recovering</div>
+            <span class="col-count" id="col-cnt-recovering">0</span>
+          </div>
+          <div class="pipeline-col-body" id="col-recovering">
+            <div class="empty-col">No accounts recovering</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nurturing detail table -->
+      <div class="section-title">
+        <span>📈</span> Nurturing Progress Detail
+      </div>
+      <div style="background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;">
+        <table class="nurturing-table">
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Phone</th>
+              <th>Day</th>
+              <th>Progress</th>
+              <th>WSAF Slot</th>
+              <th>WSAF Status</th>
+              <th>IP</th>
+              <th>Owner</th>
+              <th>Start Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="nurturing-tbody">
+            <tr><td colspan="10" style="text-align:center;color:var(--muted);padding:28px;">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Assign WSAF Slot Modal -->
+<div class="modal-overlay" id="assign-modal">
+  <div class="modal">
+    <h3>Assign WSAF Slot</h3>
+    <input type="hidden" id="assign-account-id" />
+    <div class="form-row">
+      <label>Account</label>
+      <input type="text" id="assign-account-name" readonly style="opacity:.7;" />
+    </div>
+    <div class="form-row">
+      <label>WSAF Slot Number (0-based)</label>
+      <input type="number" id="assign-slot" min="0" max="99" placeholder="e.g. 0" />
+    </div>
+    <div class="form-row">
+      <label>Reason / Note</label>
+      <textarea id="assign-note" placeholder="Optional note"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveAssign()">Assign</button>
+      <button class="btn btn-secondary" onclick="closeModal('assign-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Transition Modal -->
+<div class="modal-overlay" id="transition-modal">
+  <div class="modal">
+    <h3 id="transition-modal-title">Change Status</h3>
+    <input type="hidden" id="transition-account-id" />
+    <input type="hidden" id="transition-new-status" />
+    <div class="form-row">
+      <label>Account</label>
+      <input type="text" id="transition-account-name" readonly style="opacity:.7;" />
+    </div>
+    <div class="form-row">
+      <label>Reason</label>
+      <textarea id="transition-reason" placeholder="Reason for this transition..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="transition-confirm-btn" onclick="saveTransition()">Confirm</button>
+      <button class="btn btn-secondary" onclick="closeModal('transition-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let wsafStatus = {};
+  let accounts = [];
+
+  async function loadAll() {
+    const icon = document.getElementById('refresh-icon');
+    icon.classList.add('spin');
+    try {
+      const [acctRes, statusRes] = await Promise.all([
+        fetch('/api/ams/accounts'),
+        fetch('/api/status').catch(() => ({ json: () => ({}) }))
+      ]);
+      const acctData = await acctRes.json();
+      wsafStatus = await statusRes.json().catch(() => ({}));
+      accounts = acctData.accounts || [];
+      renderAll();
+    } catch(e) {
+      console.error(e);
+    } finally {
+      icon.classList.remove('spin');
+    }
+  }
+
+  function getDayCount(nurtureStart) {
+    if (!nurtureStart) return null;
+    const start = new Date(nurtureStart);
+    const now = new Date();
+    const diff = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+    return diff + 1; // Day 1 = first day
+  }
+
+  function getDayClass(day) {
+    if (!day) return '';
+    if (day === 1) return 'day1';
+    if (day === 2) return 'day2';
+    return 'day3plus';
+  }
+
+  function getWsafAccountStatus(wsafSlot) {
+    if (wsafSlot == null) return null;
+    const pairs = wsafStatus.pairs || [];
+    const pair = pairs[wsafSlot];
+    if (!pair) return null;
+    return pair;
+  }
+
+  function renderPipelineCard(a, col) {
+    const div = document.createElement('div');
+    div.className = 'pipeline-card';
+    div.onclick = () => window.location.href = '/ams/accounts';
+
+    const day = getDayCount(a.nurture_start);
+    const dayClass = getDayClass(day);
+    const wsafPair = getWsafAccountStatus(a.wsaf_slot);
+
+    let tagsHtml = '';
+    if (day && col === 'nurturing') {
+      tagsHtml += `<span class="tag ${dayClass}">D${day >= 3 ? '3+' : day}</span>`;
+    }
+    if (a.wsaf_slot != null) tagsHtml += `<span class="tag slot">Slot ${a.wsaf_slot}</span>`;
+    if (a.brand_name) tagsHtml += `<span class="tag brand">${a.brand_name}</span>`;
+    if (a.owner) tagsHtml += `<span class="tag owner">${a.owner}</span>`;
+
+    let actionsHtml = '';
+    if (col === 'registering') {
+      actionsHtml = `
+        <button class="btn-advance" onclick="event.stopPropagation();openTransition(${a.id},'${escHtml(a.name)}','nurturing','→ Start Nurturing')">Start Nurturing →</button>
+      `;
+    } else if (col === 'nurturing') {
+      actionsHtml = `
+        <button class="btn-advance" onclick="event.stopPropagation();openTransition(${a.id},'${escHtml(a.name)}','standby','→ Complete Nurturing')">Complete ✓</button>
+        <button class="btn-ban" onclick="event.stopPropagation();openTransition(${a.id},'${escHtml(a.name)}','recovering','Mark Banned')">Banned</button>
+      `;
+    } else if (col === 'standby') {
+      actionsHtml = `
+        <button class="btn-advance" onclick="event.stopPropagation();openTransition(${a.id},'${escHtml(a.name)}','in_use','→ Assign to Campaign')">In Use →</button>
+      `;
+    } else if (col === 'recovering') {
+      actionsHtml = `
+        <button class="btn-advance" onclick="event.stopPropagation();openTransition(${a.id},'${escHtml(a.name)}','nurturing','Re-nurture')">Re-nurture</button>
+        <button class="btn-restrict" onclick="event.stopPropagation();openTransition(${a.id},'${escHtml(a.name)}','dead','Mark Dead')">Dead</button>
+      `;
+    }
+
+    div.innerHTML = `
+      <div class="card-name">${escHtml(a.name)}</div>
+      <div class="card-phone">${escHtml(a.phone_number || '—')}</div>
+      <div class="card-meta">${tagsHtml}</div>
+      <div class="card-actions">${actionsHtml}</div>
+    `;
+    return div;
+  }
+
+  function renderAll() {
+    const cols = ['registering','nurturing','standby','recovering'];
+    const groups = { registering:[], nurturing:[], standby:[], recovering:[] };
+
+    for (const a of accounts) {
+      if (groups[a.status]) groups[a.status].push(a);
+    }
+
+    // Stat cards
+    const nurturing = groups.nurturing;
+    const d1 = nurturing.filter(a => getDayCount(a.nurture_start) === 1).length;
+    const d2 = nurturing.filter(a => getDayCount(a.nurture_start) === 2).length;
+    const d3plus = nurturing.filter(a => { const d = getDayCount(a.nurture_start); return d && d >= 3; }).length;
+
+    document.getElementById('cnt-registering').textContent = groups.registering.length;
+    document.getElementById('cnt-nurturing').textContent = nurturing.length;
+    document.getElementById('cnt-d1').textContent = d1;
+    document.getElementById('cnt-d2').textContent = d2;
+    document.getElementById('cnt-d3plus').textContent = d3plus;
+
+    // Pipeline columns
+    cols.forEach(col => {
+      const container = document.getElementById(`col-${col}`);
+      const cntEl = document.getElementById(`col-cnt-${col}`);
+      container.innerHTML = '';
+      cntEl.textContent = groups[col].length;
+
+      if (groups[col].length === 0) {
+        container.innerHTML = `<div class="empty-col">No accounts</div>`;
+        return;
+      }
+      groups[col].forEach(a => container.appendChild(renderPipelineCard(a, col)));
+    });
+
+    // Nurturing detail table
+    const tbody = document.getElementById('nurturing-tbody');
+    if (nurturing.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:28px;">No accounts in nurturing</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = nurturing.map(a => {
+      const day = getDayCount(a.nurture_start);
+      const dayClass = day === 1 ? 'd1' : day === 2 ? 'd2' : 'd3';
+      const pct = day ? Math.min(100, Math.round((day / 3) * 100)) : 0;
+      const barColor = day === 1 ? 'var(--accent)' : day === 2 ? 'var(--warn)' : 'var(--danger)';
+
+      const wsafPair = getWsafAccountStatus(a.wsaf_slot);
+      let wsafBadge = '<span class="wsaf-status-badge offline">Not Assigned</span>';
+      if (a.wsaf_slot != null) {
+        if (wsafPair) {
+          const isOnline = wsafPair.connected;
+          const isRestricted = wsafPair.restricted;
+          if (isRestricted) wsafBadge = `<span class="wsaf-status-badge restrict">⚠ Restrict</span>`;
+          else if (isOnline) wsafBadge = `<span class="wsaf-status-badge live">● Live</span>`;
+          else wsafBadge = `<span class="wsaf-status-badge offline">Offline</span>`;
+        } else {
+          wsafBadge = `<span class="wsaf-status-badge offline">Slot ${a.wsaf_slot}</span>`;
+        }
+      }
+
+      const startDate = a.nurture_start ? new Date(a.nurture_start).toLocaleDateString() : '—';
+
+      return `<tr>
+        <td><strong>${escHtml(a.name)}</strong></td>
+        <td style="color:var(--muted2)">${escHtml(a.phone_number || '—')}</td>
+        <td>
+          <span class="day-badge ${dayClass}">${day ? (day >= 3 ? '3+' : day) : '?'}</span>
+        </td>
+        <td>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" style="width:${pct}%;background:${barColor}"></div>
+          </div>
+        </td>
+        <td>
+          ${a.wsaf_slot != null
+            ? `<span style="color:var(--info)">Slot ${a.wsaf_slot}</span>`
+            : `<button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="openAssign(${a.id},'${escHtml(a.name)}')">Assign</button>`}
+        </td>
+        <td>${wsafBadge}</td>
+        <td style="color:var(--muted2)">${escHtml(a.ip_address || '—')}</td>
+        <td style="color:var(--muted2)">${escHtml(a.owner || '—')}</td>
+        <td style="color:var(--muted2)">${startDate}</td>
+        <td>
+          <div style="display:flex;gap:5px;">
+            <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="openTransition(${a.id},'${escHtml(a.name)}','standby','Complete Nurturing ✓')">Complete</button>
+            <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;color:var(--danger);border-color:var(--danger);" onclick="openTransition(${a.id},'${escHtml(a.name)}','recovering','Mark Banned')">Banned</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function openAssign(id, name) {
+    document.getElementById('assign-account-id').value = id;
+    document.getElementById('assign-account-name').value = name;
+    document.getElementById('assign-slot').value = '';
+    document.getElementById('assign-note').value = '';
+    document.getElementById('assign-modal').classList.add('open');
+  }
+
+  async function saveAssign() {
+    const id = document.getElementById('assign-account-id').value;
+    const slot = document.getElementById('assign-slot').value;
+    const note = document.getElementById('assign-note').value;
+    if (slot === '') return alert('Please enter a slot number');
+    await fetch(`/api/ams/accounts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wsaf_slot: parseInt(slot), note })
+    });
+    closeModal('assign-modal');
+    loadAll();
+  }
+
+  function openTransition(id, name, newStatus, title) {
+    document.getElementById('transition-account-id').value = id;
+    document.getElementById('transition-account-name').value = name;
+    document.getElementById('transition-new-status').value = newStatus;
+    document.getElementById('transition-modal-title').textContent = title;
+    document.getElementById('transition-reason').value = '';
+    const btn = document.getElementById('transition-confirm-btn');
+    if (newStatus === 'recovering' || newStatus === 'dead') {
+      btn.className = 'btn btn-danger';
+    } else {
+      btn.className = 'btn btn-primary';
+    }
+    document.getElementById('transition-modal').classList.add('open');
+  }
+
+  async function saveTransition() {
+    const id = document.getElementById('transition-account-id').value;
+    const newStatus = document.getElementById('transition-new-status').value;
+    const reason = document.getElementById('transition-reason').value;
+    await fetch(`/api/ams/accounts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus, reason })
+    });
+    closeModal('transition-modal');
+    loadAll();
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+  }
+
+  function escHtml(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  // Close modals on backdrop click
+  document.querySelectorAll('.modal-overlay').forEach(el => {
+    el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+  });
+
+  loadAll();
+  setInterval(loadAll, 30000);
+</script>
+</body>
+</html>

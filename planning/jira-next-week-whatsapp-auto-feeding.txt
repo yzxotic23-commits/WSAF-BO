@@ -1,0 +1,186 @@
+================================================================================
+JIRA PLANNING — NEXT WEEK (6 TASKS)
+Story Epic   : Whatsapp Auto Feeding
+Focus        : Stabilise the app after rollback, fix login and feeding issues,
+               improve proxies and user experience, prepare a safe next release
+================================================================================
+
+--------------------------------------------------------------------------------
+TASK 1 — Monday | Stability Review & Baseline Check
+--------------------------------------------------------------------------------
+Task Story       : Whatsapp Auto Feeding
+Task Title       : Review app stability and list what to keep, fix, or remove
+Task Description :
+  Test the app on Windows and Mac using the restored stable version. Walk through
+  the full flow: open the app, link accounts, start feeding, stop feeding, and
+  check that accounts come back online afterward.
+
+  Write down which problems still happen and which ones disappeared after going
+  back to the older version. Build a simple test checklist for login, proxies,
+  feeding, updates, and the main screen.
+
+  Decide which recent changes should stay, which need a fresh approach, and
+  which should be dropped entirely. Note any old files or folders in the project
+  that can be cleaned up.
+Tools            :
+  FeedFlow app (Windows and Mac, restored stable release)
+  GitHub Releases, project history notes
+  Jira, shared document for the test checklist
+Expected Outcome :
+  A completed test checklist with pass or fail for each item.
+  A clear list of features and changes marked as keep, fix, or remove.
+  Tasks for the rest of the week have clear success criteria.
+  Everyone agrees on what “stable” means before new work starts.
+
+--------------------------------------------------------------------------------
+TASK 2 — Tuesday | WhatsApp Account Linking (QR & Phone Number)
+--------------------------------------------------------------------------------
+Task Story       : Whatsapp Auto Feeding
+Task Title       : Fix account linking by QR scan and phone number
+Task Description :
+  Fix linking issues: QR that keeps expiring, login that looks successful but
+  the app still says accounts are not ready, and phone number login that fails
+  or shows invalid codes.
+
+  After a successful link, account names and “linked” status should show
+  correctly on the sidebar without restarting the app. The start feeding button
+  should only stay disabled when an account is truly not linked yet.
+
+  Clean up confusing messages in the activity log so users see plain English
+  instead of garbled or technical output. Remove behaviour that blocks login
+  when the connection drops briefly during linking.
+Tools            :
+  FeedFlow desktop app on Windows and Mac
+  Two WhatsApp test accounts and a phone for scanning
+  Notes from Task 1 checklist
+Expected Outcome :
+  Both accounts can be linked by QR without getting stuck.
+  Phone number linking works reliably, or the app clearly says if that option
+  is not ready yet.
+  Sidebar shows correct names and linked status after login.
+  Activity log stays readable during linking.
+  All login items on the test checklist pass.
+
+--------------------------------------------------------------------------------
+TASK 3 — Wednesday | Proxy List Loading & Reliability
+--------------------------------------------------------------------------------
+Task Story       : Whatsapp Auto Feeding
+Task Title       : Improve proxy list loading, testing, and account assignment
+Task Description :
+  Fix problems when saving or loading the proxy list from Settings: wrong counts,
+  proxies not appearing, slow or failed tests, and proxies not staying assigned
+  to the right accounts.
+
+  Make it obvious in the app which proxies work and which do not. Hide sensitive
+  details in logs so passwords or full addresses are not exposed.
+
+  When WhatsApp blocks linking through a bad proxy, the app should fall back
+  to a direct connection in a predictable way. Add simple validation when the
+  user saves the proxy list, with clear error messages for invalid entries.
+
+  Remove duplicate or conflicting proxy handling so desktop and background
+  feeding behave the same way.
+Tools            :
+  FeedFlow Settings screen (proxy section)
+  Sample proxy list (working, broken, and slow entries)
+  Test accounts for link and reconnect after feeding
+Expected Outcome :
+  Saved proxy list updates in the app immediately without a restart.
+  Proxy test shows success or failure within a reasonable wait time.
+  Assigned proxies stay with the correct accounts after feeding ends.
+  Short user-facing note on when to use direct connection vs proxy rotation.
+  No full proxy credentials visible in the activity log.
+
+--------------------------------------------------------------------------------
+TASK 4 — Thursday | Auto Feeding Start, Stop & Reconnect
+--------------------------------------------------------------------------------
+Task Story       : Whatsapp Auto Feeding
+Task Title       : Make start feeding, stop, and reconnect reliable
+Task Description :
+  Fix the start feeding button staying disabled or stuck after accounts are
+  linked. Ensure feeding actually runs between account pairs and uses the
+  configured language and AI settings.
+
+  When feeding starts, preview connections may close on purpose; that is
+  normal. After feeding finishes or is stopped, accounts should return online
+  in the sidebar without scanning QR again.
+
+  Improve chat messages shown during feeding and the completion popup (in
+  English). Keep error messages simple for the three main failures: not all
+  accounts linked, AI not available, and feeding stopped unexpectedly.
+Tools            :
+  FeedFlow app with linked test accounts
+  AI access (Codex or local fallback) and language setting in environment
+  Activity log and chat preview in the app
+Expected Outcome :
+  Start feeding runs at least one full pair session with visible chat activity.
+  After stop or finish, both accounts show online again within half a minute.
+  Misleading “not linked” errors only appear when accounts are really not linked.
+  Completion popup shows a clear English summary.
+  Feeding-related activity log lines are easy to read.
+
+--------------------------------------------------------------------------------
+TASK 5 — Friday | User Interface & Activity Log Cleanup
+--------------------------------------------------------------------------------
+Task Story       : Whatsapp Auto Feeding
+Task Title       : Polish main screen, chat view, and activity log
+Task Description :
+  Clean up the activity log so it shows useful messages only—no blocks of
+  unreadable characters or repeated noise during login and feeding.
+
+  Improve chat bubble layout so messages look tidy at common window sizes.
+  Make account status on the sidebar clear: linking, connected, feeding active,
+  or logging out.
+
+  Review extra UI layers added on top of the main app and remove anything
+  redundant or conflicting. Capture before-and-after screenshots for review.
+Tools            :
+  FeedFlow app on Windows and Mac
+  Browser or built-in developer tools for layout checks
+  Screenshot tool for Jira attachments
+Expected Outcome :
+  Activity log is fully readable during normal use.
+  Chat bubbles look consistent and aligned.
+  Sidebar status matches what the app is actually doing.
+  List of UI changes kept vs removed is documented.
+  Before-and-after screenshots attached to the ticket.
+
+--------------------------------------------------------------------------------
+TASK 6 — Saturday | Release Plan, Updates & Final Sign-off
+--------------------------------------------------------------------------------
+Task Story       : Whatsapp Auto Feeding
+Task Title       : Safe release plan, update strategy, and final quality check
+Task Description :
+  Define how users should update on Windows vs Mac. Windows can use in-app
+  update if the installer and update file names match. Mac may need manual
+  download until proper Apple signing is available—document this clearly so
+  users are not surprised by update errors.
+
+  Review the automated build and release steps so update files on GitHub match
+  what the app tries to download. Remove steps that caused broken signatures on
+  Mac in earlier releases.
+
+  Run full quality checks on Windows installer and Mac disk image only after
+  Task 1 checklist passes. Update install and rollback instructions for users.
+  Do not publish a new version until sign-off is complete.
+Tools            :
+  GitHub Actions, GitHub Releases
+  Windows and Mac test devices
+  Install guide document (README or user-facing notes)
+Expected Outcome :
+  New release files on GitHub download correctly (no missing file errors).
+  Mac users get clear guidance: manual install or download link—not broken
+  auto-update errors.
+  Windows in-app update tested from the restored stable version to the candidate.
+  Install, update, and rollback instructions are written in plain English.
+  Final sign-off comment in Jira with link to the release page.
+
+================================================================================
+JIRA NOTES
+================================================================================
+Story Epic     : Whatsapp Auto Feeding
+Effort         : 1 task = 1 day (adjust story points to team standard)
+Suggested tags : feedflow, desktop, login, proxy, feeding, release, qa
+Priority       : Tasks 1–4 High | Tasks 5–6 Medium–High
+Dependency     : Tasks 2–6 should follow the checklist from Task 1
+================================================================================

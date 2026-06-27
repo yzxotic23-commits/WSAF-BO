@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMS — IP Ledger</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0f1117;--bg2:#1a1d27;--bg3:#22263a;--bg4:#2a2f47;
+      --border:#2e3350;--accent:#25d366;--warn:#f59e0b;--danger:#ef4444;--info:#3b82f6;
+      --text:#e2e8f0;--muted:#64748b;--muted2:#94a3b8;--radius:10px;
+    }
+    body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;}
+    .layout{display:flex;flex:1;}
+    nav.sidebar{width:220px;min-height:100vh;background:var(--bg2);border-right:1px solid var(--border);position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0;}
+    .sidebar-brand{display:flex;align-items:center;gap:8px;padding:18px 16px 14px;border-bottom:1px solid var(--border);font-weight:700;font-size:15px;}
+    .sidebar-brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent);}
+    .sidebar-section{padding:12px 10px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
+    nav.sidebar a{display:flex;align-items:center;gap:9px;padding:8px 14px;margin:1px 6px;border-radius:7px;text-decoration:none;color:var(--muted2);font-size:13px;transition:all .12s;}
+    nav.sidebar a:hover{background:var(--bg3);color:var(--text);}
+    nav.sidebar a.active{background:var(--bg3);color:var(--text);font-weight:600;}
+    nav.sidebar a .icon{font-size:15px;width:18px;text-align:center;}
+    .main{flex:1;display:flex;flex-direction:column;}
+    .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--bg2);border-bottom:1px solid var(--border);gap:12px;}
+    .topbar h1{font-size:16px;font-weight:700;}
+    .content{padding:20px 24px;flex:1;overflow-y:auto;}
+
+    .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px;}
+    .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;}
+    .stat-card .lbl{font-size:11px;color:var(--muted);margin-bottom:4px;}
+    .stat-card .val{font-size:24px;font-weight:700;}
+    .stat-card.green .val{color:var(--accent);}
+    .stat-card.yellow .val{color:var(--warn);}
+    .stat-card.red .val{color:var(--danger);}
+
+    .filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+    .search-wrap{position:relative;flex:1;min-width:180px;}
+    .search-wrap input{width:100%;padding:8px 12px 8px 34px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;}
+    .search-wrap input:focus{outline:none;border-color:var(--accent);}
+    .search-wrap .icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;}
+    select{padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;cursor:pointer;}
+
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:all .12s;}
+    .btn-primary{background:var(--accent);color:#000;}
+    .btn-primary:hover{background:#1fb557;}
+    .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--muted2);}
+    .btn-ghost:hover{border-color:var(--accent);color:var(--text);}
+    .btn-sm{padding:5px 10px;font-size:12px;}
+    .btn-danger{background:rgba(239,68,68,.15);border:1px solid var(--danger);color:var(--danger);}
+
+    .table-wrap{overflow-x:auto;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);}
+    table{width:100%;border-collapse:collapse;font-size:13px;}
+    thead th{padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);background:var(--bg3);white-space:nowrap;}
+    tbody tr{border-bottom:1px solid rgba(46,51,80,.5);transition:background .1s;}
+    tbody tr:last-child{border-bottom:none;}
+    tbody tr:hover{background:var(--bg3);}
+    tbody td{padding:10px 14px;}
+    .empty-state{text-align:center;padding:48px;color:var(--muted);font-size:13px;}
+
+    .badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;}
+    .badge-active{background:rgba(37,211,102,.15);color:var(--accent);}
+    .badge-inactive{background:rgba(100,116,139,.1);color:var(--muted);}
+    .badge-in-use{background:rgba(59,130,246,.15);color:var(--info);}
+    .risk-0{color:var(--accent);}
+    .risk-low{color:var(--warn);}
+    .risk-high{color:var(--danger);}
+
+    .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center;padding:20px;}
+    .modal-bg.open{display:flex;}
+    .modal{background:var(--bg2);border:1px solid var(--border);border-radius:14px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto;}
+    .modal-header{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--border);}
+    .modal-header h2{font-size:16px;font-weight:700;}
+    .modal-body{padding:20px;}
+    .modal-footer{display:flex;gap:8px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--border);}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .form-field{display:flex;flex-direction:column;gap:5px;}
+    .form-field label{font-size:12px;font-weight:600;color:var(--muted2);}
+    .form-field input,.form-field select{padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;}
+    .form-field input:focus,.form-field select:focus{outline:none;border-color:var(--accent);}
+    .form-field.full{grid-column:1/-1;}
+    .toggle-active{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;}
+    .toggle-active input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);}
+
+    .hint{font-size:11px;color:var(--muted);margin-top:2px;}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="sidebar-brand"><div class="dot"></div>AMS</div>
+    <div class="sidebar-section">Account</div>
+    <a href="/ams/accounts"><span class="icon">📋</span> Account Ledger</a>
+    <a href="/ams/nurturing"><span class="icon">🌱</span> Nurturing Pipeline</a>
+    <a href="/ams/activation"><span class="icon">⚡</span> Activation Desk</a>
+    <div class="sidebar-section">Operations</div>
+    <a href="/ams/workorders"><span class="icon">📝</span> Work Orders</a>
+    <a href="/portal" target="_blank"><span class="icon">🔗</span> Client Portal</a>
+    <div class="sidebar-section">Resources</div>
+    <a href="/ams/ips" class="active"><span class="icon">🌐</span> IP Ledger</a>
+    <a href="/ams/ip-audit"><span class="icon">🔍</span> IP Audit</a>
+    <a href="/ams/devices"><span class="icon">📱</span> Devices</a>
+    <a href="/ams/sims"><span class="icon">💳</span> SIM Cards</a>
+    <div class="sidebar-section">Analytics</div>
+    <a href="/dashboard"><span class="icon">📊</span> Feeding Dashboard</a>
+    <div class="sidebar-section">System</div>
+    <a href="/"><span class="icon">⚙️</span> WSAF App</a>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <h1>IP Ledger</h1>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="active-filter" onchange="load()">
+          <option value="">All</option>
+          <option value="1">Active only</option>
+          <option value="0">Inactive</option>
+        </select>
+        <button class="btn btn-primary" onclick="openAdd()">+ Add IP</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="stat-row" id="stats-row">
+        <div class="stat-card"><div class="lbl">Total IPs</div><div class="val" id="st-total">—</div></div>
+        <div class="stat-card green"><div class="lbl">Active</div><div class="val" id="st-active">—</div></div>
+        <div class="stat-card"><div class="lbl">In Use</div><div class="val" id="st-inuse">—</div></div>
+        <div class="stat-card red"><div class="lbl">High Risk (≥3 bans)</div><div class="val" id="st-risk">—</div></div>
+      </div>
+
+      <div class="filters">
+        <div class="search-wrap">
+          <span class="icon">🔍</span>
+          <input type="text" id="search" placeholder="Search IP address…" oninput="debounce()" />
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>IP Address</th>
+              <th>Port</th>
+              <th>Username</th>
+              <th>Active</th>
+              <th>In Use</th>
+              <th>Risk Count</th>
+              <th>Linked Accounts</th>
+              <th>Note</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="ip-tbody"><tr><td colspan="9" class="empty-state">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Add IP</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-field full">
+          <label>IP Address *</label>
+          <input type="text" id="f-addr" placeholder="e.g. 103.12.34.56" />
+        </div>
+        <div class="form-field">
+          <label>Port</label>
+          <input type="text" id="f-port" placeholder="e.g. 1080" />
+        </div>
+        <div class="form-field">
+          <label>Username</label>
+          <input type="text" id="f-user" />
+        </div>
+        <div class="form-field full">
+          <label>Password</label>
+          <input type="password" id="f-pass" />
+        </div>
+        <div class="form-field full">
+          <label class="toggle-active">
+            <input type="checkbox" id="f-active" checked />
+            Set as Active
+          </label>
+          <div class="hint">Active IPs are available for account assignment.</div>
+        </div>
+        <div class="form-field full">
+          <label>Note</label>
+          <input type="text" id="f-note" placeholder="Optional" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="save()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let editId = null;
+let allIps = [];
+let searchTimer = null;
+
+async function load() {
+  const active = document.getElementById('active-filter').value;
+  const params = new URLSearchParams();
+  if (active !== '') params.set('active', active);
+  allIps = await fetch('/api/ams/ips?' + params).then(r => r.json());
+  render(allIps);
+  updateStats(allIps);
+}
+
+function render(ips) {
+  const search = document.getElementById('search').value.trim().toLowerCase();
+  const filtered = search ? ips.filter(ip => ip.address.toLowerCase().includes(search)) : ips;
+  const tbody = document.getElementById('ip-tbody');
+  if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No IPs found</td></tr>'; return; }
+  tbody.innerHTML = filtered.map(ip => {
+    const riskClass = ip.risk_count === 0 ? 'risk-0' : ip.risk_count < 3 ? 'risk-low' : 'risk-high';
+    return `<tr>
+      <td><strong>${ip.address}</strong></td>
+      <td>${ip.port || '—'}</td>
+      <td>${ip.username || '—'}</td>
+      <td><span class="badge ${ip.active ? 'badge-active' : 'badge-inactive'}">${ip.active ? 'Active' : 'Inactive'}</span></td>
+      <td>${ip.in_use ? '<span class="badge badge-in-use">In Use</span>' : '—'}</td>
+      <td class="${riskClass}">${ip.risk_count}</td>
+      <td>—</td>
+      <td>${ip.note || '—'}</td>
+      <td style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="openEdit(${ip.id})">Edit</button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleActive(${ip.id},${ip.active})">${ip.active ? 'Deactivate' : 'Activate'}</button>
+        ${!ip.in_use ? `<button class="btn btn-danger btn-sm" onclick="del(${ip.id})">Delete</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function updateStats(ips) {
+  document.getElementById('st-total').textContent = ips.length;
+  document.getElementById('st-active').textContent = ips.filter(i => i.active).length;
+  document.getElementById('st-inuse').textContent = ips.filter(i => i.in_use).length;
+  document.getElementById('st-risk').textContent = ips.filter(i => i.risk_count >= 3).length;
+}
+
+function debounce() { clearTimeout(searchTimer); searchTimer = setTimeout(() => render(allIps), 200); }
+
+function openAdd() {
+  editId = null;
+  document.getElementById('modal-title').textContent = 'Add IP';
+  document.getElementById('f-addr').value = '';
+  document.getElementById('f-port').value = '';
+  document.getElementById('f-user').value = '';
+  document.getElementById('f-pass').value = '';
+  document.getElementById('f-active').checked = true;
+  document.getElementById('f-note').value = '';
+  document.getElementById('modal').classList.add('open');
+}
+
+function openEdit(id) {
+  const ip = allIps.find(i => i.id === id);
+  if (!ip) return;
+  editId = id;
+  document.getElementById('modal-title').textContent = 'Edit IP';
+  document.getElementById('f-addr').value = ip.address;
+  document.getElementById('f-port').value = ip.port || '';
+  document.getElementById('f-user').value = ip.username || '';
+  document.getElementById('f-pass').value = '';
+  document.getElementById('f-active').checked = !!ip.active;
+  document.getElementById('f-note').value = ip.note || '';
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+async function save() {
+  const body = {
+    address: document.getElementById('f-addr').value.trim(),
+    port: document.getElementById('f-port').value.trim() || null,
+    username: document.getElementById('f-user').value.trim() || null,
+    password: document.getElementById('f-pass').value || null,
+    active: document.getElementById('f-active').checked ? 1 : 0,
+    note: document.getElementById('f-note').value.trim() || null,
+  };
+  if (!body.address) { alert('IP address is required'); return; }
+  const url = editId ? '/api/ams/ips/' + editId : '/api/ams/ips';
+  const method = editId ? 'PATCH' : 'POST';
+  await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  closeModal();
+  load();
+}
+
+async function toggleActive(id, current) {
+  await fetch('/api/ams/ips/' + id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ active: current ? 0 : 1 }) });
+  load();
+}
+
+async function del(id) {
+  if (!confirm('Delete this IP?')) return;
+  const r = await fetch('/api/ams/ips/' + id, { method: 'DELETE' }).then(r => r.json());
+  if (r.error) { alert(r.error); return; }
+  load();
+}
+
+document.getElementById('modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+load();
+</script>
+</body>
+</html>

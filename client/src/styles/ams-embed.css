@@ -1,0 +1,55 @@
+/* AMS shell embed — remap FeedFlow tokens to AMS palette */
+.app-shell.ams-embed {
+  --ff-bg: #ebdfd7;
+  --ff-bg-secondary: #fcf9f7;
+  --ff-bg-tertiary: #f1f1f1;
+  --ff-bg-hover: rgba(6, 6, 6, 0.04);
+  --ff-bg-active: rgba(6, 6, 6, 0.08);
+  --ff-bg-elevated: #ffffff;
+
+  --ff-border: rgba(6, 6, 6, 0.08);
+  --ff-border-strong: rgba(6, 6, 6, 0.14);
+
+  --ff-text: #060606;
+  --ff-text-secondary: #292d32;
+  --ff-text-tertiary: #797979;
+
+  --ff-accent: #e65f2b;
+  --ff-accent-soft: rgba(230, 95, 43, 0.12);
+  --ff-accent-hover: #cf5426;
+
+  --ff-success: #1a932e;
+  --ff-success-soft: rgba(26, 147, 46, 0.12);
+  --ff-warn: #dfa510;
+  --ff-warn-soft: rgba(223, 165, 16, 0.12);
+  --ff-danger: #ee201c;
+  --ff-danger-soft: rgba(238, 32, 28, 0.12);
+
+  --ff-radius-lg: 14px;
+  --ff-radius-xl: 14px;
+
+  min-height: 100%;
+  background: var(--ff-bg);
+}
+
+.app-shell.ams-embed .app-content--embedded {
+  max-width: none;
+  padding: 12px 16px 20px;
+}
+
+.app-shell.ams-embed .page-header h1,
+.app-shell.ams-embed .stat-card-value,
+.app-shell.ams-embed .card-title {
+  color: #060606;
+}
+
+.app-shell.ams-embed .btn-primary,
+.app-shell.ams-embed .ff-btn-primary {
+  background-color: #e65f2b;
+  border-color: #e65f2b;
+}
+
+.app-shell.ams-embed .btn-primary:hover,
+.app-shell.ams-embed .ff-btn-primary:hover {
+  background-color: #cf5426;
+}

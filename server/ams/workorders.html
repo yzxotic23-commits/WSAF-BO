@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMS — Work Orders</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0f1117;--bg2:#1a1d27;--bg3:#22263a;--bg4:#2a2f47;
+      --border:#2e3350;--accent:#25d366;--accent2:#128c7e;
+      --warn:#f59e0b;--danger:#ef4444;--info:#3b82f6;--purple:#8b5cf6;--pink:#ec4899;
+      --text:#e2e8f0;--muted:#64748b;--muted2:#94a3b8;--radius:10px;
+    }
+    body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;}
+    .layout{display:flex;flex:1;}
+    nav.sidebar{width:220px;min-height:100vh;background:var(--bg2);border-right:1px solid var(--border);flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;}
+    .sidebar-brand{display:flex;align-items:center;gap:8px;padding:18px 16px 14px;border-bottom:1px solid var(--border);font-weight:700;font-size:15px;}
+    .sidebar-brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent);}
+    .sidebar-section{padding:12px 10px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
+    nav.sidebar a{display:flex;align-items:center;gap:9px;padding:8px 14px;margin:1px 6px;border-radius:7px;text-decoration:none;color:var(--muted2);font-size:13px;transition:all .12s;}
+    nav.sidebar a:hover{background:var(--bg3);color:var(--text);}
+    nav.sidebar a.active{background:var(--bg3);color:var(--text);font-weight:600;}
+    nav.sidebar a .icon{font-size:15px;width:18px;text-align:center;}
+    .main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+    .topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 28px 14px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
+    .topbar h1{font-size:18px;font-weight:700;}
+    .topbar-actions{display:flex;gap:10px;align-items:center;}
+    .content{flex:1;overflow-y:auto;padding:24px 28px;}
+
+    .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;}
+    .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;}
+    .stat-card .label{font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;}
+    .stat-card .value{font-size:28px;font-weight:700;}
+    .stat-card .value.green{color:var(--accent);}
+    .stat-card .value.yellow{color:var(--warn);}
+    .stat-card .value.red{color:var(--danger);}
+    .stat-card .value.blue{color:var(--info);}
+
+    .filters{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
+    .filter-tab{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--muted2);font-size:12px;cursor:pointer;transition:all .12s;}
+    .filter-tab:hover{background:var(--bg3);color:var(--text);}
+    .filter-tab.active{background:var(--accent2);border-color:var(--accent2);color:#fff;}
+    .filter-tab .cnt{margin-left:5px;background:rgba(255,255,255,.15);border-radius:10px;padding:1px 6px;font-size:10px;}
+
+    select{background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:6px 11px;color:var(--text);font-size:12px;}
+
+    .wo-list{display:flex;flex-direction:column;gap:10px;}
+
+    .wo-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;cursor:pointer;transition:border-color .12s;}
+    .wo-card:hover{border-color:var(--accent2);}
+    .wo-card-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;}
+    .wo-ref{font-size:11px;color:var(--muted2);font-family:monospace;}
+    .wo-title{font-size:14px;font-weight:600;margin-bottom:4px;}
+    .wo-desc{font-size:12px;color:var(--muted2);margin-bottom:10px;}
+    .wo-meta{display:flex;flex-wrap:wrap;gap:6px;}
+    .wo-meta .tag{font-size:11px;padding:2px 8px;border-radius:4px;background:var(--bg3);color:var(--muted2);}
+    .wo-meta .tag.urgent{background:rgba(239,68,68,.12);color:var(--danger);}
+    .wo-meta .tag.high{background:rgba(245,158,11,.12);color:var(--warn);}
+    .wo-meta .tag.brand{background:rgba(139,92,246,.12);color:var(--purple);}
+    .wo-meta .tag.site{background:rgba(59,130,246,.12);color:var(--info);}
+
+    .status-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;white-space:nowrap;}
+    .status-badge.open{background:rgba(59,130,246,.12);color:var(--info);}
+    .status-badge.in_progress{background:rgba(245,158,11,.12);color:var(--warn);}
+    .status-badge.done{background:rgba(37,211,102,.12);color:var(--accent);}
+    .status-badge.cancelled{background:rgba(100,116,139,.12);color:var(--muted2);}
+
+    .priority-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:4px;}
+    .priority-dot.urgent{background:var(--danger);}
+    .priority-dot.high{background:var(--warn);}
+    .priority-dot.normal{background:var(--info);}
+    .priority-dot.low{background:var(--muted);}
+
+    .empty-state{text-align:center;color:var(--muted);padding:48px;font-size:13px;}
+
+    /* modal */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:none;align-items:center;justify-content:center;}
+    .modal-overlay.open{display:flex;}
+    .modal{background:var(--bg2);border:1px solid var(--border);border-radius:14px;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto;padding:28px;}
+    .modal h3{font-size:16px;font-weight:700;margin-bottom:20px;}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+    .form-grid .full{grid-column:1/-1;}
+    .form-row label{display:block;font-size:11px;color:var(--muted2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;}
+    .form-row input,.form-row select,.form-row textarea{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:8px 11px;color:var(--text);font-size:13px;}
+    .form-row textarea{resize:vertical;min-height:70px;}
+    .modal-actions{display:flex;gap:10px;margin-top:22px;}
+    .btn{padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:opacity .12s;}
+    .btn:hover{opacity:.85;}
+    .btn-primary{background:var(--accent);color:#000;}
+    .btn-secondary{background:var(--bg3);color:var(--text);border:1px solid var(--border);}
+    .btn-danger{background:var(--danger);color:#fff;}
+    .btn-sm{padding:5px 12px;font-size:11px;}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="sidebar-brand"><div class="dot"></div>AMS</div>
+    <div class="sidebar-section">Account</div>
+    <a href="/ams/accounts"><span class="icon">📋</span> Account Ledger</a>
+    <a href="/ams/nurturing"><span class="icon">🌱</span> Nurturing Pipeline</a>
+    <a href="/ams/activation"><span class="icon">⚡</span> Activation Desk</a>
+    <div class="sidebar-section">Operations</div>
+    <a href="/ams/workorders" class="active"><span class="icon">📝</span> Work Orders</a>
+    <a href="/portal" target="_blank"><span class="icon">🔗</span> Client Portal</a>
+    <div class="sidebar-section">Resources</div>
+    <a href="/ams/ips"><span class="icon">🌐</span> IP Ledger</a>
+    <a href="/ams/ip-audit"><span class="icon">🔍</span> IP Audit</a>
+    <a href="/ams/devices"><span class="icon">📱</span> Devices</a>
+    <a href="/ams/sims"><span class="icon">💳</span> SIM Cards</a>
+    <div class="sidebar-section">Analytics</div>
+    <a href="/dashboard"><span class="icon">📊</span> Feeding Dashboard</a>
+    <div class="sidebar-section">System</div>
+    <a href="/"><span class="icon">⚙️</span> WSAF App</a>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <h1>📝 Work Orders</h1>
+      <div class="topbar-actions">
+        <button class="btn btn-primary" onclick="openCreate()">+ New Work Order</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="stat-row">
+        <div class="stat-card"><div class="label">Open</div><div class="value blue" id="cnt-open">—</div></div>
+        <div class="stat-card"><div class="label">In Progress</div><div class="value yellow" id="cnt-in_progress">—</div></div>
+        <div class="stat-card"><div class="label">Done</div><div class="value green" id="cnt-done">—</div></div>
+        <div class="stat-card"><div class="label">Total</div><div class="value" id="cnt-total">—</div></div>
+      </div>
+
+      <div class="filters">
+        <button class="filter-tab active" data-status="" onclick="setStatus(this,'')">All <span class="cnt" id="cnt-all">0</span></button>
+        <button class="filter-tab" data-status="open" onclick="setStatus(this,'open')">Open <span class="cnt" id="tab-cnt-open">0</span></button>
+        <button class="filter-tab" data-status="in_progress" onclick="setStatus(this,'in_progress')">In Progress <span class="cnt" id="tab-cnt-in_progress">0</span></button>
+        <button class="filter-tab" data-status="done" onclick="setStatus(this,'done')">Done <span class="cnt" id="tab-cnt-done">0</span></button>
+        <button class="filter-tab" data-status="cancelled" onclick="setStatus(this,'cancelled')">Cancelled <span class="cnt" id="tab-cnt-cancelled">0</span></button>
+        <select id="brand-filter" onchange="loadOrders()"><option value="">All Brands</option></select>
+        <select id="type-filter" onchange="loadOrders()">
+          <option value="">All Types</option>
+          <option value="new_account">New Account</option>
+          <option value="account_swap">Account Swap</option>
+          <option value="top_up">Top Up</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+
+      <div class="wo-list" id="wo-list">
+        <div class="empty-state">Loading...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create / Edit Modal -->
+<div class="modal-overlay" id="wo-modal">
+  <div class="modal">
+    <h3 id="wo-modal-title">New Work Order</h3>
+    <input type="hidden" id="wo-id" />
+    <div class="form-grid">
+      <div class="form-row full">
+        <label>Title *</label>
+        <input type="text" id="f-title" placeholder="e.g. Request 5 new accounts for SBMY" />
+      </div>
+      <div class="form-row">
+        <label>Type</label>
+        <select id="f-type">
+          <option value="new_account">New Account</option>
+          <option value="account_swap">Account Swap</option>
+          <option value="top_up">Top Up</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Priority</label>
+        <select id="f-priority">
+          <option value="low">Low</option>
+          <option value="normal" selected>Normal</option>
+          <option value="high">High</option>
+          <option value="urgent">Urgent</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Brand</label>
+        <select id="f-brand"></select>
+      </div>
+      <div class="form-row">
+        <label>Site</label>
+        <select id="f-site"></select>
+      </div>
+      <div class="form-row">
+        <label>Quantity</label>
+        <input type="number" id="f-quantity" value="1" min="1" />
+      </div>
+      <div class="form-row">
+        <label>Requester</label>
+        <input type="text" id="f-requester" placeholder="Who is requesting?" />
+      </div>
+      <div class="form-row">
+        <label>Assignee (Ops)</label>
+        <input type="text" id="f-assignee" placeholder="Who handles this?" />
+      </div>
+      <div class="form-row">
+        <label>Due Date</label>
+        <input type="date" id="f-due" />
+      </div>
+      <div class="form-row">
+        <label>Status</label>
+        <select id="f-status">
+          <option value="open">Open</option>
+          <option value="in_progress">In Progress</option>
+          <option value="done">Done</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="form-row full">
+        <label>Description</label>
+        <textarea id="f-description" placeholder="Details of the request..."></textarea>
+      </div>
+      <div class="form-row full">
+        <label>Note</label>
+        <textarea id="f-note" placeholder="Internal note..."></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveOrder()">Save</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentStatus = '';
+  let meta = { brands: [], sites: [] };
+
+  async function loadMeta() {
+    const r = await fetch('/api/ams/meta');
+    meta = await r.json();
+    const brandSel = document.getElementById('brand-filter');
+    const fBrand = document.getElementById('f-brand');
+    const fSite = document.getElementById('f-site');
+    meta.brands.forEach(b => {
+      brandSel.innerHTML += `<option value="${b.id}">${b.name}</option>`;
+      fBrand.innerHTML += `<option value="${b.id}">${b.name}</option>`;
+    });
+    fSite.innerHTML = '<option value="">— None —</option>';
+    meta.sites.forEach(s => { fSite.innerHTML += `<option value="${s.id}">${s.name}</option>`; });
+  }
+
+  async function loadCounts() {
+    const counts = await fetch('/api/ams/workorders/counts').then(r => r.json());
+    const byStatus = {};
+    let total = 0;
+    counts.forEach(c => { byStatus[c.status] = c.count; total += c.count; });
+    document.getElementById('cnt-open').textContent = byStatus.open || 0;
+    document.getElementById('cnt-in_progress').textContent = byStatus.in_progress || 0;
+    document.getElementById('cnt-done').textContent = byStatus.done || 0;
+    document.getElementById('cnt-total').textContent = total;
+    document.getElementById('cnt-all').textContent = total;
+    ['open','in_progress','done','cancelled'].forEach(s => {
+      const el = document.getElementById(`tab-cnt-${s}`);
+      if (el) el.textContent = byStatus[s] || 0;
+    });
+  }
+
+  async function loadOrders() {
+    const params = new URLSearchParams();
+    if (currentStatus) params.set('status', currentStatus);
+    const brand = document.getElementById('brand-filter').value;
+    const type = document.getElementById('type-filter').value;
+    if (brand) params.set('brand_id', brand);
+    if (type) params.set('type', type);
+    const orders = await fetch('/api/ams/workorders?' + params).then(r => r.json());
+    renderOrders(orders);
+  }
+
+  function renderOrders(orders) {
+    const container = document.getElementById('wo-list');
+    if (!orders.length) { container.innerHTML = '<div class="empty-state">No work orders found</div>'; return; }
+    container.innerHTML = orders.map(wo => {
+      const prioColor = wo.priority === 'urgent' ? 'urgent' : wo.priority === 'high' ? 'high' : '';
+      const prioClass = wo.priority === 'urgent' ? 'urgent' : wo.priority === 'high' ? 'high' : '';
+      const due = wo.due_date ? `<span class="tag">📅 ${wo.due_date}</span>` : '';
+      const assignee = wo.assignee ? `<span class="tag">👤 ${esc(wo.assignee)}</span>` : '';
+      const qty = wo.quantity > 1 ? `<span class="tag">×${wo.quantity}</span>` : '';
+      return `<div class="wo-card" onclick="openEdit(${wo.id})">
+        <div class="wo-card-top">
+          <div>
+            <div class="wo-ref">${esc(wo.ref)}</div>
+            <div class="wo-title">
+              <span class="priority-dot ${prioClass}"></span>${esc(wo.title)}
+            </div>
+          </div>
+          <span class="status-badge ${wo.status}">${statusLabel(wo.status)}</span>
+        </div>
+        ${wo.description ? `<div class="wo-desc">${esc(wo.description)}</div>` : ''}
+        <div class="wo-meta">
+          ${wo.brand_name ? `<span class="tag brand">🏷 ${esc(wo.brand_name)}</span>` : ''}
+          ${wo.site_name ? `<span class="tag site">📍 ${esc(wo.site_name)}</span>` : ''}
+          <span class="tag">${typeLabel(wo.type)}</span>
+          ${qty}${due}${assignee}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function statusLabel(s) {
+    return { open: '🔵 Open', in_progress: '🟡 In Progress', done: '✅ Done', cancelled: '⚫ Cancelled' }[s] || s;
+  }
+  function typeLabel(t) {
+    return { new_account: '🆕 New Account', account_swap: '🔄 Account Swap', top_up: '💰 Top Up', other: '📌 Other' }[t] || t;
+  }
+
+  function setStatus(btn, status) {
+    document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    currentStatus = status;
+    loadOrders();
+  }
+
+  function openCreate() {
+    document.getElementById('wo-modal-title').textContent = 'New Work Order';
+    document.getElementById('wo-id').value = '';
+    ['title','requester','assignee','description','note'].forEach(f => document.getElementById('f-'+f).value = '');
+    document.getElementById('f-type').value = 'new_account';
+    document.getElementById('f-priority').value = 'normal';
+    document.getElementById('f-status').value = 'open';
+    document.getElementById('f-quantity').value = '1';
+    document.getElementById('f-due').value = '';
+    document.getElementById('f-brand').value = '';
+    document.getElementById('f-site').value = '';
+    document.getElementById('wo-modal').classList.add('open');
+  }
+
+  async function openEdit(id) {
+    const wo = await fetch(`/api/ams/workorders/${id}`).then(r => r.json());
+    document.getElementById('wo-modal-title').textContent = `Work Order — ${wo.ref}`;
+    document.getElementById('wo-id').value = wo.id;
+    document.getElementById('f-title').value = wo.title || '';
+    document.getElementById('f-type').value = wo.type || 'new_account';
+    document.getElementById('f-priority').value = wo.priority || 'normal';
+    document.getElementById('f-status').value = wo.status || 'open';
+    document.getElementById('f-quantity').value = wo.quantity || 1;
+    document.getElementById('f-requester').value = wo.requester || '';
+    document.getElementById('f-assignee').value = wo.assignee || '';
+    document.getElementById('f-due').value = wo.due_date || '';
+    document.getElementById('f-description').value = wo.description || '';
+    document.getElementById('f-note').value = wo.note || '';
+    document.getElementById('f-brand').value = wo.brand_id || '';
+    document.getElementById('f-site').value = wo.site_id || '';
+    document.getElementById('wo-modal').classList.add('open');
+  }
+
+  async function saveOrder() {
+    const id = document.getElementById('wo-id').value;
+    const data = {
+      title: document.getElementById('f-title').value,
+      type: document.getElementById('f-type').value,
+      priority: document.getElementById('f-priority').value,
+      status: document.getElementById('f-status').value,
+      quantity: parseInt(document.getElementById('f-quantity').value) || 1,
+      requester: document.getElementById('f-requester').value || null,
+      assignee: document.getElementById('f-assignee').value || null,
+      due_date: document.getElementById('f-due').value || null,
+      description: document.getElementById('f-description').value || null,
+      note: document.getElementById('f-note').value || null,
+      brand_id: document.getElementById('f-brand').value ? parseInt(document.getElementById('f-brand').value) : null,
+      site_id: document.getElementById('f-site').value ? parseInt(document.getElementById('f-site').value) : null,
+    };
+    if (!data.title) return alert('Title is required');
+    if (id) {
+      await fetch(`/api/ams/workorders/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    } else {
+      await fetch('/api/ams/workorders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    }
+    closeModal();
+    loadCounts();
+    loadOrders();
+  }
+
+  function closeModal() {
+    document.getElementById('wo-modal').classList.remove('open');
+  }
+  document.getElementById('wo-modal').addEventListener('click', e => { if (e.target === document.getElementById('wo-modal')) closeModal(); });
+
+  function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  (async () => {
+    await loadMeta();
+    await Promise.all([loadCounts(), loadOrders()]);
+  })();
+</script>
+</body>
+</html>
