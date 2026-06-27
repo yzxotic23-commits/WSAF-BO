@@ -1109,6 +1109,9 @@ class DesktopBridge {
 
     session.on('pairingCodeFailed', (data) => {
       this.log('warn', `[${name}] Pairing code failed: ${data?.message || 'unknown'}`);
+      if (this.linkingSlot === slotIndex) {
+        this.linkingSlot = null;
+      }
       this.emit('pairingCodeFailed', { account: name, slot: slotIndex, ...data });
       this.emit('status', this.getStatus());
     });
@@ -1444,7 +1447,18 @@ class DesktopBridge {
     if (plan.method === 'pairing') {
       session.setProxy(null);
       session.linkedViaDirect = true;
-      if (authProbe.saved && !authProbe.registered && !plan.clearIncomplete && !plan.refreshPairing) {
+      const resumePairing = Boolean(
+        existing?.pairingCodeDisplay
+        || existing?.pairingAwaitingUser
+        || (existing?.isLinking && existing?.loginMethod === 'pairing')
+      );
+      if (
+        authProbe.saved
+        && !authProbe.registered
+        && !plan.clearIncomplete
+        && !plan.refreshPairing
+        && !resumePairing
+      ) {
         session.purgeLocalSession();
         this.log('info', `[${sessionName}] Cleared incomplete session before phone pairing`);
       }

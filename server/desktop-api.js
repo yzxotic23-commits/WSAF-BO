@@ -328,6 +328,14 @@ function createDesktopApi(options = {}) {
       const phoneNumber = req.body?.phoneNumber || null;
       const clearIncomplete = Boolean(req.body?.clearIncomplete);
       const refreshPairing = Boolean(req.body?.refreshPairing);
+      if (method === 'pairing') {
+        const digits = String(phoneNumber || '').replace(/\D/g, '');
+        if (digits.length < 8) {
+          return res.status(400).json({
+            error: 'Nomor telepon wajib untuk pairing code (kode negara + nomor, contoh: 628123456789)',
+          });
+        }
+      }
       res.json(await bridge.connectAccount(slot, {
         method: method === 'pairing' ? 'pairing' : 'qr',
         phoneNumber: method === 'pairing' ? phoneNumber : undefined,

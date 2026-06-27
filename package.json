@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-auto-feeding",
-  "version": "1.0.60",
+  "version": "1.0.61",
   "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
   "main": "electron/main.js",
   "author": "",
@@ -29,7 +29,7 @@
     "update:manifest": "node scripts/generate-update-manifest.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.16",
+    "@whiskeysockets/baileys": "^6.7.23",
     "better-sqlite3": "^12.11.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
