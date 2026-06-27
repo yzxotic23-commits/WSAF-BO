@@ -1327,7 +1327,7 @@ class DesktopBridge {
       && (pairingCodeActive || existing.isLinking || existing.pairingCodeRequested)
     );
 
-    if (plan.method === 'pairing' && pairingBusy && !plan.refreshPairing) {
+    if (plan.method === 'pairing' && pairingBusy && !plan.refreshPairing && !plan.clearIncomplete) {
       this.linkingSlot = slotIndex;
       this.emit('status', this.getStatus());
       this.log(
@@ -1348,6 +1348,7 @@ class DesktopBridge {
       && existing.isLinking
       && !existing.isConnected
       && !plan.refreshPairing
+      && !plan.clearIncomplete
     ) {
       const partial = existing.getAuthStatus();
       if (!partial.registered) {
