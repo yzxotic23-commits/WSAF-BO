@@ -31,6 +31,16 @@
       try {
         const url = typeof input === 'string' ? input : input?.url || '';
         const method = (init?.method || 'GET').toUpperCase();
+        const isApi = /\/api(\/|$)/.test(url);
+        if (isApi) {
+          init = {
+            ...init,
+            headers: {
+              'X-FeedFlow-Client': 'feedflow-app',
+              ...(init?.headers || {}),
+            },
+          };
+        }
         if (method === 'POST' && /\/api\/connect\/(\d+)/.test(url) && init?.body) {
           const slot = url.match(/\/api\/connect\/(\d+)/)[1];
           const body = JSON.parse(init.body);
@@ -218,7 +228,11 @@
 
   async function apiJson(path, options) {
     const res = await fetch(`${API}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-FeedFlow-Client': 'feedflow-app',
+        ...(options?.headers || {}),
+      },
       ...options,
     });
     const data = await res.json().catch(() => ({}));

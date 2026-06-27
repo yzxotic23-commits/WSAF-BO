@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const DesktopBridge = require('./bridge');
 const { AmsStore } = require('../src/ams-db');
+const { isAmsBridgeRequest } = require('../src/bridge-client-mode');
 
 const PORT = parseInt(process.env.DESKTOP_API_PORT || '47821', 10);
 const PKG = require('../package.json');
@@ -27,6 +28,20 @@ function createDesktopApi(options = {}) {
 
   app.use(cors());
   app.use(express.json({ limit: '2mb' }));
+
+  app.use((req, _res, next) => {
+    req.feedflowClient = isAmsBridgeRequest(req) ? 'ams-bridge' : 'feedflow-app';
+    next();
+  });
+
+  function requireAmsBridge(req, res, next) {
+    if (req.feedflowClient !== 'ams-bridge') {
+      return res.status(403).json({
+        error: 'Endpoint ini khusus AMS dashboard — FeedFlow app pakai route langsung tanpa sync AMS.',
+      });
+    }
+    next();
+  }
 
   // Allow embedding inside AMS web shell (iframe)
   app.use((_req, res, next) => {
@@ -116,7 +131,7 @@ function createDesktopApi(options = {}) {
   });
 
   /** Unified payload for AMS Project dashboard (Phase 4 bridge). */
-  app.get('/api/bridge/summary', (_req, res) => {
+  app.get('/api/bridge/summary', requireAmsBridge, (_req, res) => {
     try {
       const status = bridge.getStatus();
       const summary = bridge.getAuditSummary();
@@ -216,7 +231,7 @@ function createDesktopApi(options = {}) {
     }
   });
 
-  app.post('/api/profile/refresh', (_req, res) => {
+  app.post('/api/profile/refresh', requireAmsBridge, (_req, res) => {
     try {
       const status = bridge.getStatus();
       bridge.emit('status', status);
@@ -226,7 +241,7 @@ function createDesktopApi(options = {}) {
     }
   });
 
-  app.post('/api/slots/:slot/display-label', (req, res) => {
+  app.post('/api/slots/:slot/display-label', requireAmsBridge, (req, res) => {
     try {
       const slot = parseInt(req.params.slot, 10);
       if (Number.isNaN(slot) || slot < 0) {
@@ -457,7 +472,7 @@ function createDesktopApi(options = {}) {
     res.json(bridge.readEnvFile());
   });
 
-  app.post('/api/audit/sync', (_req, res) => {
+  app.post('/api/audit/sync', requireAmsBridge, (_req, res) => {
     try {
       const synced = bridge.syncLinkedSlotsAudit();
       res.json({
@@ -475,7 +490,11 @@ function createDesktopApi(options = {}) {
     try {
       const limit = parseInt(req.query.limit || '500', 10);
       const offset = parseInt(req.query.offset || '0', 10);
-      if (offset === 0 && bridge.getAuditList({ limit: 1, offset: 0 }).total === 0) {
+      if (
+        req.feedflowClient === 'ams-bridge'
+        && offset === 0
+        && bridge.getAuditList({ limit: 1, offset: 0 }).total === 0
+      ) {
         bridge.syncLinkedSlotsAudit();
       }
       res.json({
