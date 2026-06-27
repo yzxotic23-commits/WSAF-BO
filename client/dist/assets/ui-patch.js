@@ -1384,7 +1384,13 @@
 
       if (primary) {
         primary.disabled = !ready;
-        if (primary.textContent === 'Installing…' && !ready) {
+        if (ready) {
+          primary.textContent = 'Update Now';
+        } else if (downloading) {
+          primary.textContent = `Downloading… ${state.percent || 0}%`;
+        } else if (state.status === 'available') {
+          primary.textContent = 'Preparing…';
+        } else if (primary.textContent === 'Installing…') {
           primary.textContent = 'Update Now';
         }
       }

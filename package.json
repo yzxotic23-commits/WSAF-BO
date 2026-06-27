@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-auto-feeding",
-  "version": "1.0.57",
+  "version": "1.0.58",
   "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
   "main": "electron/main.js",
   "author": "",
@@ -93,8 +93,10 @@
       "gatekeeperAssess": false
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false,
       "deleteAppDataOnUninstall": false,
       "runAfterFinish": true,
       "createDesktopShortcut": true

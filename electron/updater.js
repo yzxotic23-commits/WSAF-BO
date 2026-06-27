@@ -59,7 +59,8 @@ class AppUpdater {
     }
 
     autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoInstallOnAppQuit = false;
+    autoUpdater.autoRunAppAfterInstall = true;
     autoUpdater.allowDowngrade = false;
 
     autoUpdater.on('checking-for-update', () => {
@@ -220,8 +221,17 @@ class AppUpdater {
       return;
     }
     if (!autoUpdater) return;
-    // Silent install + force relaunch after NSIS finishes (Update Now must not show wizard).
-    autoUpdater.quitAndInstall(true, true);
+
+    // NSIS silent update: close windows cleanly so installer can replace the exe and relaunch.
+    app.removeAllListeners('window-all-closed');
+    setImmediate(() => {
+      try {
+        autoUpdater.quitAndInstall(true, true);
+      } catch (err) {
+        console.error(`[UPDATE] quitAndInstall failed: ${err.message}`);
+        app.isQuittingForUpdate = false;
+      }
+    });
   }
 }
 

@@ -82,7 +82,8 @@ function createDesktopApi(options = {}) {
         bridge.stopFeeding();
       }
       res.json({ ok: true });
-      setTimeout(() => updater.quitAndInstall(), 400);
+      // Give child feeding processes time to exit before NSIS replaces the exe.
+      setTimeout(() => updater.quitAndInstall(), 1500);
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
