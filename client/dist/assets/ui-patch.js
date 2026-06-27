@@ -264,26 +264,105 @@
     }
   }
 
-  function updatePerPairFeedingButtons() {
+  function getActiveFeedingPairs() {
+    const pairs = ffAppStatus?.feedingActivePairs;
+    if (Array.isArray(pairs) && pairs.length) return pairs;
+    if (ffAppStatus?.feedingPairIndex != null
+      && (ffAppStatus?.feedingRunning || ffAppStatus?.feedingStarting)) {
+      return [ffAppStatus.feedingPairIndex];
+    }
+    return [];
+  }
+
+  function isPairFeeding(pairIndex) {
+    return getActiveFeedingPairs().includes(pairIndex);
+  }
+
+  async function stopFeeding(pairIndex = null) {
+    try {
+      const body = pairIndex != null ? { pairIndex } : {};
+      await apiJson('/api/feeding/stop', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      window.alert(err.message || 'Could not stop feeding');
+    } finally {
+      await refreshAppStatus();
+      updatePerPairFeedingButtons();
+      ensureStopFeedFooter();
+    }
+  }
+
+  /** Footer Stop hilang saat feedingStarting (React belum render stop + CSS sembunyikan footer). */
+  function ensureStopFeedFooter() {
     const running = !!(ffAppStatus?.feedingRunning || ffAppStatus?.feedingStarting);
-    const activePair = ffAppStatus?.feedingPairIndex;
+    const footer = document.querySelector('.wa-list-footer');
+    if (!footer) return;
+
+    let stopBtn = footer.querySelector('.wa-footer-btn--stop');
+    if (running) {
+      footer.classList.add('ff-feeding-footer-visible');
+      footer.style.removeProperty('display');
+      if (!stopBtn) {
+        stopBtn = document.createElement('button');
+        stopBtn.type = 'button';
+        stopBtn.className = 'wa-footer-btn wa-footer-btn--stop ff-stop-feed-btn';
+        stopBtn.textContent = 'Stop all feeding';
+        stopBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          stopFeeding();
+        });
+        footer.appendChild(stopBtn);
+      }
+      stopBtn.disabled = false;
+      stopBtn.style.removeProperty('display');
+    } else {
+      footer.classList.remove('ff-feeding-footer-visible');
+      footer.querySelector('.ff-stop-feed-btn')?.remove();
+    }
+  }
+
+  function updatePerPairFeedingButtons() {
+    const activePairs = getActiveFeedingPairs();
 
     document.querySelectorAll('.ff-pair-start-btn').forEach((btn) => {
       ensureStartFeedButtonStructure(btn);
       const pairIndex = parseInt(btn.dataset.pairIndex || '-1', 10);
       const ready = isPairLinked(pairIndex);
-      const isActive = running && activePair === pairIndex;
-      btn.disabled = running || !ready;
-      btn.classList.toggle('ff-pair-start-btn--active', isActive);
-      setStartFeedButtonLabel(btn, isActive ? 'Running…' : 'Start');
-      btn.title = ready
-        ? `Start AI feeding for Pair ${pairIndex + 1} only`
-        : `Link both accounts in Pair ${pairIndex + 1} first`;
+      const isActive = isPairFeeding(pairIndex);
+
+      if (isActive) {
+        btn.disabled = false;
+        btn.classList.add('ff-pair-start-btn--active', 'ff-pair-start-btn--stop');
+        setStartFeedButtonLabel(btn, 'Stop');
+        btn.title = `Stop feeding for Pair ${pairIndex + 1}`;
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          stopFeeding(pairIndex);
+        };
+      } else {
+        btn.disabled = !ready || isPairFeeding(pairIndex);
+        btn.classList.toggle('ff-pair-start-btn--active', false);
+        btn.classList.remove('ff-pair-start-btn--stop');
+        setStartFeedButtonLabel(btn, 'Start');
+        btn.title = ready
+          ? `Start AI feeding for Pair ${pairIndex + 1} only`
+          : `Link both accounts in Pair ${pairIndex + 1} first`;
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          startPairFeeding(pairIndex, btn);
+        };
+      }
     });
 
     document.querySelectorAll('.ff-pair-remove-btn').forEach((btn) => {
-      btn.disabled = running;
+      const pairIndex = parseInt(btn.dataset.pairIndex || '-1', 10);
+      btn.disabled = isPairFeeding(pairIndex);
     });
+
+    ensureStopFeedFooter();
   }
 
   async function startPairFeeding(pairIndex, btn) {
@@ -405,7 +484,7 @@
 
   function injectPerPairRemoveButtons(row, pairIndex) {
     const pairCount = ffAppStatus?.pairCount || getPairCountFromDom();
-    const feeding = !!(ffAppStatus?.feedingRunning || ffAppStatus?.feedingStarting);
+    const feeding = isPairFeeding(pairIndex);
 
     if (pairCount <= 1) {
       row.querySelector('.ff-pair-remove-btn')?.remove();
@@ -460,10 +539,6 @@
         startBtn.className = 'ff-pair-start-btn';
         startBtn.dataset.pairIndex = String(pairIndex);
         setStartFeedButtonLabel(startBtn, 'Start');
-        startBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          startPairFeeding(pairIndex, startBtn);
-        });
         row.appendChild(startBtn);
       } else if (startBtn.dataset.pairIndex !== String(pairIndex)) {
         startBtn.dataset.pairIndex = String(pairIndex);

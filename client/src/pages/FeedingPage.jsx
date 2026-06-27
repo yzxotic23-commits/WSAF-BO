@@ -49,20 +49,33 @@ export default function FeedingPage() {
     }
   }
 
-  async function stopFeeding() {
-    setBusyPair('stop');
+  async function stopFeeding(pairIndex = null) {
+    setBusyPair(pairIndex != null ? pairIndex : 'stop');
     try {
-      await apiPost('/api/feeding/stop');
+      await apiPost('/api/feeding/stop', pairIndex != null ? { pairIndex } : {});
     } finally {
       setBusyPair(null);
     }
   }
 
+  function getActiveFeedingPairs() {
+    const pairs = status?.feedingActivePairs;
+    if (Array.isArray(pairs) && pairs.length) return pairs;
+    if (status?.feedingPairIndex != null && (status?.feedingRunning || status?.feedingStarting)) {
+      return [status.feedingPairIndex];
+    }
+    return [];
+  }
+
+  function isPairFeeding(pairIndex) {
+    return getActiveFeedingPairs().includes(pairIndex);
+  }
+
   if (loading) return <div className="page-loading"><Spinner /></div>;
 
   const accounts = status?.accounts || [];
-  const running = status?.feedingRunning;
-  const activePair = status?.feedingPairIndex;
+  const activePairs = getActiveFeedingPairs();
+  const anyFeeding = activePairs.length > 0 || status?.feedingRunning || status?.feedingStarting;
   const pairs = useMemo(() => groupAccountsByPair(accounts), [accounts]);
 
   return (
@@ -75,9 +88,9 @@ export default function FeedingPage() {
             <Button variant="secondary" icon={RefreshCw} onClick={load} disabled={busyPair !== null}>
               Refresh
             </Button>
-            {running && (
-              <Button variant="danger" icon={Square} onClick={stopFeeding} disabled={busyPair !== null}>
-                Stop feeding
+            {anyFeeding && (
+              <Button variant="danger" icon={Square} onClick={() => stopFeeding()} disabled={busyPair !== null}>
+                Stop all feeding
               </Button>
             )}
           </>
@@ -107,9 +120,9 @@ export default function FeedingPage() {
         <Card>
           <div className="mini-stat-label">Status</div>
           <div className="mini-stat-value" style={{ fontSize: 18 }}>
-            {running
-              ? activePair != null
-                ? `Pair ${activePair + 1}`
+            {anyFeeding
+              ? activePairs.length
+                ? `${activePairs.length} pair(s) active`
                 : 'Running'
               : status?.feedingStarting
                 ? 'Starting…'
@@ -126,7 +139,7 @@ export default function FeedingPage() {
 
       {pairs.map(({ pairIndex, accounts: pairAccounts }) => {
         const ready = isPairReady(pairAccounts);
-        const isActive = running && activePair === pairIndex;
+        const isActive = isPairFeeding(pairIndex);
         const labels = pairAccounts.map((a) => a.label || a.name).join(' ↔ ');
 
         return (
@@ -137,12 +150,12 @@ export default function FeedingPage() {
                 <p className="meta-text">{labels || '—'}</p>
               </div>
               <Button
-                variant="primary"
-                icon={Play}
-                disabled={!ready || running || busyPair !== null}
-                onClick={() => startPairFeeding(pairIndex)}
+                variant={isActive ? 'danger' : 'primary'}
+                icon={isActive ? Square : Play}
+                disabled={(!ready && !isActive) || busyPair !== null}
+                onClick={() => (isActive ? stopFeeding(pairIndex) : startPairFeeding(pairIndex))}
               >
-                {isActive ? 'Running…' : 'Start feeding'}
+                {isActive ? 'Stop' : 'Start feeding'}
               </Button>
             </div>
             <div className="account-grid">

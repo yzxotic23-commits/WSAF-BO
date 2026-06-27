@@ -78,7 +78,7 @@ function createDesktopApi(options = {}) {
               : 'No update downloaded yet';
         return res.status(400).json({ error: hint, status: state.status, percent: state.percent });
       }
-      if (bridge.feedingStarting || (bridge.feedingProcess && !bridge.feedingProcess.killed)) {
+      if (bridge.isFeedingActive()) {
         bridge.stopFeeding();
       }
       res.json({ ok: true });
@@ -133,7 +133,7 @@ function createDesktopApi(options = {}) {
           pairCount: status.pairCount,
           feedingRunning: Boolean(status.feedingRunning),
           feedingStarting: Boolean(status.feedingStarting),
-          feedingLaunchPhase: status.feedingLaunchPhase || null,
+          feedingActivePairs: status.feedingActivePairs || [],
           slotsOnline,
           slotsOffline: Math.max(0, accounts.length - slotsOnline - slotsLinking),
           slotsFeeding,
@@ -431,9 +431,10 @@ function createDesktopApi(options = {}) {
     }
   });
 
-  app.post('/api/feeding/stop', (_req, res) => {
+  app.post('/api/feeding/stop', (req, res) => {
     try {
-      res.json(bridge.stopFeeding());
+      const pairIndex = req.body?.pairIndex;
+      res.json(bridge.stopFeeding({ pairIndex }));
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

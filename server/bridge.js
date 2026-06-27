@@ -54,9 +54,7 @@ class DesktopBridge {
     this.accountProxies = [];
     this.hasProxies = false;
     this.connecting = false;
-    this.feedingProcess = null;
-    this.feedingStarting = false;
-    this.feedingLaunchPhase = 'prepare';
+    this.feedingRuns = new Map();
     this.chatHistory = new Map();
     this.logoutSlots = new Set();
     this.logoutPhase = new Map();
@@ -69,10 +67,6 @@ class DesktopBridge {
     this.slotLabels = new SlotDisplayLabelStore(this.getAppRoot());
     this.currentFeedingRunId = null;
     this.lastFeedingComplete = null;
-    /** 0-based pair index when a single-pair feeding run is active; null = all pairs. */
-    this.feedingPairIndex = null;
-    /** Slots that passed linked check when feeding started (parent socket is down during CLI run). */
-    this.feedingLinkedSlots = null;
     this.ensureEnvAiDefaults();
     this.ensureFirstRunEnv();
     this.ensureCapacity();
@@ -338,8 +332,8 @@ class DesktopBridge {
     if (pairIndex < 0 || pairIndex >= current) {
       return { ok: false, error: `Invalid pair index: ${pairIndex}` };
     }
-    if (this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed)) {
-      return { ok: false, error: 'Stop feeding before removing a pair' };
+    if (this.isPairFeedingActive(pairIndex)) {
+      return { ok: false, error: 'Stop feeding for this pair before removing it' };
     }
 
     const oldAccountCount = this.accountCount();
@@ -561,11 +555,61 @@ class DesktopBridge {
     }
   }
 
+  _feedingRunKey(pairIndex) {
+    return pairIndex === null || pairIndex === undefined ? 'all' : pairIndex;
+  }
+
+  _isFeedingRunAlive(run) {
+    return Boolean(run?.process && !run.process.killed);
+  }
+
+  _getFeedingRun(pairIndex) {
+    return this.feedingRuns.get(this._feedingRunKey(pairIndex));
+  }
+
+  getActiveFeedingRuns() {
+    return [...this.feedingRuns.values()].filter((run) => run.starting || this._isFeedingRunAlive(run));
+  }
+
   isFeedingActive() {
-    return Boolean(
-      this.feedingStarting
-      || (this.feedingProcess && !this.feedingProcess.killed)
-    );
+    return this.getActiveFeedingRuns().length > 0;
+  }
+
+  isPairFeedingActive(pairIndex) {
+    const run = this._getFeedingRun(pairIndex);
+    return Boolean(run && (run.starting || this._isFeedingRunAlive(run)));
+  }
+
+  isAnyFeedingStarting() {
+    return [...this.feedingRuns.values()].some((run) => run.starting);
+  }
+
+  getFeedingActivePairIndices() {
+    const out = [];
+    for (const [key, run] of this.feedingRuns) {
+      if (!run.starting && !this._isFeedingRunAlive(run)) continue;
+      if (key !== 'all' && typeof key === 'number') out.push(key);
+    }
+    return out.sort((a, b) => a - b);
+  }
+
+  getAllFeedingLinkedSlots() {
+    const slots = new Set();
+    for (const run of this.getActiveFeedingRuns()) {
+      for (const slot of run.linkedSlots || []) slots.add(slot);
+    }
+    return slots;
+  }
+
+  isSlotInActiveFeeding(slotIndex) {
+    return this.getAllFeedingLinkedSlots().has(slotIndex);
+  }
+
+  getPrimaryFeedingLaunchPhase() {
+    for (const run of this.getActiveFeedingRuns()) {
+      if (run.starting && run.launchPhase) return run.launchPhase;
+    }
+    return 'prepare';
   }
 
   resolveDisplayName(probe, session, auth, slotIndex = null) {
@@ -624,7 +668,7 @@ class DesktopBridge {
   resolveAccountProxy(slot, session) {
     const assigned = this.accountProxies[slot] || null;
     const live = session?.proxyUrl || null;
-    const feeding = this.isFeedingActive();
+    const feeding = this.isSlotInActiveFeeding(slot);
     const url = live || (feeding ? assigned : null);
 
     if (!url) {
@@ -655,10 +699,7 @@ class DesktopBridge {
     const session = this.sessions[slot];
     const auth = new WhatsAppSession(name).getAuthStatus();
     if (this.logoutSlots.has(slot)) return false;
-    if (this.isFeedingActive()) {
-      if (this.feedingLinkedSlots?.has(slot)) return true;
-      return Boolean(auth.saved && auth.valid);
-    }
+    if (this.isSlotInActiveFeeding(slot)) return true;
     if (auth.saved && auth.valid && auth.registered) return true;
     return Boolean(
       session?.isConnected
@@ -715,7 +756,7 @@ class DesktopBridge {
         connected:
           !this.logoutSlots.has(i)
           && Boolean(session?.isConnected && !session?.isLoggedOut && !session?.isLoggingOut),
-        feedingActive: this.isFeedingActive() && Boolean(this.feedingLinkedSlots?.has(i)),
+        feedingActive: this.isSlotInActiveFeeding(i),
         linkedViaDirect: Boolean(session?.linkedViaDirect),
         ...(() => {
           const px = this.resolveAccountProxy(i, session);
@@ -739,6 +780,7 @@ class DesktopBridge {
     }
 
     const appRoot = this.getAppRoot();
+    const activePairs = this.getFeedingActivePairIndices();
     return {
       pairCount: this.pairCount(),
       accountCount: this.accountCount(),
@@ -747,10 +789,11 @@ class DesktopBridge {
       hasProxies: this.hasProxies,
       connecting: this.connecting,
       linkingSlot: this.linkingSlot,
-      feedingRunning: Boolean(this.feedingProcess && !this.feedingProcess.killed),
-      feedingStarting: Boolean(this.feedingStarting),
-      feedingPairIndex: this.feedingPairIndex,
-      feedingLaunchPhase: this.feedingLaunchPhase || 'prepare',
+      feedingRunning: this.getActiveFeedingRuns().some((run) => this._isFeedingRunAlive(run)),
+      feedingStarting: this.isAnyFeedingStarting(),
+      feedingPairIndex: activePairs.length === 1 ? activePairs[0] : null,
+      feedingActivePairs: activePairs,
+      feedingLaunchPhase: this.getPrimaryFeedingLaunchPhase(),
       lastFeedingComplete: this.lastFeedingComplete,
       accounts,
       proxies: this.proxyManager.proxies.map((url, idx) => ({
@@ -1030,7 +1073,7 @@ class DesktopBridge {
     this.setupSessionChatHooks(session, slotIndex);
 
     session.on('qr', (qr) => {
-      if (this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed)) {
+      if (this.isSlotInActiveFeeding(slotIndex)) {
         return;
       }
       this.emit('qr', { account: name, slot: slotIndex, qr, method: 'qr' });
@@ -1048,7 +1091,7 @@ class DesktopBridge {
     });
 
     session.on('pairingCode', (data) => {
-      if (this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed)) {
+      if (this.isSlotInActiveFeeding(slotIndex)) {
         return;
       }
       this.emit('pairingCode', { account: name, slot: slotIndex, ...data });
@@ -1107,9 +1150,11 @@ class DesktopBridge {
         return;
       }
       this.emit('alert', { account: name, slot: slotIndex, ...alert });
-      if (this.feedingProcess && !this.feedingProcess.killed) {
+      if (this.isSlotInActiveFeeding(slotIndex)) {
+        const pairIndex = Math.floor(slotIndex / 2);
+        const run = this._getFeedingRun(pairIndex);
         const entry = this.auditLog.recordOrUpdate({
-          runId: this.currentFeedingRunId,
+          runId: run?.runId || this.currentFeedingRunId,
           slot: slotIndex,
           sessionName: name,
           accountName: session.getDisplayName?.() || getAccountLabel(slotIndex),
@@ -1191,7 +1236,7 @@ class DesktopBridge {
   }
 
   async ensurePreviewConnection(slotIndex) {
-    if (this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed)) {
+    if (this.isSlotInActiveFeeding(slotIndex)) {
       return { ok: false, skipped: 'feeding' };
     }
     if (this.logoutSlots.has(slotIndex)) {
@@ -1213,11 +1258,10 @@ class DesktopBridge {
   }
 
   /** Restore desktop preview sockets after feeding CLI exits (one account at a time). */
-  async reconnectPreviewSessions() {
-    if (this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed)) {
-      return;
-    }
+  async reconnectPreviewSessions(slotsToReconnect = null) {
     for (let i = 0; i < this.accountCount(); i++) {
+      if (slotsToReconnect && !slotsToReconnect.includes(i)) continue;
+      if (this.isSlotInActiveFeeding(i)) continue;
       const auth = new WhatsAppSession(getAccountName(i)).getAuthStatus();
       if (!auth.saved || this.logoutSlots.has(i)) continue;
       const session = this.sessions[i];
@@ -1233,8 +1277,13 @@ class DesktopBridge {
   }
 
   async connectAccount(slotIndex, plan = { method: 'qr' }) {
-    if (this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed)) {
-      throw new Error('Stop or wait for feeding startup to finish before linking accounts');
+    if (this.isSlotInActiveFeeding(slotIndex)) {
+      throw new Error('Stop feeding for this pair before linking accounts');
+    }
+    const pairIndex = Math.floor(slotIndex / 2);
+    const run = this._getFeedingRun(pairIndex);
+    if (run?.starting) {
+      throw new Error(`Wait for Pair ${pairIndex + 1} feeding startup to finish before linking accounts`);
     }
 
     const sessionName = getAccountName(slotIndex);
@@ -1415,8 +1464,8 @@ class DesktopBridge {
   }
 
   async connectAll(loginMethod = 'qr') {
-    if (this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed)) {
-      throw new Error('Cannot link while feeding is starting or running');
+    if (this.isFeedingActive()) {
+      throw new Error('Cannot link all while feeding is running — link accounts one pair at a time');
     }
     if (this.connecting) return this.getStatus();
     this.connecting = true;
@@ -1539,8 +1588,8 @@ class DesktopBridge {
   }
 
   async logoutAccount(slotIndex) {
-    if (this.feedingProcess && !this.feedingProcess.killed) {
-      throw new Error('Stop feeding before logging out an account');
+    if (this.isSlotInActiveFeeding(slotIndex)) {
+      throw new Error('Stop feeding for this pair before logging out an account');
     }
 
     const sessionName = getAccountName(slotIndex);
@@ -1600,12 +1649,10 @@ class DesktopBridge {
    * Re-read auth/ from disk and drop stale in-memory sessions (fixes UI stuck after clear/logout).
    */
   async refreshAccounts() {
-    const feedingActive =
-      this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed);
     const count = this.accountCount();
 
-    if (!feedingActive) {
-      for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i++) {
+      if (this.isSlotInActiveFeeding(i)) continue;
         const session = this.sessions[i];
         if (!session) continue;
         if (session.isConnected) continue;
@@ -1621,11 +1668,23 @@ class DesktopBridge {
         }
         this.sessions[i] = null;
       }
-    }
 
     const status = this.getStatus();
     this.emit('status', status);
     return status;
+  }
+
+  async disconnectSlots(slotIndices = []) {
+    for (const i of slotIndices) {
+      const session = this.sessions[i];
+      if (session) {
+        session.autoReconnectAllowed = false;
+        session.clearReconnectTimer();
+        await session.shutdown();
+      }
+      this.sessions[i] = null;
+    }
+    this.emit('status', this.getStatus());
   }
 
   async disconnectAll() {
@@ -1648,7 +1707,7 @@ class DesktopBridge {
    * Use when sessions are corrupted or stuck — does not call WhatsApp remote logout.
    */
   async clearAllSessions() {
-    if (this.feedingStarting || (this.feedingProcess && !this.feedingProcess.killed)) {
+    if (this.isFeedingActive()) {
       this.stopFeeding();
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -1718,39 +1777,70 @@ class DesktopBridge {
     return { ok: true, removed, authDir: authRoot, accounts: status.accounts };
   }
 
-  stopFeeding() {
-    this.feedingStarting = false;
-    this.feedingLinkedSlots = null;
-    this.feedingPairIndex = null;
-    if (!this.feedingProcess) return { ok: true, wasRunning: false };
-    try {
-      this.feedingProcess.kill('SIGTERM');
-    } catch {
-      /* ignore */
+  stopFeeding(options = {}) {
+    let pairIndex = options.pairIndex;
+    if (pairIndex !== undefined && pairIndex !== null && pairIndex !== '') {
+      pairIndex = parseInt(pairIndex, 10);
+      if (!Number.isFinite(pairIndex)) {
+        return { ok: false, error: 'Invalid pairIndex' };
+      }
+      return this._stopFeedingRun(pairIndex);
     }
-    this.feedingProcess = null;
-    this.log('warn', '[FEEDING] Stopped');
-    this.recordFeedingComplete({
-      manualStop: true,
-      success: false,
-      stopped: this.pairCount(),
-      completed: 0,
-      totalPairs: this.pairCount(),
+
+    const keys = [...this.feedingRuns.keys()];
+    let stopped = 0;
+    for (const key of keys) {
+      const result = this._stopFeedingRun(key === 'all' ? null : key);
+      if (result.wasRunning) stopped += 1;
+    }
+    if (stopped > 0) {
+      this.recordFeedingComplete({
+        manualStop: true,
+        success: false,
+        stopped: this.pairCount(),
+        completed: 0,
+        totalPairs: this.pairCount(),
+      });
+    }
+    this.emit('status', this.getStatus());
+    return { ok: true, wasRunning: stopped > 0, stoppedCount: stopped };
+  }
+
+  _stopFeedingRun(pairIndex) {
+    const key = this._feedingRunKey(pairIndex);
+    const run = this.feedingRuns.get(key);
+    if (!run) return { ok: true, wasRunning: false, pairIndex };
+
+    run.starting = false;
+    if (run.process) {
+      try {
+        run.process.kill('SIGTERM');
+      } catch {
+        /* ignore */
+      }
+    }
+    this.feedingRuns.delete(key);
+
+    const label = pairIndex != null ? `Pair ${pairIndex + 1}` : 'All pairs';
+    this.log('warn', `[FEEDING] ${label} stopped`);
+
+    const slots = run.linkedSlots ? [...run.linkedSlots] : [];
+    this.emit('status', this.getStatus());
+    this.reconnectPreviewSessions(slots).catch((err) => {
+      this.log('warn', `[FEEDING] Preview reconnect: ${err.message}`);
     });
-    this.emit('status', this.getStatus());
-    return { ok: true, wasRunning: true };
+
+    return { ok: true, wasRunning: true, pairIndex };
   }
 
-  setFeedingLaunchPhase(phase) {
-    this.feedingLaunchPhase = phase;
+  setFeedingLaunchPhase(pairIndex, phase) {
+    const run = this._getFeedingRun(pairIndex);
+    if (run) run.launchPhase = phase;
     this.emit('status', this.getStatus());
   }
 
-  failFeedingStart(message) {
-    this.feedingStarting = false;
-    this.feedingLaunchPhase = 'prepare';
-    this.feedingLinkedSlots = null;
-    this.feedingPairIndex = null;
+  failFeedingStart(message, pairIndex) {
+    this.feedingRuns.delete(this._feedingRunKey(pairIndex));
     this.emit('status', this.getStatus());
     return { ok: false, error: message };
   }
@@ -1760,13 +1850,6 @@ class DesktopBridge {
   }
 
   async startFeeding(options = {}) {
-    if (this.feedingProcess && !this.feedingProcess.killed) {
-      return { ok: false, error: 'Feeding already running' };
-    }
-    if (this.feedingStarting) {
-      return { ok: false, error: 'Feeding is already starting' };
-    }
-
     let pairIndex = options.pairIndex;
     if (pairIndex !== undefined && pairIndex !== null && pairIndex !== '') {
       pairIndex = parseInt(pairIndex, 10);
@@ -1774,217 +1857,228 @@ class DesktopBridge {
         return { ok: false, error: `Invalid pair (${options.pairIndex})` };
       }
     } else {
+      if (this.isFeedingActive()) {
+        return { ok: false, error: 'Stop all feeding runs before starting all pairs together' };
+      }
       pairIndex = null;
     }
 
-    this.feedingStarting = true;
-    this.feedingLaunchPhase = 'prepare';
-    this.feedingPairIndex = pairIndex;
+    if (pairIndex !== null) {
+      if (this.isPairFeedingActive(pairIndex)) {
+        return { ok: false, error: `Pair ${pairIndex + 1} feeding is already running or starting` };
+      }
+    }
+
+    const runKey = this._feedingRunKey(pairIndex);
+    const run = {
+      pairIndex,
+      starting: true,
+      launchPhase: 'prepare',
+      linkedSlots: new Set(),
+      process: null,
+      runId: null,
+    };
+    this.feedingRuns.set(runKey, run);
     this.lastFeedingComplete = null;
     this.emit('status', this.getStatus());
 
+    const fail = (message) => this.failFeedingStart(message, pairIndex);
+    const setPhase = (phase) => this.setFeedingLaunchPhase(pairIndex, phase);
+    const runLabel = pairIndex != null ? `[FEEDING P${pairIndex + 1}]` : '[FEEDING]';
+
     try {
-    if (pairIndex !== null) {
-      const slotA = pairIndex * 2;
-      const slotB = slotA + 1;
-      if (!this.isAccountLinked(slotA) || !this.isAccountLinked(slotB)) {
-        return this.failFeedingStart(
-          `Pair ${pairIndex + 1} is not fully linked — scan QR for both accounts before Start feeding.`
-        );
+      if (pairIndex !== null) {
+        const slotA = pairIndex * 2;
+        const slotB = slotA + 1;
+        if (!this.isAccountLinked(slotA) || !this.isAccountLinked(slotB)) {
+          return fail(
+            `Pair ${pairIndex + 1} is not fully linked — scan QR for both accounts before Start feeding.`
+          );
+        }
+        run.linkedSlots = new Set([slotA, slotB]);
+      } else {
+        const savedCount = this.accountCount();
+        let linked = 0;
+        for (let i = 0; i < savedCount; i++) {
+          if (this.isAccountLinked(i)) linked += 1;
+        }
+        if (linked < savedCount) {
+          return fail(
+            `Not all accounts are linked (${linked}/${savedCount}). Scan QR for each account in the sidebar before Start feeding.`
+          );
+        }
+        run.linkedSlots = new Set(Array.from({ length: savedCount }, (_, i) => i));
       }
-      this.feedingLinkedSlots = new Set([slotA, slotB]);
-    } else {
-      const savedCount = this.accountCount();
-      let linked = 0;
-      for (let i = 0; i < savedCount; i++) {
-        if (this.isAccountLinked(i)) linked += 1;
+
+      await this.ensureCodexProxy();
+      const aiCheck = await this.getAiStatus();
+      if (aiCheck.probe?.error) return fail(aiCheck.probe.error);
+      if (!aiCheck.probe?.openaiReady && !aiCheck.probe?.ollamaReady) {
+        return fail('No AI provider available.');
       }
-      if (linked < savedCount) {
-        return this.failFeedingStart(
-          `Not all accounts are linked (${linked}/${savedCount}). Scan QR for each account in the sidebar before Start feeding.`
-        );
-      }
-
-      this.feedingLinkedSlots = new Set();
-      for (let i = 0; i < savedCount; i++) {
-        this.feedingLinkedSlots.add(i);
-      }
-    }
-
-    await this.ensureCodexProxy();
-    const aiCheck = await this.getAiStatus();
-    if (aiCheck.probe?.error) {
-      return this.failFeedingStart(aiCheck.probe.error);
-    }
-    if (!aiCheck.probe?.openaiReady && !aiCheck.probe?.ollamaReady) {
-      return this.failFeedingStart('No AI provider available.');
-    }
-    if (!aiCheck.probe?.openaiReady && aiCheck.probe?.ollamaReady) {
-      this.log(
-        'warn',
-        '[AI] OpenAI/Codex unavailable — feeding will use Ollama only. Check Codex login or .env OPENAI_AUTH_MODE=codex'
-      );
-    } else if (aiCheck.probe?.openaiReady) {
-      const mode = aiCheck.probe.openaiAuthMode === 'codex' ? 'Codex' : 'OpenAI API';
-      this.log('info', `[AI] Feeding will use ${mode} (${aiCheck.probe.openaiModel})`);
-    }
-
-    const root = this.getAppRoot();
-    if (pairIndex !== null) {
-      this.log(
-        'info',
-        `[FEEDING] Pair ${pairIndex + 1} only — accounts ${getAccountName(pairIndex * 2)} & ${getAccountName(pairIndex * 2 + 1)}`
-      );
-    } else {
-      this.log('info', `[FEEDING] All ${this.pairCount()} pair(s)`);
-    }
-    this.log('info', `[FEEDING] Auth folder: ${path.join(root, 'auth')}`);
-    if (this.hasProxies) {
-      this.log('info', '[FEEDING] Proxy plan for this run:');
-      const slotsToLog = pairIndex !== null
-        ? [pairIndex * 2, pairIndex * 2 + 1]
-        : Array.from({ length: this.accountCount() }, (_, i) => i);
-      for (const i of slotsToLog) {
-        const name = getAccountName(i);
-        const url = this.accountProxies[i];
-        const route = url
-          ? this.proxyManager.maskUrl(url)
-          : 'direct (no working proxy for slot)';
-        this.log('info', `[FEEDING]   ${name} → ${route}`);
-      }
-      this.log(
-        'info',
-        '[FEEDING] CLI will connect each account via route above (see Route (connect/connected) in log)'
-      );
-    } else {
-      this.log('info', '[FEEDING] No proxies.txt — all accounts will use direct (local IP)');
-    }
-
-    this.setFeedingLaunchPhase('prepare');
-    const clearSlots = pairIndex !== null
-      ? [pairIndex * 2, pairIndex * 2 + 1]
-      : Array.from({ length: this.accountCount() }, (_, i) => i);
-    for (const i of clearSlots) {
-      this.clearChat(i);
-    }
-
-    this.setFeedingLaunchPhase('disconnect');
-    await this.disconnectAll();
-    await new Promise((r) => setTimeout(r, 2500));
-
-    this.setFeedingLaunchPhase('ai');
-    const scriptPath = path.resolve(this.resolveFeedingScript());
-    this.log('info', `[FEEDING] Starting CLI (${scriptPath})...`);
-    this.log('info', `[FEEDING] Node: ${process.execPath}`);
-
-    this.currentFeedingRunId = this.auditLog.createRun();
-    this.setFeedingLaunchPhase('connect');
-
-    const env = this.getFeedingEnv(root);
-    env.DESKTOP_FEEDING = '1';
-    env.DESKTOP_API_PORT = process.env.DESKTOP_API_PORT || '47821';
-    env.FEEDING_RUN_ID = this.currentFeedingRunId;
-    if (pairIndex !== null) {
-      env.FEEDING_PAIR_INDEX = String(pairIndex);
-    } else {
-      delete env.FEEDING_PAIR_INDEX;
-    }
-    let child;
-    try {
-      child = this.spawnFeedingChild(scriptPath, root, env);
-    } catch (err) {
-      return this.failFeedingStart(`Failed to start feeding CLI: ${err.message}`);
-    }
-
-    this.feedingProcess = child;
-    this.emit('status', this.getStatus());
-
-    let launchEnded = false;
-    let cliReady = false;
-    const endFeedingLaunch = () => {
-      if (launchEnded) return;
-      launchEnded = true;
-      this.feedingStarting = false;
-      this.emit('status', this.getStatus());
-    };
-    const launchMaxTimer = setTimeout(endFeedingLaunch, 12000);
-
-    const onLine = (buf, level = 'info') => {
-      String(buf)
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .forEach((line) => {
-          if (this.tryParseFeedingChatLog(line)) return;
-          if (
-            /Profile name|Connected as:/i.test(line)
-            && !/~\s*$/.test(line)
-          ) {
-            this.refreshProfileNamesFromDisk();
-            this.emit('status', this.getStatus());
-          }
-          if (/Route \((connect|connected)\):/i.test(line)) {
-            this.emit('status', this.getStatus());
-          }
-          if (/^\[PROXY\]/i.test(line) || /Route \(/i.test(line) || /linkedViaDirect/i.test(line)) {
-            this.log('info', line);
-            return;
-          }
-          this.log(level, line);
-          if (
-            !cliReady
-            && !line.includes('MODULE_NOT_FOUND')
-            && /WhatsApp Auto Chat|SESSION STATUS|AI Provider|FEEDING|Connected as/i.test(line)
-          ) {
-            cliReady = true;
-            clearTimeout(launchMaxTimer);
-            setTimeout(endFeedingLaunch, 800);
-          }
-        });
-    };
-
-    child.stdout.on('data', (d) => onLine(d, 'info'));
-    child.stderr.on('data', (d) => onLine(d, 'warn'));
-    child.on('close', (code) => {
-      clearTimeout(launchMaxTimer);
-      endFeedingLaunch();
-      if (code !== 0) {
+      if (!aiCheck.probe?.openaiReady && aiCheck.probe?.ollamaReady) {
         this.log(
-          'error',
-          '[FEEDING] CLI failed to start. Restart the app (stop npm run dev:app, then run again). If it persists, send the [FEEDING] Node log line.'
+          'warn',
+          '[AI] OpenAI/Codex unavailable — feeding will use Ollama only. Check Codex login or .env OPENAI_AUTH_MODE=codex'
         );
+      } else if (aiCheck.probe?.openaiReady) {
+        const mode = aiCheck.probe.openaiAuthMode === 'codex' ? 'Codex' : 'OpenAI API';
+        this.log('info', `[AI] Feeding will use ${mode} (${aiCheck.probe.openaiModel})`);
       }
-      this.log(code === 0 ? 'success' : 'warn', `[FEEDING] Exited (code ${code ?? '?'})`);
-      this.feedingProcess = null;
-      this.feedingLinkedSlots = null;
-      this.feedingPairIndex = null;
-      if (code === 0 && !this.lastFeedingComplete?.at) {
-        this.recordFeedingComplete({ success: true });
-      } else if (code !== 0 && code != null && !this.lastFeedingComplete?.at) {
-        this.recordFeedingComplete({
-          success: false,
-          manualStop: true,
-          stopped: this.pairCount(),
-        });
-      }
-      this.emit('status', this.getStatus());
-      this.reconnectPreviewSessions().catch((err) => {
-        this.log('warn', `[FEEDING] Preview reconnect: ${err.message}`);
-      });
-    });
-    child.on('error', (err) => {
-      clearTimeout(launchMaxTimer);
-      endFeedingLaunch();
-      this.log('error', `[FEEDING] ${err.message}`);
-      this.feedingProcess = null;
-      this.feedingLinkedSlots = null;
-      this.feedingPairIndex = null;
-      this.emit('status', this.getStatus());
-    });
 
-    return { ok: true, pid: child.pid, pairIndex };
+      const root = this.getAppRoot();
+      const clearSlots = [...run.linkedSlots];
+      if (pairIndex !== null) {
+        this.log(
+          'info',
+          `${runLabel} accounts ${getAccountName(pairIndex * 2)} & ${getAccountName(pairIndex * 2 + 1)}`
+        );
+      } else {
+        this.log('info', `${runLabel} All ${this.pairCount()} pair(s)`);
+      }
+      this.log('info', `${runLabel} Auth folder: ${path.join(root, 'auth')}`);
+
+      if (this.hasProxies) {
+        if (pairIndex !== null) {
+          const partial = await this.proxyManager.assignWorkingForSlotIndices(
+            this.accountCount(),
+            clearSlots,
+            (i) => getAccountName(i)
+          );
+          for (const i of clearSlots) {
+            this.accountProxies[i] = partial[i];
+          }
+        }
+        this.log('info', `${runLabel} Proxy plan for this run:`);
+        for (const i of clearSlots) {
+          const name = getAccountName(i);
+          const url = this.accountProxies[i];
+          const route = url
+            ? this.proxyManager.maskUrl(url)
+            : 'direct (no working proxy for slot)';
+          this.log('info', `${runLabel}   ${name} → ${route}`);
+        }
+      } else {
+        this.log('info', `${runLabel} No proxies.txt — direct (local IP)`);
+      }
+
+      setPhase('prepare');
+      for (const i of clearSlots) this.clearChat(i);
+
+      setPhase('disconnect');
+      await this.disconnectSlots(clearSlots);
+      await new Promise((r) => setTimeout(r, 2500));
+
+      setPhase('ai');
+      const scriptPath = path.resolve(this.resolveFeedingScript());
+      this.log('info', `${runLabel} Starting CLI (${scriptPath})...`);
+
+      run.runId = this.auditLog.createRun();
+      this.currentFeedingRunId = run.runId;
+      setPhase('connect');
+
+      const env = this.getFeedingEnv(root);
+      env.DESKTOP_FEEDING = '1';
+      env.DESKTOP_API_PORT = process.env.DESKTOP_API_PORT || '47821';
+      env.FEEDING_RUN_ID = run.runId;
+      if (pairIndex !== null) {
+        env.FEEDING_PAIR_INDEX = String(pairIndex);
+      } else {
+        delete env.FEEDING_PAIR_INDEX;
+      }
+
+      let child;
+      try {
+        child = this.spawnFeedingChild(scriptPath, root, env);
+      } catch (err) {
+        return fail(`Failed to start feeding CLI: ${err.message}`);
+      }
+
+      run.process = child;
+      this.emit('status', this.getStatus());
+
+      let launchEnded = false;
+      let cliReady = false;
+      const endFeedingLaunch = () => {
+        if (launchEnded) return;
+        launchEnded = true;
+        run.starting = false;
+        this.emit('status', this.getStatus());
+      };
+      const launchMaxTimer = setTimeout(endFeedingLaunch, 12000);
+
+      const onLine = (buf, level = 'info') => {
+        String(buf)
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .forEach((line) => {
+            if (this.tryParseFeedingChatLog(line)) return;
+            if (/Profile name|Connected as:/i.test(line) && !/~\s*$/.test(line)) {
+              this.refreshProfileNamesFromDisk();
+              this.emit('status', this.getStatus());
+            }
+            if (/Route \((connect|connected)\):/i.test(line)) {
+              this.emit('status', this.getStatus());
+            }
+            if (/^\[PROXY\]/i.test(line) || /Route \(/i.test(line) || /linkedViaDirect/i.test(line)) {
+              this.log('info', line);
+              return;
+            }
+            this.log(level, line);
+            if (
+              !cliReady
+              && !line.includes('MODULE_NOT_FOUND')
+              && /WhatsApp Auto Chat|SESSION STATUS|AI Provider|FEEDING|Connected as/i.test(line)
+            ) {
+              cliReady = true;
+              clearTimeout(launchMaxTimer);
+              setTimeout(endFeedingLaunch, 800);
+            }
+          });
+      };
+
+      const slotsForReconnect = [...run.linkedSlots];
+      child.stdout.on('data', (d) => onLine(d, 'info'));
+      child.stderr.on('data', (d) => onLine(d, 'warn'));
+      child.on('close', (code) => {
+        clearTimeout(launchMaxTimer);
+        endFeedingLaunch();
+        this.feedingRuns.delete(runKey);
+        const exitLabel = pairIndex != null ? `Pair ${pairIndex + 1}` : 'All pairs';
+        if (code !== 0) {
+          this.log(
+            'error',
+            `${runLabel} CLI failed (code ${code ?? '?'}). Restart the app if this persists.`
+          );
+        } else {
+          this.log('success', `${runLabel} ${exitLabel} finished (code 0)`);
+        }
+        if (code === 0 && !this.isFeedingActive() && !this.lastFeedingComplete?.at) {
+          this.recordFeedingComplete({ success: true });
+        } else if (code !== 0 && code != null && !this.isFeedingActive() && !this.lastFeedingComplete?.at) {
+          this.recordFeedingComplete({
+            success: false,
+            manualStop: true,
+            stopped: this.pairCount(),
+          });
+        }
+        this.emit('status', this.getStatus());
+        this.reconnectPreviewSessions(slotsForReconnect).catch((err) => {
+          this.log('warn', `[FEEDING] Preview reconnect: ${err.message}`);
+        });
+      });
+      child.on('error', (err) => {
+        clearTimeout(launchMaxTimer);
+        endFeedingLaunch();
+        this.feedingRuns.delete(runKey);
+        this.log('error', `${runLabel} ${err.message}`);
+        this.emit('status', this.getStatus());
+      });
+
+      return { ok: true, pid: child.pid, pairIndex };
     } catch (err) {
-      return this.failFeedingStart(err.message || String(err));
+      return fail(err.message || String(err));
     }
   }
 

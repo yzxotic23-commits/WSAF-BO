@@ -1169,6 +1169,22 @@
   50% { opacity: 1; transform: scale(1.08); }
 }
 
+.ff-pair-start-btn--stop {
+  background: linear-gradient(135deg, #ff6b6b 0%, #e53935 55%, #c62828 100%);
+  border-color: rgba(198, 40, 40, 0.35);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(229, 57, 53, 0.28);
+  animation: none;
+}
+
+.ff-pair-start-btn--stop:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ff8787 0%, #ef5350 55%, #d32f2f 100%);
+}
+
+.ff-pair-start-btn--stop .ff-pair-start-btn__icon {
+  animation: none;
+}
+
 .wa-chat-rows {
   flex: 1;
   min-height: 0;
@@ -1418,7 +1434,7 @@
   display: none !important;
 }
 
-.wa-list-footer:not(:has(.wa-footer-btn--stop)) {
+.wa-list-footer:not(:has(.wa-footer-btn--stop)):not(.ff-feeding-footer-visible) {
   display: none !important;
 }
 
