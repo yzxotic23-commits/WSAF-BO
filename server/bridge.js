@@ -440,35 +440,58 @@ class DesktopBridge {
     this.emit('chat', { slot, cleared: true });
   }
 
-  findSlotByLabel(label) {
+  findSlotByLabel(label, pairIndex = null) {
     const want = String(label || '').trim();
     if (!want) return -1;
-    for (let i = 0; i < this.accountCount(); i++) {
-      if (getAccountLabel(i) === want) return i;
-      const probe = new WhatsAppSession(getAccountName(i));
+
+    const indices = pairIndex !== null && pairIndex >= 0
+      ? [pairIndex * 2, pairIndex * 2 + 1]
+      : Array.from({ length: this.accountCount() }, (_, i) => i);
+
+    const matchesLabel = (slot) => {
+      if (getAccountLabel(slot) === want) return true;
+      const row = this.slotLabels.getRow(slot);
+      if (row?.accountName === want) return true;
+      const probe = new WhatsAppSession(getAccountName(slot));
       const display = probe.getBestProfileNameFromDisk?.() || probe.loadProfileName();
-      if (display && display === want) return i;
+      return Boolean(display && display === want);
+    };
+
+    for (const i of indices) {
+      if (matchesLabel(i)) return i;
+    }
+
+    if (pairIndex !== null && pairIndex >= 0) return -1;
+
+    for (let i = 0; i < this.accountCount(); i++) {
+      if (matchesLabel(i)) return i;
     }
     return -1;
   }
 
   /** Pesan dari proses feeding CLI → bubble chat di UI (WhatsApp Web style). */
   tryParseFeedingChatLog(line) {
+    const pairMatch = line.match(/^\[Pair (\d+)\]/);
+    const pairIndex = pairMatch ? parseInt(pairMatch[1], 10) - 1 : null;
     const m = line.match(
       /^\[Pair \d+\]\s+(.+?)\s*(?:→|->)\s*(.+?):\s+(.+?)(?:\s+\[\d+\/\d+\])?(?:\s+\(nudge\b.*)?$/u
     );
     if (!m) return false;
     const [, fromLabel, toLabel, text] = m;
-    this.pushFeedingMessage(fromLabel.trim(), toLabel.trim(), text.trim(), 'message');
+    this.pushFeedingMessage(fromLabel.trim(), toLabel.trim(), text.trim(), 'message', { pairIndex });
     return true;
   }
 
-  pushFeedingMessage(fromLabel, toLabel, text, kind = 'message') {
+  pushFeedingMessage(fromLabel, toLabel, text, kind = 'message', slots = {}) {
     const body = String(text || '').trim();
-    if (!body) return;
+    if (!body && kind !== 'typing') return;
 
-    const fromSlot = this.findSlotByLabel(fromLabel);
-    const toSlot = this.findSlotByLabel(toLabel);
+    let fromSlot = Number.isFinite(slots.fromSlot) ? slots.fromSlot : -1;
+    let toSlot = Number.isFinite(slots.toSlot) ? slots.toSlot : -1;
+    const pairIndex = Number.isFinite(slots.pairIndex) ? slots.pairIndex : null;
+
+    if (fromSlot < 0) fromSlot = this.findSlotByLabel(fromLabel, pairIndex);
+    if (toSlot < 0) toSlot = this.findSlotByLabel(toLabel, pairIndex);
 
     if (kind === 'typing') {
       if (fromSlot >= 0) {
@@ -1812,6 +1835,7 @@ class DesktopBridge {
     if (!run) return { ok: true, wasRunning: false, pairIndex };
 
     run.starting = false;
+    run.intentionalStop = true;
     if (run.process) {
       try {
         run.process.kill('SIGTERM');
@@ -1819,18 +1843,15 @@ class DesktopBridge {
         /* ignore */
       }
     }
-    this.feedingRuns.delete(key);
 
     const label = pairIndex != null ? `Pair ${pairIndex + 1}` : 'All pairs';
     this.log('warn', `[FEEDING] ${label} stopped`);
 
     const slots = run.linkedSlots ? [...run.linkedSlots] : [];
     this.emit('status', this.getStatus());
-    this.reconnectPreviewSessions(slots).catch((err) => {
-      this.log('warn', `[FEEDING] Preview reconnect: ${err.message}`);
-    });
+    // Preview reconnect runs from child 'close' handler after CLI exits.
 
-    return { ok: true, wasRunning: true, pairIndex };
+    return { ok: true, wasRunning: true, pairIndex, linkedSlots: slots };
   }
 
   setFeedingLaunchPhase(pairIndex, phase) {
@@ -2041,22 +2062,27 @@ class DesktopBridge {
       const slotsForReconnect = [...run.linkedSlots];
       child.stdout.on('data', (d) => onLine(d, 'info'));
       child.stderr.on('data', (d) => onLine(d, 'warn'));
-      child.on('close', (code) => {
+      child.on('close', (code, signal) => {
         clearTimeout(launchMaxTimer);
         endFeedingLaunch();
+        const run = this.feedingRuns.get(runKey);
+        const intentional = Boolean(run?.intentionalStop);
         this.feedingRuns.delete(runKey);
         const exitLabel = pairIndex != null ? `Pair ${pairIndex + 1}` : 'All pairs';
-        if (code !== 0) {
+        if (intentional) {
+          this.log('info', `${runLabel} ${exitLabel} CLI stopped`);
+        } else if (code === 0) {
+          this.log('success', `${runLabel} ${exitLabel} finished (code 0)`);
+        } else {
+          const detail = code != null ? `code ${code}` : signal ? `signal ${signal}` : 'unknown';
           this.log(
             'error',
-            `${runLabel} CLI failed (code ${code ?? '?'}). Restart the app if this persists.`
+            `${runLabel} CLI failed (${detail}). Restart the app if this persists.`
           );
-        } else {
-          this.log('success', `${runLabel} ${exitLabel} finished (code 0)`);
         }
         if (code === 0 && !this.isFeedingActive() && !this.lastFeedingComplete?.at) {
           this.recordFeedingComplete({ success: true });
-        } else if (code !== 0 && code != null && !this.isFeedingActive() && !this.lastFeedingComplete?.at) {
+        } else if (!intentional && code !== 0 && !this.isFeedingActive() && !this.lastFeedingComplete?.at) {
           this.recordFeedingComplete({
             success: false,
             manualStop: true,

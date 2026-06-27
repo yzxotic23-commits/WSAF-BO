@@ -191,26 +191,26 @@ function oneLine(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
 }
 
-function logOut(pairNum, from, to, text, count, suffix = '') {
+function logOut(pairNum, from, to, text, count, suffix = '', slots = {}) {
   if (process.env.DESKTOP_FEEDING === '1') {
-    reportFeedingChat(from, to, oneLine(text), 'message');
+    reportFeedingChat(from, to, oneLine(text), 'message', slots);
     return;
   }
   const extra = suffix ? ` ${suffix}` : '';
   log(pairNum, `${from} → ${to}: ${oneLine(text)} ${msgCount(count)}${extra}`);
 }
 
-function logNudge(pairNum, from, to, text, nudgeNum) {
+function logNudge(pairNum, from, to, text, nudgeNum, slots = {}) {
   if (process.env.DESKTOP_FEEDING === '1') {
-    reportFeedingChat(from, to, oneLine(text), 'nudge');
+    reportFeedingChat(from, to, oneLine(text), 'nudge', slots);
     return;
   }
   log(pairNum, `${from} → ${to}: ${oneLine(text)} (nudge ${nudgeNum}/${PAIR_MAX_NUDGES})`);
 }
 
-function logTyping(pairNum, who, sec) {
+function logTyping(pairNum, who, sec, slots = {}) {
   if (process.env.DESKTOP_FEEDING === '1') {
-    reportFeedingChat(who, '', `typing… ${sec}s`, 'typing');
+    reportFeedingChat(who, '', `typing… ${sec}s`, 'typing', slots);
     return;
   }
   log(pairNum, `${who} typing... ${sec}s`);
@@ -522,16 +522,31 @@ async function runPairSession(
   attachDesktopProfileSync(sessionA);
   attachDesktopProfileSync(sessionB);
 
+  const slotA = (pairNum - 1) * 2;
+  const slotB = slotA + 1;
+  const chatSlots = (fromSide) => ({
+    pairIndex: pairNum - 1,
+    fromSlot: fromSide === 'A' ? slotA : slotB,
+    toSlot: fromSide === 'A' ? slotB : slotA,
+  });
+  const typingSlots = (label) => ({
+    pairIndex: pairNum - 1,
+    fromSlot: label === pairLabels.A ? slotA : slotB,
+  });
+
   const jidA = sessionA.getMyJid();
   const jidB = sessionB.getMyJid();
-  sessionA.setExpectedPartner(jidB);
-  sessionB.setExpectedPartner(jidA);
-
-  // Creds seed overwrites any stale partner-lid.json from mis-identified contacts.
   sessionA.partnerLidJid = null;
   sessionB.partnerLidJid = null;
+  sessionA.setExpectedPartner(jidB, { loadSavedLid: false });
+  sessionB.setExpectedPartner(jidA, { loadSavedLid: false });
 
-  // Cross-inject LIDs from creds.json so the bot sends to LID from the start
+  log(
+    pairNum,
+    `Phone lock: ${sessionA.getPhone() || '?'} (${pairLabels.A}) ↔ ${sessionB.getPhone() || '?'} (${pairLabels.B})`
+  );
+
+  // Creds seed overwrites any stale partner-lid.json from mis-identified contacts.
   // (no need to wait for a manual message to learn the partner's LID)
   const lidA = sessionA.getMyLid();  // Account A's own LID (as seen by B)
   const lidB = sessionB.getMyLid();  // Account B's own LID (as seen by A)
@@ -719,7 +734,7 @@ async function runPairSession(
               nudgeCount++;
               totalMessagesSent++;
               recordOutbound(fromLabel, nudge);
-              logNudge(pairNum, fromLabel, toLabel, nudge, nudgeCount);
+              logNudge(pairNum, fromLabel, toLabel, nudge, nudgeCount, chatSlots(fromA ? 'A' : 'B'));
             }
           } finally {
             isNudging = false;
@@ -870,7 +885,7 @@ async function runPairSession(
         nudgeCount = 0;
 
         const delay = randomDelay();
-        logTyping(pairNum, sendLabel, Math.round(delay / 1000));
+        logTyping(pairNum, sendLabel, Math.round(delay / 1000), typingSlots(sendLabel));
         await sleep(delay);
 
         if (controller.isPairStopped(pairNum)) return;
@@ -894,7 +909,7 @@ async function runPairSession(
         lastChatFrom = sendLabel;
         lastChatTo = recvLabel;
         recordChat(sendLabel, reply);
-        logOut(pairNum, sendLabel, recvLabel, reply, chatMessageCount);
+        logOut(pairNum, sendLabel, recvLabel, reply, chatMessageCount, '', chatSlots(isA ? 'A' : 'B'));
 
         if (chatMessageCount >= MAX_MESSAGES) {
           complete({ status: 'completed', pairNum });
@@ -945,7 +960,7 @@ async function runPairSession(
         isReplying = true;
         replyingAsLabel = pairLabels.A;
         const openerDelay = randomDelay();
-        logTyping(pairNum, pairLabels.A, Math.round(Math.min(openerDelay, 15000) / 1000));
+        logTyping(pairNum, pairLabels.A, Math.round(Math.min(openerDelay, 15000) / 1000), typingSlots(pairLabels.A));
         await sleep(Math.min(openerDelay, 15000));
 
         const opener = await aiA.generateOpener(pairLabels.A, pairLabels.B);
@@ -972,7 +987,7 @@ async function runPairSession(
         lastChatFrom = pairLabels.A;
         lastChatTo = pairLabels.B;
         recordChat(pairLabels.A, opener);
-        logOut(pairNum, pairLabels.A, pairLabels.B, opener, chatMessageCount);
+        logOut(pairNum, pairLabels.A, pairLabels.B, opener, chatMessageCount, '', chatSlots('A'));
         startIdleWatch();
       } catch (err) {
         isReplying = false;

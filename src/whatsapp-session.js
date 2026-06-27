@@ -228,8 +228,11 @@ class WhatsAppSession extends EventEmitter {
     }
   }
 
-  setExpectedPartner(partnerJid) {
+  setExpectedPartner(partnerJid, options = {}) {
+    const loadSavedLid = options.loadSavedLid !== false;
     this.expectedPartnerJid = partnerJid ? jidNormalizedUser(partnerJid) : null;
+    if (!loadSavedLid) return;
+
     const saved = this.loadPartnerLid(this.expectedPartnerJid);
     if (saved) {
       this.partnerLidJid = jidNormalizedUser(saved);

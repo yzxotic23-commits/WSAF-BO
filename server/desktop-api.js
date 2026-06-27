@@ -370,8 +370,12 @@ function createDesktopApi(options = {}) {
 
   app.post('/api/feeding/chat', (req, res) => {
     try {
-      const { fromLabel, toLabel, text, kind } = req.body || {};
-      bridge.pushFeedingMessage(fromLabel, toLabel, text, kind);
+      const { fromLabel, toLabel, fromSlot, toSlot, pairIndex, text, kind } = req.body || {};
+      bridge.pushFeedingMessage(fromLabel, toLabel, text, kind, {
+        fromSlot,
+        toSlot,
+        pairIndex,
+      });
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });

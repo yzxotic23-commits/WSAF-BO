@@ -6,11 +6,14 @@ function getApiBase() {
   return `http://127.0.0.1:${port}`;
 }
 
-async function reportFeedingChat(fromLabel, toLabel, text, kind = 'message') {
+async function reportFeedingChat(fromLabel, toLabel, text, kind = 'message', slots = {}) {
   if (process.env.DESKTOP_FEEDING !== '1') return;
   const body = JSON.stringify({
     fromLabel: String(fromLabel || ''),
     toLabel: String(toLabel || ''),
+    fromSlot: slots.fromSlot ?? null,
+    toSlot: slots.toSlot ?? null,
+    pairIndex: slots.pairIndex ?? null,
     text: String(text || ''),
     kind,
   });
