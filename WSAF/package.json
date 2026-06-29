@@ -1,0 +1,111 @@
+{
+  "name": "whatsapp-auto-feeding",
+  "version": "1.0.64",
+  "description": "FeedFlow — WhatsApp Auto Feeding (AI pair conversations)",
+  "main": "electron/main.js",
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yzxotic23-commits/WSAF-BO.git"
+  },
+  "scripts": {
+    "start": "node web.js",
+    "feeding": "node index.js",
+    "web": "node web.js",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "rebuild:electron": "npx @electron/rebuild -f -w better-sqlite3",
+    "dev:api": "npm run rebuild:node && node web.js",
+    "dev:ui": "npm run dev --prefix client",
+    "build:ui": "npm run build --prefix client",
+    "start:web": "npm run build:ui && npm run dev:api",
+    "desktop": "node scripts/ensure-electron.js && npm run rebuild:electron && node node_modules/electron/cli.js .",
+    "ensure-electron": "node scripts/ensure-electron.js",
+    "codex-login": "npx @openai/codex login",
+    "codex-proxy": "npx openai-oauth",
+    "build:win": "node scripts/build-win.js",
+    "build:win:fresh": "node scripts/build-win.js --output=release-build",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:mac:arm": "electron-builder --mac --arm64 --publish never",
+    "build:mac:intel": "electron-builder --mac --x64 --publish never",
+    "build:all": "electron-builder -mwl",
+    "update:manifest": "node scripts/generate-update-manifest.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.23",
+    "better-sqlite3": "^12.11.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "electron-updater": "^6.8.3",
+    "express": "^4.21.2",
+    "https-proxy-agent": "^9.0.0",
+    "openai": "^4.73.0",
+    "openai-oauth": "^1.0.2",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0",
+    "socket.io": "^4.8.1",
+    "socks-proxy-agent": "^10.0.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "electron": "^42.3.2",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.whatsapp.autofeeding",
+    "productName": "WhatsApp Auto Feeding",
+    "artifactName": "WhatsApp.Auto.Feeding-${version}-${arch}.${ext}",
+    "icon": "electron/icons/icon.png",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "client/dist/**/*",
+      "server/**/*",
+      "src/**/*",
+      "index.js",
+      "package.json",
+      "node_modules/**/*",
+      ".env.example"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "client/dist/**/*",
+      "node_modules/openai-oauth/**/*"
+    ],
+    "win": {
+      "icon": "electron/icons/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "installerIcon": "electron/icons/icon.ico",
+      "uninstallerIcon": "electron/icons/icon.ico"
+    },
+    "publish": null
+  }
+}
