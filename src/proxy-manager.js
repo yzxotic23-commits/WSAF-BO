@@ -28,15 +28,41 @@ class ProxyManager {
     if (!fs.existsSync(this.filePath)) {
       console.log('[PROXY] No proxies.txt found, using direct connection.');
       this.proxies = [];
+      this.rawContent = '';
       return false;
     }
-    this.proxies = this.parseContent(fs.readFileSync(this.filePath, 'utf8'));
+    this.rawContent = fs.readFileSync(this.filePath, 'utf8');
+    this.proxies = this.parseContent(this.rawContent);
     if (this.proxies.length === 0) {
       console.log('[PROXY] proxies.txt is empty, using direct connection.');
       return false;
     }
     console.log(`[PROXY] Loaded ${this.proxies.length} proxies.`);
     return true;
+  }
+
+  /** Line N in proxies.txt → account slot N (empty line = direct). */
+  parseLinesBySlot(content, accountCount) {
+    const rawLines = String(content || '').split(/\r?\n/);
+    const slots = [];
+    for (let i = 0; i < accountCount; i++) {
+      const line = (rawLines[i] || '').trim();
+      if (!line || line.startsWith('#')) {
+        slots.push(null);
+      } else if (this.isValidProxyUrl(line)) {
+        slots.push(line);
+      } else {
+        slots.push(null);
+      }
+    }
+    return slots;
+  }
+
+  getProxiesBySlot(accountCount) {
+    const content = this.rawContent != null
+      ? this.rawContent
+      : (fs.existsSync(this.filePath) ? fs.readFileSync(this.filePath, 'utf8') : '');
+    return this.parseLinesBySlot(content, accountCount);
   }
 
   parseContent(content) {
@@ -117,18 +143,77 @@ class ProxyManager {
     return assignments;
   }
 
-  /** One proxy per account slot (account1→proxy[0], account2→proxy[1], …). */
+  /** One proxy per account slot — line 1 → slot 0, line 2 → slot 1, … (duplicates OK). */
   assignForAccounts(accountCount) {
-    const list = [];
-    const n = this.proxies.length;
-    for (let i = 0; i < accountCount; i++) {
-      list.push(n > 0 ? this.proxies[i % n] : null);
-    }
-    return list;
+    return this.getProxiesBySlot(accountCount);
   }
 
   hasProxies() {
     return this.proxies.length > 0;
+  }
+
+  /** Host:port key for duplicate detection (same IP = duplicate for feeding). */
+  static proxyHostKey(proxyUrl) {
+    if (!proxyUrl) return null;
+    try {
+      const url = new URL(proxyUrl);
+      if (!url.hostname) return null;
+      const port = url.port || (url.protocol === 'socks5:' ? '1080' : '1080');
+      return `${url.hostname}:${port}`;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Find proxy hosts shared across multiple lines (same device / Shadowrocket).
+   * @param {string|string[]|null} contentOrList
+   */
+  findSharedProxyHosts(contentOrList, accountCount = null) {
+    const proxies = Array.isArray(contentOrList)
+      ? contentOrList
+      : (accountCount != null
+        ? this.parseLinesBySlot(contentOrList, accountCount)
+        : this.parseContent(contentOrList));
+
+    const byHost = new Map();
+    for (let i = 0; i < proxies.length; i++) {
+      const url = proxies[i];
+      if (!url) continue;
+      const host = ProxyManager.proxyHostKey(url);
+      if (!host) continue;
+      if (!byHost.has(host)) byHost.set(host, []);
+      byHost.get(host).push({
+        line: i + 1,
+        slot: i,
+        host,
+        masked: this.maskUrl(url),
+      });
+    }
+
+    const shared = [];
+    for (const [host, entries] of byHost) {
+      if (entries.length > 1) {
+        shared.push({
+          host,
+          lines: entries.map((e) => e.line),
+          slots: entries.map((e) => e.slot),
+          masked: entries[0].masked,
+        });
+      }
+    }
+
+    return {
+      shared,
+      duplicates: shared,
+      uniqueHosts: byHost.size,
+      totalLines: proxies.length,
+      accountCount: proxies.length,
+    };
+  }
+
+  findDuplicateHosts(contentOrList, accountCount = null) {
+    return this.findSharedProxyHosts(contentOrList, accountCount);
   }
 
   maskUrl(proxyUrl) {
@@ -176,70 +261,52 @@ class ProxyManager {
   }
 
   /**
-   * Try proxies one-by-one (rotate) until one reaches WA. Prefer different IP per slot.
-   * @param {number} accountCount
-   * @param {(name: string) => string} getAccountName
+   * Probe each account slot's configured line. Same proxy on multiple slots is allowed
+   * (e.g. Shadowrocket — one fixed proxy per physical device).
    */
   async assignWorkingForAccounts(accountCount, getAccountName) {
+    const slotProxies = this.getProxiesBySlot(accountCount);
     const assigned = [];
-    const usedUrls = new Set();
     const store = this.loadWorkingStore();
     const updatedStore = { ...store };
+    const probeCache = new Map();
 
-    console.log('[PROXY] Probing proxies (TCP to WA — routing check only)');
+    console.log('[PROXY] Probing proxies per account line (shared IP across slots is OK)');
     console.log('[PROXY] Note: probe OK does not guarantee QR link; app will rotate proxies until QR works.');
     console.log('');
 
     for (let i = 0; i < accountCount; i++) {
       const accountName = getAccountName ? getAccountName(i) : `account${i + 1}`;
+      const configured = slotProxies[i];
+      const saved = store[accountName];
       let found = null;
 
       const candidates = [];
-      const saved = store[accountName];
-      if (saved && this.proxies.includes(saved)) {
-        candidates.push(saved);
-      }
-      const startIdx = i % this.proxies.length;
-      for (let attempt = 0; attempt < this.proxies.length; attempt++) {
-        const url = this.proxies[(startIdx + attempt) % this.proxies.length];
-        if (!candidates.includes(url)) candidates.push(url);
-      }
+      if (configured) candidates.push(configured);
+      if (saved && !candidates.includes(saved)) candidates.push(saved);
 
       for (const url of candidates) {
-        if (usedUrls.has(url) && accountCount > 1) continue;
-
-        const label = this.maskUrl(url);
-        process.stdout.write(`[PROXY] ${accountName}: testing ${label} ... `);
-        const ok = await probeProxy(url);
+        let ok = probeCache.get(url);
+        if (ok === undefined) {
+          const label = this.maskUrl(url);
+          process.stdout.write(`[PROXY] ${accountName}: testing ${label} ... `);
+          ok = await probeProxy(url);
+          probeCache.set(url, ok);
+          console.log(ok ? 'OK' : 'fail');
+        } else if (ok) {
+          console.log(`[PROXY] ${accountName}: ${this.maskUrl(url)} (cached OK)`);
+        }
         if (ok) {
-          console.log('OK');
           found = url;
-          usedUrls.add(url);
           updatedStore[accountName] = url;
           break;
         }
-        console.log('fail');
       }
 
-      if (!found && accountCount > 1) {
-        for (const url of this.proxies) {
-          if (usedUrls.has(url)) continue;
-          const label = this.maskUrl(url);
-          process.stdout.write(`[PROXY] ${accountName}: retry ${label} ... `);
-          const ok = await probeProxy(url);
-          if (ok) {
-            console.log('OK');
-            found = url;
-            usedUrls.add(url);
-            updatedStore[accountName] = url;
-            break;
-          }
-          console.log('fail');
-        }
-      }
-
-      if (!found) {
-        console.log(`[PROXY] ${accountName}: no working proxy — will use direct connection`);
+      if (!found && !configured) {
+        console.log(`[PROXY] ${accountName}: no proxy on this line — direct connection`);
+      } else if (!found) {
+        console.log(`[PROXY] ${accountName}: line proxy failed probe — direct connection`);
       } else {
         console.log(`[PROXY] ${accountName}: assigned ${this.maskUrl(found)}`);
       }
@@ -269,63 +336,46 @@ class ProxyManager {
     const assigned = new Array(totalSlots).fill(null);
     if (!slotIndices?.length) return assigned;
 
-    const usedUrls = new Set();
+    const slotProxies = this.getProxiesBySlot(totalSlots);
     const store = this.loadWorkingStore();
     const updatedStore = { ...store };
+    const probeCache = new Map();
 
     console.log('[PROXY] Probing proxies for selected pair slot(s) only');
     console.log('');
 
     for (const i of slotIndices) {
       const accountName = getAccountName ? getAccountName(i) : `account${i + 1}`;
+      const configured = slotProxies[i];
+      const saved = store[accountName];
       let found = null;
 
       const candidates = [];
-      const saved = store[accountName];
-      if (saved && this.proxies.includes(saved)) {
-        candidates.push(saved);
-      }
-      const startIdx = i % this.proxies.length;
-      for (let attempt = 0; attempt < this.proxies.length; attempt++) {
-        const url = this.proxies[(startIdx + attempt) % this.proxies.length];
-        if (!candidates.includes(url)) candidates.push(url);
-      }
+      if (configured) candidates.push(configured);
+      if (saved && !candidates.includes(saved)) candidates.push(saved);
 
       for (const url of candidates) {
-        if (usedUrls.has(url) && slotIndices.length > 1) continue;
-
-        const label = this.maskUrl(url);
-        process.stdout.write(`[PROXY] ${accountName}: testing ${label} ... `);
-        const ok = await probeProxy(url);
+        let ok = probeCache.get(url);
+        if (ok === undefined) {
+          const label = this.maskUrl(url);
+          process.stdout.write(`[PROXY] ${accountName}: testing ${label} ... `);
+          ok = await probeProxy(url);
+          probeCache.set(url, ok);
+          console.log(ok ? 'OK' : 'fail');
+        } else if (ok) {
+          console.log(`[PROXY] ${accountName}: ${this.maskUrl(url)} (cached OK)`);
+        }
         if (ok) {
-          console.log('OK');
           found = url;
-          usedUrls.add(url);
           updatedStore[accountName] = url;
           break;
         }
-        console.log('fail');
       }
 
-      if (!found && slotIndices.length > 1) {
-        for (const url of this.proxies) {
-          if (usedUrls.has(url)) continue;
-          const label = this.maskUrl(url);
-          process.stdout.write(`[PROXY] ${accountName}: retry ${label} ... `);
-          const ok = await probeProxy(url);
-          if (ok) {
-            console.log('OK');
-            found = url;
-            usedUrls.add(url);
-            updatedStore[accountName] = url;
-            break;
-          }
-          console.log('fail');
-        }
-      }
-
-      if (!found) {
-        console.log(`[PROXY] ${accountName}: no working proxy — will use direct connection`);
+      if (!found && !configured) {
+        console.log(`[PROXY] ${accountName}: no proxy on this line — direct connection`);
+      } else if (!found) {
+        console.log(`[PROXY] ${accountName}: line proxy failed probe — direct connection`);
       } else {
         console.log(`[PROXY] ${accountName}: assigned ${this.maskUrl(found)}`);
       }

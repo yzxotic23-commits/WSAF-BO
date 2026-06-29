@@ -66,7 +66,9 @@ function createDesktopApi(options = {}) {
   });
 
   app.get('/api/update', (_req, res) => {
-    res.json(updater?.getState() || { enabled: false, status: 'disabled', currentVersion: PKG.version });
+    const { resolveManualDownloadUrl } = require('../electron/update-config');
+    const base = updater?.getState() || { enabled: false, status: 'disabled', currentVersion: PKG.version };
+    res.json({ ...base, manualDownloadUrl: base.manualDownloadUrl || resolveManualDownloadUrl() });
   });
 
   app.post('/api/update/check', async (_req, res) => {
@@ -106,12 +108,8 @@ function createDesktopApi(options = {}) {
 
   app.post('/api/update/open-browser', (_req, res) => {
     try {
-      const { resolveUpdateConfig } = require('../electron/update-config');
-      const cfg = resolveUpdateConfig();
-      const url =
-        cfg.owner && cfg.repo
-          ? `https://github.com/${cfg.owner}/${cfg.repo}/releases/latest`
-          : String(cfg.url || '').replace(/\/download\/?$/i, '');
+      const { resolveManualDownloadUrl } = require('../electron/update-config');
+      const url = resolveManualDownloadUrl();
       let opened = false;
       try {
         const { shell } = require('electron');
@@ -214,10 +212,19 @@ function createDesktopApi(options = {}) {
     }
   });
 
-  app.post('/api/settings/proxies', (req, res) => {
+  app.post('/api/settings/proxies', async (req, res) => {
     try {
       const content = req.body?.content ?? '';
-      res.json(bridge.writeProxiesRaw(content));
+      res.json(await bridge.writeProxiesRaw(content));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/proxies/validate', (req, res) => {
+    try {
+      const content = req.body?.content;
+      res.json(bridge.analyzeProxyDuplicates(content ?? null));
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

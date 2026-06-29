@@ -228,11 +228,8 @@ class WhatsAppSession extends EventEmitter {
     }
   }
 
-  setExpectedPartner(partnerJid, options = {}) {
-    const loadSavedLid = options.loadSavedLid !== false;
+  setExpectedPartner(partnerJid) {
     this.expectedPartnerJid = partnerJid ? jidNormalizedUser(partnerJid) : null;
-    if (!loadSavedLid) return;
-
     const saved = this.loadPartnerLid(this.expectedPartnerJid);
     if (saved) {
       this.partnerLidJid = jidNormalizedUser(saved);
@@ -275,12 +272,8 @@ class WhatsAppSession extends EventEmitter {
     }
   }
 
-  /** Baileys expects [OS, browser, version] — wrong tuple breaks pairing codes (WA rejects Windows/WEB). */
+  /** Baileys expects [OS, browser, version] — wrong order breaks pairing codes. */
   getBrowserConfig() {
-    const auth = this.getAuthStatus();
-    if (this.loginMethod === 'pairing' || !auth.registered) {
-      return Browsers.macOS('Chrome');
-    }
     return Browsers.windows('Chrome');
   }
 
@@ -731,9 +724,6 @@ class WhatsAppSession extends EventEmitter {
       throw new Error('Invalid phone — use country code + number, digits only (e.g. 628123456789)');
     }
     this.pairingPhone = cleaned;
-
-    // Let companion_hello complete before requesting the code (avoids dead/rejected codes).
-    await new Promise((r) => setTimeout(r, 2000));
 
     const code = await this.socket.requestPairingCode(cleaned);
     const display = this.formatPairingCode(code);

@@ -42,8 +42,16 @@ function resolveUpdateConfig(env = process.env) {
   return { enabled: false, mode: 'none', url: null, owner: null, repo: null };
 }
 
+function resolveManualDownloadUrl(cfg = resolveUpdateConfig()) {
+  if (cfg.owner && cfg.repo) {
+    return `https://github.com/${cfg.owner}/${cfg.repo}/releases/latest`;
+  }
+  return String(cfg.url || '').replace(/\/download\/?$/i, '');
+}
+
 module.exports = {
   DEFAULT_GITHUB_OWNER,
   DEFAULT_GITHUB_REPO,
   resolveUpdateConfig,
+  resolveManualDownloadUrl,
 };

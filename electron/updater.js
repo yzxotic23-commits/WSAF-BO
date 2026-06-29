@@ -1,7 +1,7 @@
 const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { resolveUpdateConfig } = require('./update-config');
+const { resolveUpdateConfig, resolveManualDownloadUrl } = require('./update-config');
 const { MacUpdater } = require('./mac-updater');
 const { backupAppDataBeforeUpdate } = require('./app-data');
 
@@ -48,6 +48,7 @@ class AppUpdater {
       lastChecked: null,
       platform: process.platform,
       manualInstall: false,
+      manualDownloadUrl: null,
     };
 
     if (IS_MAC) {
@@ -123,6 +124,7 @@ class AppUpdater {
       updateMode: IS_MAC ? 'mac-zip-auto' : this.feed.mode,
       currentVersion: readPackageVersion(),
       manualInstall: false,
+      manualDownloadUrl: resolveManualDownloadUrl(this.feed),
       status: enabled ? this.state.status : 'disabled',
     });
     return enabled;

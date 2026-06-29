@@ -14,7 +14,8 @@ let apiPort = 47821;
 let updater = null;
 let updateCheckTimer = null;
 let lastBackgroundUpdateCheckAt = 0;
-const MIN_FOCUS_UPDATE_CHECK_MS = 30 * 60 * 1000;
+/** Windows: cek lebih sering — SmartScreen & network sering gagal diam-diam */
+const MIN_FOCUS_UPDATE_CHECK_MS = process.platform === 'win32' ? 10 * 60 * 1000 : 30 * 60 * 1000;
 
 if (isDev) {
   process.env.APP_ROOT = path.join(__dirname, '..');
@@ -46,7 +47,8 @@ function scheduleUpdateChecks() {
   if (updateCheckTimer) clearInterval(updateCheckTimer);
   if (!updater?.state?.enabled) return;
 
-  const hours = Math.max(1, parseFloat(process.env.APP_UPDATE_CHECK_HOURS || '4', 10));
+  const defaultHours = process.platform === 'win32' ? '1' : '4';
+  const hours = Math.max(0.5, parseFloat(process.env.APP_UPDATE_CHECK_HOURS || defaultHours, 10));
   updateCheckTimer = setInterval(() => {
     updater.check(true).catch(() => {});
   }, hours * 60 * 60 * 1000);

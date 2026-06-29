@@ -256,7 +256,30 @@
     const accounts = ffAppStatus?.accounts || [];
     const slots = accounts.filter((a) => a.pairIndex === pairIndex);
     if (slots.length < 2) return false;
-    return slots.every((a) => a.authSaved);
+    return slots.every((a) =>
+      a.authSaved
+      && a.authValid
+      && a.authRegistered
+      && !a.linking
+      && !a.loggingOut
+    );
+  }
+
+  function pairStartBlockReason(pairIndex) {
+    const accounts = ffAppStatus?.accounts || [];
+    const slots = accounts.filter((a) => a.pairIndex === pairIndex);
+    if (slots.length < 2) return 'Pair incomplete — add accounts or remove empty pairs.';
+    const names = slots.map((a) => a.label || a.slotLabel || `Account ${a.slot + 1}`);
+    if (slots.some((a) => a.linking)) {
+      return `Pair ${pairIndex + 1} is still linking — finish QR/pairing first.`;
+    }
+    if (slots.some((a) => !a.authSaved)) {
+      return `Link first: ${names.join(' & ')}`;
+    }
+    if (slots.some((a) => !a.authRegistered || !a.authValid)) {
+      return `Session not ready for ${names.join(' & ')} — complete login first.`;
+    }
+    return null;
   }
 
   const START_FEED_ICON =
@@ -309,12 +332,18 @@
     }
   }
 
-  /** Footer Stop hilang saat feedingStarting (React belum render stop + CSS sembunyikan footer). */
+  /** Footer Stop hanya untuk multi-pair; single pair pakai tombol React di footer. */
   function ensureStopFeedFooter() {
-    const running = !!(ffAppStatus?.feedingRunning || ffAppStatus?.feedingStarting);
     const footer = document.querySelector('.wa-list-footer');
     if (!footer) return;
 
+    if (!isMultiPairMode()) {
+      footer.classList.remove('ff-feeding-footer-visible');
+      footer.querySelector('.ff-stop-feed-btn')?.remove();
+      return;
+    }
+
+    const running = !!(ffAppStatus?.feedingRunning || ffAppStatus?.feedingStarting);
     let stopBtn = footer.querySelector('.wa-footer-btn--stop');
     if (running) {
       footer.classList.add('ff-feeding-footer-visible');
@@ -339,7 +368,20 @@
     }
   }
 
+  function getPairCount() {
+    return ffAppStatus?.pairCount || getPairCountFromDom() || 1;
+  }
+
+  function isMultiPairMode() {
+    return getPairCount() > 1;
+  }
+
   function updatePerPairFeedingButtons() {
+    if (!isMultiPairMode()) {
+      ensureStopFeedFooter();
+      return;
+    }
+
     const activePairs = getActiveFeedingPairs();
 
     document.querySelectorAll('.ff-pair-start-btn').forEach((btn) => {
@@ -364,7 +406,7 @@
         setStartFeedButtonLabel(btn, 'Start');
         btn.title = ready
           ? `Start AI feeding for Pair ${pairIndex + 1} only`
-          : `Link both accounts in Pair ${pairIndex + 1} first`;
+          : (pairStartBlockReason(pairIndex) || `Link both accounts in Pair ${pairIndex + 1} first`);
         btn.onclick = (e) => {
           e.stopPropagation();
           startPairFeeding(pairIndex, btn);
@@ -382,6 +424,11 @@
 
   async function startPairFeeding(pairIndex, btn) {
     if (btn?.disabled) return;
+    const block = pairStartBlockReason(pairIndex);
+    if (block) {
+      window.alert(block);
+      return;
+    }
     if (btn) btn.disabled = true;
     try {
       await apiJson('/api/feeding/start', {
@@ -536,6 +583,9 @@
   }
 
   function injectPerPairControls() {
+    const singlePair = !isMultiPairMode();
+    const footer = document.querySelector('.wa-list-footer');
+
     document.querySelectorAll('.wa-pair-label-row').forEach((row) => {
       normalizePairLabelRow(row);
 
@@ -546,6 +596,11 @@
       const pairIndex = parseInt(match[1], 10) - 1;
 
       injectPerPairRemoveButtons(row, pairIndex);
+
+      if (singlePair) {
+        row.querySelector('.ff-pair-start-btn')?.remove();
+        return;
+      }
 
       let startBtn = row.querySelector('.ff-pair-start-btn');
       if (!startBtn) {
@@ -560,10 +615,19 @@
       }
     });
 
+    if (footer) {
+      footer.classList.toggle('ff-single-pair-footer-visible', singlePair);
+    }
+
     const globalStart = document.querySelector('.wa-footer-btn--feed');
     if (globalStart) {
-      globalStart.style.display = 'none';
-      globalStart.setAttribute('aria-hidden', 'true');
+      if (singlePair) {
+        globalStart.style.removeProperty('display');
+        globalStart.removeAttribute('aria-hidden');
+      } else {
+        globalStart.style.display = 'none';
+        globalStart.setAttribute('aria-hidden', 'true');
+      }
     }
 
     updatePerPairFeedingButtons();
@@ -726,16 +790,292 @@
     );
   }
 
-  async function loadProxyTextarea(modal) {
-    const textarea = modal.querySelector('.ff-proxy-textarea');
-    if (!textarea || textarea.dataset.ffDirty === '1') return;
+  function escapeHtml(text) {
+    return String(text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
 
+  function parseProxyLines(raw) {
+    return String(raw || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+  }
+
+  function readProxyPanelContent(modal) {
+    const bulk = modal.querySelector('.ff-proxy-textarea');
+    const bulkOpen = modal.querySelector('.ff-proxy-bulk')?.open;
+    if (bulkOpen && bulk) return bulk.value;
+
+    const inputs = [...modal.querySelectorAll('.ff-proxy-account-input')].sort(
+      (a, b) => parseInt(a.dataset.slot, 10) - parseInt(b.dataset.slot, 10),
+    );
+    if (!inputs.length) return bulk?.value || '';
+
+    const maxSlot = Math.max(...inputs.map((inp) => parseInt(inp.dataset.slot, 10)));
+    const lines = new Array(maxSlot + 1).fill('');
+    inputs.forEach((inp) => {
+      const slot = parseInt(inp.dataset.slot, 10);
+      if (Number.isFinite(slot) && slot >= 0) lines[slot] = inp.value.trim();
+    });
+    return lines.join('\n');
+  }
+
+  function syncProxyBulkFromRows(modal) {
+    const bulk = modal.querySelector('.ff-proxy-textarea');
+    if (!bulk) return;
+    bulk.value = readProxyPanelContent(modal);
+  }
+
+  function syncProxyRowsFromBulk(modal) {
+    const bulk = modal.querySelector('.ff-proxy-textarea');
+    if (!bulk) return;
+    const lines = parseProxyLines(bulk.value);
+    modal.querySelectorAll('.ff-proxy-account-input').forEach((inp) => {
+      const slot = parseInt(inp.dataset.slot, 10);
+      inp.value = lines[slot] || '';
+    });
+  }
+
+  function proxyHostKey(url) {
     try {
-      const data = await apiJson('/api/settings');
-      textarea.value = data.proxies || '';
+      const u = new URL(String(url || '').trim());
+      if (!u.hostname) return null;
+      return `${u.hostname}:${u.port || '1080'}`;
     } catch {
-      /* keep current draft */
+      return null;
     }
+  }
+
+  function analyzeProxySharedFromLines(lines, accountCount) {
+    const byHost = new Map();
+    const count = Math.max(accountCount || 0, lines.length);
+    for (let i = 0; i < count; i++) {
+      const trimmed = String(lines[i] || '').trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const host = proxyHostKey(trimmed);
+      if (!host) continue;
+      if (!byHost.has(host)) byHost.set(host, []);
+      byHost.get(host).push(i + 1);
+    }
+    const shared = [];
+    for (const [host, lineNums] of byHost) {
+      if (lineNums.length > 1) {
+        shared.push({ host, lines: lineNums });
+      }
+    }
+    return {
+      shared,
+      duplicates: shared,
+      uniqueHosts: byHost.size,
+    };
+  }
+
+  function showProxyPairTab(modal, pairIndex) {
+    const root = modal.querySelector('.ff-proxy-panel');
+    if (!root) return;
+    root.dataset.ffActivePair = String(pairIndex);
+
+    modal.querySelectorAll('.ff-proxy-pair-tab').forEach((btn) => {
+      const p = parseInt(btn.dataset.pair, 10);
+      const active = p === pairIndex;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+
+    modal.querySelectorAll('.ff-proxy-pair-panel').forEach((pane) => {
+      const p = parseInt(pane.dataset.pair, 10);
+      const active = p === pairIndex;
+      pane.hidden = !active;
+      pane.classList.toggle('active', active);
+    });
+  }
+
+  function updateProxyPairTabShared(modal, report) {
+    const sharedLines = new Set((report?.shared || report?.duplicates || []).flatMap((d) => d.lines));
+    modal.querySelectorAll('.ff-proxy-pair-tab').forEach((btn) => {
+      const p = parseInt(btn.dataset.pair, 10);
+      if (!Number.isFinite(p)) return;
+      const shared = sharedLines.has(p * 2 + 1) || sharedLines.has(p * 2 + 2);
+      btn.classList.toggle('ff-proxy-pair-tab--shared', shared);
+    });
+  }
+
+  function renderProxySharedInfo(modal, report) {
+    const el = modal.querySelector('.ff-proxy-shared-info');
+    if (!el) return;
+
+    const shared = report?.shared || report?.duplicates || [];
+    if (!shared.length) {
+      el.hidden = true;
+      el.textContent = '';
+      updateProxyPairTabShared(modal, report);
+      return;
+    }
+
+    const parts = shared.map(
+      (d) => `lines ${d.lines.join(', ')} → ${d.host}`,
+    );
+    el.textContent =
+      `Shared proxy (same device / Shadowrocket): ${parts.join(' · ')}. ` +
+      'Repeat the same proxy for every account on that device — this is expected.';
+    el.hidden = false;
+    updateProxyPairTabShared(modal, report);
+  }
+
+  function updateProxySharedInfo(modal, accountCount) {
+    const content = readProxyPanelContent(modal);
+    const rawLines = String(content || '').split(/\r?\n/);
+    const padded = new Array(Math.max(accountCount || 0, rawLines.length)).fill('');
+    rawLines.forEach((line, i) => { padded[i] = line.trim(); });
+    renderProxySharedInfo(modal, analyzeProxySharedFromLines(padded, accountCount));
+  }
+
+  function formatProxyRouteLabel(slot, lines, meta) {
+    const route = meta?.proxyNow || 'direct';
+    if (!route || route === 'direct') {
+      const saved = String(lines[slot] || '').trim();
+      if (saved) {
+        try {
+          const u = new URL(saved);
+          const auth = u.username ? `${u.username}:***@` : '';
+          return `Active: ${u.protocol}//${auth}${u.hostname}${u.port ? `:${u.port}` : ''}`;
+        } catch {
+          return 'Active: proxy configured';
+        }
+      }
+      return 'Active: direct (local IP)';
+    }
+    return `Active: ${route}`;
+  }
+
+  function getProxyAccountMeta(slot, status) {
+    const acc = status?.accounts?.find((a) => a.slot === slot);
+    const accountNum = (status?.config?.accountStart || 1) + slot;
+    const label = acc?.displayName || acc?.label || acc?.slotLabel || `Account ${accountNum}`;
+    const pairIndex = acc?.pairIndex ?? Math.floor(slot / 2);
+    return {
+      label,
+      accountNum,
+      pairIndex,
+      linked: Boolean(acc?.authSaved),
+      proxyNow: acc?.proxy || 'direct',
+    };
+  }
+
+  async function renderProxyAccountGrid(modal) {
+    const panelsWrap = modal.querySelector('.ff-proxy-pair-panels');
+    const tabsNav = modal.querySelector('.ff-proxy-pair-tabs');
+    const rootPanel = modal.querySelector('.ff-proxy-panel');
+    if (!panelsWrap || !tabsNav) return;
+
+    let settings = {};
+    let status = {};
+    try {
+      [settings, status] = await Promise.all([
+        apiJson('/api/settings'),
+        apiJson('/api/status'),
+      ]);
+    } catch { /* partial load ok */ }
+
+    const lines = String(settings.proxies || '')
+      .split(/\r?\n/)
+      .map((l) => l.trim());
+    const slotCount = status.accountCount || (status.pairCount || 1) * 2;
+    const pairCount = status.pairCount || Math.max(1, Math.ceil(slotCount / 2));
+    const accountStart = status?.config?.accountStart || 1;
+    const prevActive = parseInt(rootPanel?.dataset.ffActivePair, 10);
+    const activePair = Number.isFinite(prevActive) && prevActive >= 0 && prevActive < pairCount
+      ? prevActive
+      : 0;
+
+    panelsWrap.innerHTML = '';
+    tabsNav.innerHTML = '';
+
+    for (let p = 0; p < pairCount; p++) {
+      const pane = document.createElement('div');
+      pane.className = 'ff-proxy-pair-panel';
+      pane.dataset.pair = String(p);
+      pane.setAttribute('role', 'tabpanel');
+      pane.hidden = p !== activePair;
+
+      const rows = document.createElement('div');
+      rows.className = 'ff-proxy-pair-rows';
+
+      for (let slot = p * 2; slot < p * 2 + 2 && slot < slotCount; slot++) {
+        const meta = getProxyAccountMeta(slot, status);
+        const row = document.createElement('div');
+        row.className = 'ff-proxy-account-row';
+        row.innerHTML =
+          '<div class="ff-proxy-account-meta">' +
+          `<span class="ff-proxy-account-name">${escapeHtml(meta.label)}</span>` +
+          `<span class="ff-proxy-line-badge">Line ${slot + 1}</span>` +
+          '</div>' +
+          '<div class="ff-proxy-input-wrap">' +
+          `<input type="text" class="ff-proxy-account-input" data-slot="${slot}" ` +
+          `value="${escapeHtml(lines[slot] || '')}" ` +
+          'placeholder="socks5://user:pass@ip:port — empty = direct" spellcheck="false" autocomplete="off" />' +
+          '</div>' +
+          `<span class="ff-proxy-account-route">${escapeHtml(formatProxyRouteLabel(slot, lines, meta))}</span>`;
+
+        const input = row.querySelector('.ff-proxy-account-input');
+        input.addEventListener('input', () => {
+          modal.querySelector('.ff-proxy-panel')?.setAttribute('data-ff-dirty', '1');
+          syncProxyBulkFromRows(modal);
+          updateProxySharedInfo(modal, slotCount);
+        });
+
+        rows.appendChild(row);
+      }
+
+      pane.appendChild(rows);
+      panelsWrap.appendChild(pane);
+
+      if (pairCount > 1) {
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = 'ff-proxy-pair-tab';
+        tab.dataset.pair = String(p);
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-selected', p === activePair ? 'true' : 'false');
+        tab.textContent = `Pair ${p + 1}`;
+        tab.addEventListener('click', (e) => {
+          e.preventDefault();
+          showProxyPairTab(modal, p);
+        });
+        tabsNav.appendChild(tab);
+      }
+    }
+
+    tabsNav.hidden = pairCount <= 1;
+    showProxyPairTab(modal, activePair);
+
+    const mapEl = modal.querySelector('.ff-proxy-map-live');
+    if (mapEl) {
+      if (slotCount <= 4) {
+        const parts = [];
+        for (let slot = 0; slot < slotCount; slot++) {
+          const n = accountStart + slot;
+          const pair = Math.floor(slot / 2) + 1;
+          parts.push(`Account ${n} (Pair ${pair}) → line ${slot + 1}`);
+        }
+        mapEl.textContent = parts.join(' · ');
+      } else {
+        mapEl.textContent =
+          `${slotCount} accounts · line ${1} = Account ${accountStart}, line ${slotCount} = Account ${accountStart + slotCount - 1}`;
+      }
+    }
+
+    syncProxyBulkFromRows(modal);
+    updateProxySharedInfo(modal, slotCount);
+    modal.querySelector('.ff-proxy-panel')?.removeAttribute('data-ff-dirty');
+  }
+
+  async function loadProxyPanel(modal) {
+    await renderProxyAccountGrid(modal);
   }
 
   function hideProxyPanel(modal) {
@@ -753,6 +1093,7 @@
   }
 
   function showProxyPanel(modal) {
+    hideUpdatePanel(modal);
     modal.querySelectorAll('.modal-body > [role="tabpanel"]:not(.ff-proxy-panel)').forEach((panel) => {
       panel.style.display = 'none';
     });
@@ -771,7 +1112,174 @@
       tab.classList.add('active');
       tab.setAttribute('aria-selected', 'true');
     }
-    loadProxyTextarea(modal);
+    loadProxyPanel(modal);
+  }
+
+  function hideUpdatePanel(modal) {
+    const panel = modal.querySelector('.ff-update-panel');
+    const tab = modal.querySelector('.ff-update-tab');
+    if (panel) {
+      panel.hidden = true;
+      panel.style.display = 'none';
+    }
+    if (tab) {
+      tab.classList.remove('active');
+      tab.setAttribute('aria-selected', 'false');
+    }
+  }
+
+  function formatUpdateStatus(state) {
+    if (!state?.enabled) return 'Auto-update unavailable (dev mode or portable build)';
+    switch (state.status) {
+      case 'checking': return 'Checking for updates…';
+      case 'not-available': return `You are on the latest version (v${state.currentVersion})`;
+      case 'available': return `Update v${state.latestVersion} found — downloading…`;
+      case 'downloading': return `Downloading v${state.latestVersion}… ${state.percent || 0}%`;
+      case 'downloaded': return `v${state.latestVersion} ready — click Update Now in the corner toast or restart via installer`;
+      case 'error': return state.error || 'Update check failed';
+      default: return `Version v${state.currentVersion}`;
+    }
+  }
+
+  async function refreshUpdatePanel(modal) {
+    const panel = modal.querySelector('.ff-update-panel');
+    if (!panel || panel.hidden) return;
+    const currentEl = panel.querySelector('.ff-update-current');
+    const statusEl = panel.querySelector('.ff-update-status');
+    const bar = panel.querySelector('.ff-update-bar');
+    const barFill = panel.querySelector('.ff-update-bar-fill');
+    const manualBtn = panel.querySelector('.ff-update-manual');
+    try {
+      const state = await apiJson('/api/update');
+      if (currentEl) currentEl.textContent = `v${state.currentVersion || '?'}`;
+      if (statusEl) {
+        statusEl.textContent = formatUpdateStatus(state);
+        statusEl.className = `ff-update-status${state.status === 'error' ? ' ff-update-status--error' : ''}`;
+      }
+      if (bar && barFill) {
+        const showBar = state.status === 'downloading';
+        bar.hidden = !showBar;
+        barFill.style.width = `${state.percent || 0}%`;
+      }
+      if (manualBtn) {
+        manualBtn.hidden = false;
+        manualBtn.disabled = !state.manualDownloadUrl;
+      }
+    } catch (err) {
+      if (statusEl) {
+        statusEl.textContent = err.message || 'Could not reach update API';
+        statusEl.className = 'ff-update-status ff-update-status--error';
+      }
+    }
+  }
+
+  function showUpdatePanel(modal) {
+    hideProxyPanel(modal);
+    modal.querySelectorAll('.modal-body > [role="tabpanel"]:not(.ff-update-panel)').forEach((panel) => {
+      panel.style.display = 'none';
+    });
+    modal.querySelectorAll('.modal-tabs .tab:not(.ff-update-tab)').forEach((tab) => {
+      tab.classList.remove('active');
+      tab.setAttribute('aria-selected', 'false');
+    });
+
+    const panel = modal.querySelector('.ff-update-panel');
+    const tab = modal.querySelector('.ff-update-tab');
+    if (panel) {
+      panel.hidden = false;
+      panel.style.display = '';
+    }
+    if (tab) {
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+    }
+    refreshUpdatePanel(modal);
+  }
+
+  async function openManualDownload() {
+    try {
+      const res = await apiJson('/api/update/open-browser', { method: 'POST' });
+      if (!res.opened && res.url) window.open(res.url, '_blank', 'noopener');
+    } catch {
+      window.open('https://github.com/yzxotic23-commits/WSAF-BO/releases/latest', '_blank', 'noopener');
+    }
+  }
+
+  function patchUpdateTab(modal) {
+    if (modal.dataset.ffUpdateTab) return;
+    modal.dataset.ffUpdateTab = '1';
+
+    const tabsNav = modal.querySelector('.modal-tabs');
+    const modalBody = modal.querySelector('.modal-body');
+    if (!tabsNav || !modalBody) return;
+
+    const updateTab = document.createElement('button');
+    updateTab.type = 'button';
+    updateTab.role = 'tab';
+    updateTab.className = 'tab ff-update-tab';
+    updateTab.setAttribute('aria-selected', 'false');
+    updateTab.textContent = 'Update';
+    updateTab.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showUpdatePanel(modal);
+    });
+    tabsNav.appendChild(updateTab);
+
+    const panel = document.createElement('div');
+    panel.className = 'ff-update-panel';
+    panel.hidden = true;
+    panel.style.display = 'none';
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-label', 'Update');
+    panel.innerHTML =
+      '<p class="hint">Installed via desktop installer required for in-app update. If auto-update fails (SmartScreen/antivirus), use <strong>Download manual</strong>.</p>' +
+      '<div class="ff-update-version">' +
+      '<span class="ff-update-version-label">Current version</span>' +
+      '<strong class="ff-update-current">—</strong>' +
+      '</div>' +
+      '<div class="ff-update-status" role="status">Open this tab to check for updates.</div>' +
+      '<div class="ff-update-bar" hidden><div class="ff-update-bar-fill"></div></div>' +
+      '<div class="form-actions">' +
+      '<button type="button" class="btn btn-primary ff-update-check">Check for updates</button>' +
+      '<button type="button" class="btn btn-ghost ff-update-manual">Download manual</button>' +
+      '</div>';
+    modalBody.appendChild(panel);
+
+    panel.querySelector('.ff-update-check').addEventListener('click', async () => {
+      const btn = panel.querySelector('.ff-update-check');
+      const statusEl = panel.querySelector('.ff-update-status');
+      btn.disabled = true;
+      if (statusEl) statusEl.textContent = 'Checking for updates…';
+      try {
+        if (window.ffUpdateUi?.checkForUpdate) {
+          await window.ffUpdateUi.checkForUpdate();
+        } else {
+          await apiJson('/api/update/check', { method: 'POST' });
+        }
+      } catch (err) {
+        if (statusEl) {
+          statusEl.textContent = err.message || 'Check failed';
+          statusEl.className = 'ff-update-status ff-update-status--error';
+        }
+      } finally {
+        btn.disabled = false;
+        await refreshUpdatePanel(modal);
+      }
+    });
+
+    panel.querySelector('.ff-update-manual').addEventListener('click', () => {
+      openManualDownload();
+    });
+
+    tabsNav.querySelectorAll('.tab:not(.ff-update-tab)').forEach((tab) => {
+      tab.addEventListener('click', () => hideUpdatePanel(modal));
+    });
+
+    const proxyTab = modal.querySelector('.ff-proxy-tab');
+    if (proxyTab) {
+      proxyTab.addEventListener('click', () => hideUpdatePanel(modal));
+    }
   }
 
   function patchProxyTab(modal) {
@@ -802,21 +1310,59 @@
     panel.setAttribute('role', 'tabpanel');
     panel.setAttribute('aria-label', 'Proxy');
     panel.innerHTML =
-      '<p class="hint">One proxy per line. Format: <code>socks5://user:pass@ip:port</code>.</p>' +
-      '<label class="field ff-proxy-field">' +
-      '<span>Proxy list (IP per account)</span>' +
-      '<textarea class="textarea ff-proxy-textarea" spellcheck="false" placeholder="socks5://user:pass@193.8.114.78:1081"></textarea>' +
-      '</label>' +
-      '<div class="form-actions">' +
+      '<div class="ff-proxy-top">' +
+      '<div class="ff-proxy-guide">' +
+      '<p class="ff-proxy-guide-title">Proxy per WhatsApp account</p>' +
+      '<p class="ff-proxy-guide-text">Each account gets <strong>one proxy line</strong> (line order = account order). ' +
+      'Accounts on the <strong>same physical device</strong> (Shadowrocket) use the <strong>same proxy</strong> — repeat it on each line. ' +
+      'Leave empty for direct (local IP).</p>' +
+      '<div class="ff-proxy-map-card">' +
+      '<span class="ff-proxy-map-label">Mapping</span>' +
+      '<span class="ff-proxy-map-live">Loading…</span>' +
+      '</div>' +
+      '<p class="ff-proxy-format-hint">Format: <code>socks5://user:pass@ip:port</code></p>' +
+      '</div>' +
+      '<div class="ff-proxy-shared-info" hidden role="status"></div>' +
+      '</div>' +
+      '<div class="ff-proxy-scroll">' +
+      '<nav class="ff-proxy-pair-tabs" role="tablist" aria-label="Proxy pairs" hidden></nav>' +
+      '<div class="ff-proxy-pair-panels"></div>' +
+      '<details class="ff-proxy-bulk">' +
+      '<summary>Bulk edit (advanced — one proxy per line)</summary>' +
+      '<p class="hint">Line 1 = first account, line 2 = second account, and so on.</p>' +
+      '<div class="ff-proxy-textarea-wrap">' +
+      '<textarea class="textarea ff-proxy-textarea" spellcheck="false" rows="5" wrap="off"></textarea>' +
+      '</div>' +
+      '</details>' +
+      '</div>' +
+      '<div class="form-actions ff-proxy-actions">' +
       '<button type="button" class="btn btn-primary ff-proxy-save">Save</button>' +
       '<button type="button" class="btn btn-ghost ff-proxy-probe">Test proxies</button>' +
+      '<button type="button" class="ff-proxy-refresh icon-btn ff-has-tooltip" ' +
+      'data-ff-tooltip="Reload accounts from sidebar" ' +
+      'aria-label="Reload accounts from sidebar">' +
+      '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
+      '<path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08a5.99 5.99 0 0 1-5.65 4c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>' +
+      '</svg></button>' +
       '</div>';
 
     modalBody.appendChild(panel);
 
     const textarea = panel.querySelector('.ff-proxy-textarea');
+    const bulkDetails = panel.querySelector('.ff-proxy-bulk');
+
     textarea.addEventListener('input', () => {
-      textarea.dataset.ffDirty = '1';
+      panel.setAttribute('data-ff-dirty', '1');
+      syncProxyRowsFromBulk(modal);
+      apiJson('/api/status').then((status) => {
+        const slotCount = status.accountCount || (status.pairCount || 1) * 2;
+        updateProxySharedInfo(modal, slotCount);
+      }).catch(() => {});
+    });
+
+    bulkDetails?.addEventListener('toggle', () => {
+      if (bulkDetails.open) syncProxyBulkFromRows(modal);
+      else syncProxyRowsFromBulk(modal);
     });
 
     tabsNav.querySelectorAll('.tab:not(.ff-proxy-tab)').forEach((tab) => {
@@ -825,52 +1371,77 @@
       });
     });
 
+    panel.querySelector('.ff-proxy-refresh')?.addEventListener('click', () => {
+      renderProxyAccountGrid(modal);
+    });
+
     panel.querySelector('.ff-proxy-save').addEventListener('click', async () => {
       const saveBtn = panel.querySelector('.ff-proxy-save');
       const probeBtn = panel.querySelector('.ff-proxy-probe');
+      const refreshBtn = panel.querySelector('.ff-proxy-refresh');
+      const content = readProxyPanelContent(modal);
       saveBtn.disabled = true;
       probeBtn.disabled = true;
+      if (refreshBtn) refreshBtn.disabled = true;
       try {
-        await apiJson('/api/settings/proxies', {
+        const res = await apiJson('/api/settings/proxies', {
           method: 'POST',
-          body: JSON.stringify({ content: textarea.value }),
+          body: JSON.stringify({ content }),
         });
-        await apiJson('/api/proxies/load', { method: 'POST' });
-        textarea.dataset.ffDirty = '0';
+        panel.removeAttribute('data-ff-dirty');
+        await renderProxyAccountGrid(modal);
+        const shared = res?.proxyShared || res?.proxyDuplicates;
+        if (shared?.shared?.length || shared?.duplicates?.length) {
+          renderProxySharedInfo(modal, shared);
+        }
         showSettingsToast(modal, 'success', 'Saved');
       } catch (err) {
         showSettingsToast(modal, 'error', err.message || 'Save failed');
       } finally {
         saveBtn.disabled = false;
         probeBtn.disabled = false;
+        if (refreshBtn) refreshBtn.disabled = false;
       }
     });
 
     panel.querySelector('.ff-proxy-probe').addEventListener('click', async () => {
       const saveBtn = panel.querySelector('.ff-proxy-save');
       const probeBtn = panel.querySelector('.ff-proxy-probe');
+      const refreshBtn = panel.querySelector('.ff-proxy-refresh');
+      const content = readProxyPanelContent(modal);
       saveBtn.disabled = true;
       probeBtn.disabled = true;
+      if (refreshBtn) refreshBtn.disabled = true;
       try {
+        const status = await apiJson('/api/status').catch(() => ({}));
+        const slotCount = status.accountCount || (status.pairCount || 1) * 2;
+        const shared = analyzeProxySharedFromLines(
+          String(content || '').split(/\r?\n/).map((l) => l.trim()),
+          slotCount,
+        );
+        if (shared.shared.length) {
+          renderProxySharedInfo(modal, shared);
+        }
         const results = await apiJson('/api/proxies/probe', {
           method: 'POST',
-          body: JSON.stringify({ content: textarea.value }),
+          body: JSON.stringify({ content }),
         });
         const ok = (results || []).filter((r) => r.ok).length;
         const total = (results || []).length;
         const msg = total === 0
-          ? 'No valid proxies in list — check format (socks5://user:pass@ip:port)'
-          : `Probe complete — ${ok}/${total} proxies OK`;
+          ? 'No valid proxies — check format socks5://user:pass@ip:port'
+          : `Probe done — ${ok}/${total} proxies OK`;
         showSettingsToast(modal, total === 0 ? 'error' : 'success', msg);
       } catch (err) {
         showSettingsToast(modal, 'error', err.message || 'Probe failed');
       } finally {
         saveBtn.disabled = false;
         probeBtn.disabled = false;
+        if (refreshBtn) refreshBtn.disabled = false;
       }
     });
 
-    loadProxyTextarea(modal);
+    loadProxyPanel(modal);
   }
 
   function patchSettingsModal() {
@@ -878,6 +1449,7 @@
     if (!modal) return;
     patchFeedingSave(modal);
     patchProxyTab(modal);
+    patchUpdateTab(modal);
     patchClearSessionsConfirm(modal);
   }
 
@@ -949,7 +1521,9 @@
     removeFeedingCompleteUI();
     lastCompleteShownAt = data.at;
 
-    const success = data.success !== false && !data.manualStop;
+    const success = data.success !== false
+      && !data.manualStop
+      && ((data.messagesSent ?? 0) > 0 || (data.completed ?? 0) > 0);
     const title = success ? 'Feeding complete' : 'Feeding stopped';
     const subtitle = success
       ? 'All AI chat pairs have finished. Sessions remain saved on this device.'
@@ -1288,32 +1862,62 @@
       return getDismissedVersion() !== ver;
     }
 
-    function bindToastActions(state) {
+    function updateToastButtons(state) {
+      if (!toastEl) return;
       const ghost = toastEl.querySelector('.ff-update-toast__btn--ghost');
       const primary = toastEl.querySelector('.ff-update-toast__btn--primary');
-      if (!ghost || !primary || ghost.dataset.ffBound) return;
-      ghost.dataset.ffBound = '1';
-      primary.dataset.ffBound = '1';
+      if (!ghost || !primary) return;
 
-      ghost.addEventListener('click', () => {
+      ghost.textContent = 'Later';
+      ghost.onclick = () => {
         setDismissedVersion(state.latestVersion || state.currentVersion || '1');
         removeToast();
-      });
+      };
 
-      primary.addEventListener('click', async () => {
-        const current = lastState;
-        if (!current || current.status !== 'downloaded') return;
-        primary.disabled = true;
-        primary.textContent = 'Installing…';
-        try {
-          await apiJson('/api/update/install', { method: 'POST' });
-        } catch (err) {
-          primary.disabled = false;
-          primary.textContent = 'Update Now';
-          const subEl = toastEl.querySelector('.ff-update-toast__sub');
-          if (subEl) subEl.textContent = err.message || 'Install failed';
-        }
-      });
+      const errored = state.status === 'error';
+      const ready = state.status === 'downloaded';
+      const downloading = state.status === 'downloading';
+
+      if (errored) {
+        primary.disabled = false;
+        primary.textContent = 'Download manual';
+        primary.onclick = () => openManualDownload();
+        return;
+      }
+
+      if (ready) {
+        primary.disabled = false;
+        primary.textContent = 'Update Now';
+        primary.onclick = async () => {
+          primary.disabled = true;
+          primary.textContent = 'Installing…';
+          try {
+            await apiJson('/api/update/install', { method: 'POST' });
+          } catch (err) {
+            primary.disabled = false;
+            primary.textContent = 'Update Now';
+            const subEl = toastEl.querySelector('.ff-update-toast__sub');
+            if (subEl) {
+              subEl.textContent = `${err.message || 'Install failed'} — try Download manual`;
+            }
+          }
+        };
+        return;
+      }
+
+      primary.disabled = true;
+      if (downloading) {
+        primary.textContent = `Downloading… ${state.percent || 0}%`;
+      } else if (state.status === 'available') {
+        primary.textContent = 'Preparing…';
+      } else {
+        primary.textContent = 'Update Now';
+      }
+      primary.onclick = null;
+    }
+
+    function bindToastActions(state) {
+      updateToastButtons(state);
     }
 
     function renderToast(state) {
@@ -1344,7 +1948,7 @@
           ? 'Update ready'
           : 'Update available';
       const sub = errored
-        ? (state.error || 'Could not reach update server')
+        ? `${state.error || 'Could not reach update server'} — use Download manual if needed`
         : ready
           ? `v${state.latestVersion} — restart to install`
           : downloading
@@ -1380,6 +1984,8 @@
         bindToastActions(state);
       }
 
+      updateToastButtons(state);
+
       titleEl.textContent = title;
       subEl.textContent = sub;
 
@@ -1395,19 +2001,6 @@
         if (barFill) barFill.style.width = (state.percent || 0) + '%';
       } else if (bar) {
         bar.remove();
-      }
-
-      if (primary) {
-        primary.disabled = !ready;
-        if (ready) {
-          primary.textContent = 'Update Now';
-        } else if (downloading) {
-          primary.textContent = `Downloading… ${state.percent || 0}%`;
-        } else if (state.status === 'available') {
-          primary.textContent = 'Preparing…';
-        } else if (primary.textContent === 'Installing…') {
-          primary.textContent = 'Update Now';
-        }
       }
     }
 
@@ -1470,8 +2063,9 @@
 
   /** Re-check when app window becomes visible (complements Electron scheduler) */
   function setupAutoUpdatePolling() {
-    const CHECK_MS = 60 * 60 * 1000;
+    const CHECK_MS = 20 * 60 * 1000;
     const updateUi = setupUpdateCornerToast();
+    window.ffUpdateUi = updateUi;
     window.ffPreviewUpdate = (mode) => updateUi.showPreview(mode);
 
     async function fetchUpdate() {
@@ -1506,8 +2100,8 @@
 
     // Initial + delayed checks — main process also checks ~4s after launch.
     fetchUpdate();
-    [6000, 15000, 30000].forEach((ms) => setTimeout(() => updateUi.refreshUpdateState(), ms));
-    setTimeout(fetchUpdate, 8000);
+    [4000, 8000, 15000, 30000, 60000].forEach((ms) => setTimeout(() => updateUi.refreshUpdateState(), ms));
+    setTimeout(fetchUpdate, 5000);
 
     hookUpdateSocket();
     setInterval(fetchUpdate, CHECK_MS);

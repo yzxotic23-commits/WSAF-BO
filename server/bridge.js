@@ -687,12 +687,14 @@ class DesktopBridge {
     return { count: updated.length, entries: updated };
   }
 
-  /** Proxy shown in UI/logs: live socket, or feeding assignment when parent socket is down. */
+  /** Proxy shown in UI/logs: live socket, assigned slot, or saved proxies.txt line. */
   resolveAccountProxy(slot, session) {
     const assigned = this.accountProxies[slot] || null;
+    const savedFromFile = this.proxyManager.proxies[slot] || null;
+    const configured = assigned || savedFromFile;
     const live = session?.proxyUrl || null;
     const feeding = this.isSlotInActiveFeeding(slot);
-    const url = live || (feeding ? assigned : null);
+    const url = live || configured;
 
     if (!url) {
       const linkedDirect = Boolean(session?.linkedViaDirect);
@@ -701,14 +703,18 @@ class DesktopBridge {
         mode: 'direct',
         source: linkedDirect ? 'linked-via-direct' : 'none',
         detail: linkedDirect
-          ? 'Linked without proxy — preview uses local IP; feeding CLI may still assign proxy'
-          : 'No proxy on this connection',
+          ? 'Linked without proxy — preview uses local IP'
+          : 'No proxy configured',
       };
     }
 
     const masked = this.proxyManager.maskUrl(url);
-    let source = 'session';
-    if (!live && feeding) source = 'feeding-assigned';
+    let source = 'configured';
+    if (live) source = 'session';
+    else if (feeding && assigned) source = 'feeding-assigned';
+    else if (assigned) source = 'assigned';
+    else if (savedFromFile) source = 'saved';
+
     return {
       masked,
       mode: 'proxy',
@@ -731,6 +737,23 @@ class DesktopBridge {
       && auth.saved
       && auth.valid
     );
+  }
+
+  /** Stricter gate before feeding — both accounts must be fully registered, not linking. */
+  isPairReadyForFeeding(pairIndex) {
+    const slotA = pairIndex * 2;
+    const slotB = slotA + 1;
+    if (slotB >= this.accountCount()) return false;
+
+    for (const slot of [slotA, slotB]) {
+      if (this.logoutSlots.has(slot)) return false;
+      const name = getAccountName(slot);
+      const auth = new WhatsAppSession(name).getAuthStatus();
+      if (!auth.saved || !auth.valid || !auth.registered) return false;
+      const session = this.sessions[slot];
+      if (session?.isLinking || session?.isLoggingOut) return false;
+    }
+    return true;
   }
 
   getStatus() {
@@ -1027,10 +1050,30 @@ class DesktopBridge {
     return fs.readFileSync(p, 'utf8');
   }
 
-  writeProxiesRaw(content) {
+  async writeProxiesRaw(content) {
     fs.writeFileSync(this.getProxiesPath(), content, 'utf8');
     this.log('success', '[SETTINGS] proxies.txt saved');
-    return this.loadProxies();
+    const dupReport = this.proxyManager.findSharedProxyHosts(content, this.accountCount());
+    if (dupReport.shared?.length > 0) {
+      for (const dup of dupReport.shared) {
+        this.log(
+          'info',
+          `[PROXY] Shared proxy ${dup.host} on lines ${dup.lines.join(', ')} (same device)`,
+        );
+      }
+    }
+    const status = await this.loadProxies();
+    return { ...status, proxyDuplicates: dupReport, proxyShared: dupReport };
+  }
+
+  analyzeProxyDuplicates(content = null) {
+    const raw = content != null ? content : this.readProxiesRaw();
+    const need = this.accountCount();
+    const report = this.proxyManager.findSharedProxyHosts(raw, need);
+    return {
+      ...report,
+      accountCount: need,
+    };
   }
 
   async loadProxies() {
@@ -1042,6 +1085,18 @@ class DesktopBridge {
     }
 
     this.log('info', `[PROXY] Loaded ${this.proxyManager.proxies.length} proxies from proxies.txt`);
+    const dupReport = this.proxyManager.findSharedProxyHosts(
+      this.proxyManager.rawContent || '',
+      this.accountCount(),
+    );
+    if (dupReport.shared?.length > 0) {
+      for (const dup of dupReport.shared) {
+        this.log(
+          'info',
+          `[PROXY] Shared proxy ${dup.host} on lines ${dup.lines.join(', ')} (same device)`,
+        );
+      }
+    }
     this.accountProxies = await this.assignWorkingProxies();
     for (let i = 0; i < this.accountCount(); i++) {
       const name = getAccountName(i);
@@ -1940,9 +1995,18 @@ class DesktopBridge {
       if (pairIndex !== null) {
         const slotA = pairIndex * 2;
         const slotB = slotA + 1;
-        if (!this.isAccountLinked(slotA) || !this.isAccountLinked(slotB)) {
+        if (!this.isPairReadyForFeeding(pairIndex)) {
+          const labelA = getAccountLabel(slotA);
+          const labelB = getAccountLabel(slotB);
+          const linkedA = this.isAccountLinked(slotA);
+          const linkedB = this.isAccountLinked(slotB);
+          if (!linkedA || !linkedB) {
+            return fail(
+              `Pair ${pairIndex + 1} belum lengkap — link ${labelA} dan ${labelB} (QR/pairing) dulu.`,
+            );
+          }
           return fail(
-            `Pair ${pairIndex + 1} is not fully linked — scan QR for both accounts before Start feeding.`
+            `Pair ${pairIndex + 1} belum siap — pastikan kedua akun sudah terdaftar (bukan session kosong/setengah link).`,
           );
         }
         run.linkedSlots = new Set([slotA, slotB]);
@@ -2109,13 +2173,15 @@ class DesktopBridge {
             `${runLabel} CLI failed (${detail}). Restart the app if this persists.`
           );
         }
-        if (code === 0 && !this.isFeedingActive() && !this.lastFeedingComplete?.at) {
-          this.recordFeedingComplete({ success: true });
-        } else if (!intentional && code !== 0 && !this.isFeedingActive() && !this.lastFeedingComplete?.at) {
+        if (!this.lastFeedingComplete?.at && !intentional && !this.isFeedingActive()) {
+          const runPairs = pairIndex != null ? 1 : this.pairCount();
           this.recordFeedingComplete({
             success: false,
             manualStop: true,
-            stopped: this.pairCount(),
+            messagesSent: 0,
+            completed: 0,
+            stopped: runPairs,
+            totalPairs: runPairs,
           });
         }
         this.emit('status', this.getStatus());

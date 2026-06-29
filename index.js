@@ -351,25 +351,30 @@ async function resolveLoginOptions(sessionName, prefs, defaultMethod) {
 
 /**
  * Build login plan per account: skip prompt when valid session exists.
+ * @param {{ onlySlots?: number[] }} options — desktop per-pair feeding checks only those slots
  */
-async function prepareLoginPlans() {
+async function prepareLoginPlans(options = {}) {
   const plans = new Map();
   const needLink = [];
   const prefs = readLoginPrefs();
+  const slotIndices = options.onlySlots || Array.from({ length: accountCount() }, (_, i) => i);
 
-  for (let i = 0; i < accountCount(); i++) {
+  for (const i of slotIndices) {
     const name = getAccountName(i);
     const probe = new WhatsAppSession(name);
     const auth = probe.getAuthStatus();
 
-    if (auth.valid) {
+    if (auth.valid && auth.registered) {
       plans.set(name, { skipLogin: true, auth });
     } else {
       if (auth.saved && !auth.valid) {
         probe.deleteAuthFolder();
         console.log(`[LOGIN] ${name}: removed invalid auth — will ask login`);
       }
-      const reason = !auth.saved ? 'no auth folder' : 'invalid session cleared';
+      let reason = !auth.saved ? 'no auth folder' : 'invalid session cleared';
+      if (auth.saved && auth.valid && !auth.registered) {
+        reason = 'session not registered — finish linking in desktop app';
+      }
       needLink.push({ name, reason });
     }
   }
@@ -1325,7 +1330,7 @@ async function fallbackToDirectLink(session, plan, sessionName, proxyManager, pr
 async function connectAllSessions(hasProxies, proxyManager, accountProxies, options = {}) {
   const slotIndices = options.onlySlots || Array.from({ length: accountCount() }, (_, i) => i);
   const sessions = new Array(accountCount()).fill(null);
-  const loginPlans = await prepareLoginPlans();
+  const loginPlans = await prepareLoginPlans({ onlySlots: slotIndices });
 
   for (const i of slotIndices) {
     const sessionName = getAccountName(i);
