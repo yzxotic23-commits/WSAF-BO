@@ -1,0 +1,13 @@
+node_modules
+client/node_modules
+electron
+release
+release-build
+.git
+.env
+data/*.jsonl
+*.db
+*.db-shm
+*.db-wal
+planning
+WhatsApp-Auto-Feeding-*
