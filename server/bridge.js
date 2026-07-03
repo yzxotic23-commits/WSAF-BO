@@ -1066,6 +1066,43 @@ class DesktopBridge {
     return { ...status, proxyDuplicates: dupReport, proxyShared: dupReport };
   }
 
+  /** Set one account slot's proxy from AMS (updates proxies.txt + live session). */
+  async setSlotProxy(slotIndex, proxyUrl) {
+    const slot = parseInt(slotIndex, 10);
+    if (Number.isNaN(slot) || slot < 0) {
+      throw new Error('Invalid slot');
+    }
+    this.ensureCapacity();
+    const url = proxyUrl ? String(proxyUrl).trim() : '';
+    if (url && !this.proxyManager.isValidProxyUrl(url)) {
+      throw new Error('Invalid proxy URL — use socks5://user:pass@host:port');
+    }
+
+    const need = Math.max(this.accountCount(), slot + 1);
+    const lines = String(this.readProxiesRaw() || '').split(/\r?\n/);
+    while (lines.length < need) lines.push('');
+    lines[slot] = url;
+    fs.writeFileSync(this.getProxiesPath(), lines.join('\n'), 'utf8');
+    this.log('success', `[PROXY] ${getAccountName(slot)} proxy saved from AMS`);
+
+    this.proxyManager.load();
+    this.hasProxies = this.proxyManager.proxies.some(Boolean);
+    while (this.accountProxies.length < need) this.accountProxies.push(null);
+    this.accountProxies[slot] = url || null;
+
+    const session = this.sessions[slot];
+    if (session) {
+      session.setProxy(url || null);
+    }
+
+    this.emit('status', this.getStatus());
+    return {
+      ok: true,
+      slot,
+      proxy: url ? this.proxyManager.maskUrl(url) : 'direct',
+    };
+  }
+
   analyzeProxyDuplicates(content = null) {
     const raw = content != null ? content : this.readProxiesRaw();
     const need = this.accountCount();
