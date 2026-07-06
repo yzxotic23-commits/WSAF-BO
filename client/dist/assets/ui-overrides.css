@@ -1682,6 +1682,11 @@
   font-weight: 600;
 }
 
+.ff-proxy-account-route--saved {
+  color: #0d9488;
+  font-weight: 500;
+}
+
 .ff-proxy-bulk {
   margin: 0 0 4px;
   padding: 10px 12px;

@@ -950,17 +950,28 @@
     renderProxySharedInfo(modal, analyzeProxySharedFromLines(padded, accountCount));
   }
 
-  function proxyRouteIsActive(_slot, _lines, meta) {
+  function formatProxyRouteLabel(slot, lines, meta) {
     const route = meta?.proxyNow || 'direct';
-    return Boolean(route && route !== 'direct');
+    if (route && route !== 'direct') {
+      return `Active: ${route}`;
+    }
+    const saved = String(lines[slot] || '').trim();
+    if (saved) {
+      try {
+        const u = new URL(saved);
+        const auth = u.username ? `${u.username}:***@` : '';
+        return `Saved: ${u.protocol}//${auth}${u.hostname}${u.port ? `:${u.port}` : ''} (applies on connect)`;
+      } catch {
+        return 'Saved: proxy configured (applies on connect)';
+      }
+    }
+    return 'Active: direct (local IP)';
   }
 
-  function formatProxyRouteLabel(_slot, _lines, meta) {
+  function proxyRouteIsActive(slot, lines, meta) {
     const route = meta?.proxyNow || 'direct';
-    if (!route || route === 'direct') {
-      return 'Active: direct (local IP)';
-    }
-    return `Active: ${route}`;
+    if (route && route !== 'direct') return true;
+    return Boolean(String(lines[slot] || '').trim());
   }
 
   function getProxyAccountMeta(slot, status) {
@@ -1030,7 +1041,7 @@
           `value="${escapeHtml(lines[slot] || '')}" ` +
           'placeholder="socks5://user:pass@ip:port — empty = direct" spellcheck="false" autocomplete="off" />' +
           '</div>' +
-          `<span class="ff-proxy-account-route${proxyRouteIsActive(slot, lines, meta) ? ' ff-proxy-account-route--live' : ''}">${escapeHtml(formatProxyRouteLabel(slot, lines, meta))}</span>`;
+          `<span class="ff-proxy-account-route${proxyRouteIsActive(slot, lines, meta) ? ((meta?.proxyNow && meta.proxyNow !== 'direct') ? ' ff-proxy-account-route--live' : ' ff-proxy-account-route--saved') : ''}">${escapeHtml(formatProxyRouteLabel(slot, lines, meta))}</span>`;
 
         const input = row.querySelector('.ff-proxy-account-input');
         input.addEventListener('input', () => {

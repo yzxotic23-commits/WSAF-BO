@@ -70,6 +70,9 @@ class DesktopBridge {
     this.ensureEnvAiDefaults();
     this.ensureFirstRunEnv();
     this.ensureCapacity();
+    this.loadProxies().catch((err) => {
+      this.log('warn', `[PROXY] Startup load failed: ${err.message}`);
+    });
     this.ensureCodexProxy().catch((err) => {
       this.log('warn', `[AI] Codex proxy startup failed: ${err.message}`);
     });
@@ -690,7 +693,8 @@ class DesktopBridge {
   /** Proxy shown in UI/logs: live socket, assigned slot, or saved proxies.txt line. */
   resolveAccountProxy(slot, session) {
     const assigned = this.accountProxies[slot] || null;
-    const savedFromFile = this.proxyManager.proxies[slot] || null;
+    const slotProxies = this.proxyManager.getProxiesBySlot(this.accountCount());
+    const savedFromFile = slotProxies[slot] || null;
     const configured = assigned || savedFromFile;
     const live = session?.proxyUrl || null;
     const feeding = this.isSlotInActiveFeeding(slot);
