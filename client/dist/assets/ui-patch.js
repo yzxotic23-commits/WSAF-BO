@@ -65,6 +65,9 @@
     try {
       if (window.desktop?.apiUrl) return window.desktop.apiUrl.replace(/\/$/, '');
     } catch { /* noop */ }
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return window.location.origin.replace(/\/$/, '');
+    }
     return 'http://127.0.0.1:47821';
   })();
 

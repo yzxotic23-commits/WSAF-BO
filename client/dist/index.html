@@ -19,6 +19,12 @@
         if (embed) {
           document.documentElement.classList.add('ams-embed');
         }
+        // Web/cloud (Railway): API + socket must use this host, not localhost.
+        if (!window.desktop || !window.desktop.apiUrl) {
+          window.desktop = Object.assign({}, window.desktop, {
+            apiUrl: window.location.origin,
+          });
+        }
       })();
     </script>
     <script type="module" src="./assets/index-CbZz9OZp.js"></script>
