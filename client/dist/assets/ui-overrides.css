@@ -1596,11 +1596,9 @@
 .ff-proxy-input-wrap {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
   border-radius: 10px;
   border: 1px solid var(--wa-border);
   background: #fff;
-  -webkit-overflow-scrolling: touch;
 }
 
 .ff-proxy-input-wrap:focus-within {
@@ -1610,8 +1608,8 @@
 
 .ff-proxy-input-wrap .ff-proxy-account-input {
   display: block;
-  width: max(100%, 36rem);
-  min-width: 100%;
+  width: 100%;
+  min-width: 0;
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -1670,6 +1668,8 @@
 }
 
 .ff-proxy-account-route {
+  display: block;
+  margin-top: 2px;
   font-size: 0.72rem;
   color: var(--wa-text-secondary);
   white-space: nowrap;

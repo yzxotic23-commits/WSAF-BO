@@ -950,26 +950,14 @@
     renderProxySharedInfo(modal, analyzeProxySharedFromLines(padded, accountCount));
   }
 
-  function proxyRouteIsActive(slot, lines, meta) {
+  function proxyRouteIsActive(_slot, _lines, meta) {
     const route = meta?.proxyNow || 'direct';
-    if (route && route !== 'direct') return true;
-    const saved = String(lines[slot] || '').trim();
-    return Boolean(saved) && saved !== 'direct';
+    return Boolean(route && route !== 'direct');
   }
 
-  function formatProxyRouteLabel(slot, lines, meta) {
+  function formatProxyRouteLabel(_slot, _lines, meta) {
     const route = meta?.proxyNow || 'direct';
     if (!route || route === 'direct') {
-      const saved = String(lines[slot] || '').trim();
-      if (saved) {
-        try {
-          const u = new URL(saved);
-          const auth = u.username ? `${u.username}:***@` : '';
-          return `Active: ${u.protocol}//${auth}${u.hostname}${u.port ? `:${u.port}` : ''}`;
-        } catch {
-          return 'Active: proxy configured';
-        }
-      }
       return 'Active: direct (local IP)';
     }
     return `Active: ${route}`;
