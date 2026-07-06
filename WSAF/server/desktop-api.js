@@ -274,6 +274,25 @@ function createDesktopApi(options = {}) {
     }
   });
 
+  app.post('/api/slots/:slot/proxy', requireAmsBridge, async (req, res) => {
+    try {
+      const slot = parseInt(req.params.slot, 10);
+      if (Number.isNaN(slot) || slot < 0) {
+        res.status(400).json({ error: 'Invalid slot' });
+        return;
+      }
+      const proxyUrl = req.body?.proxyUrl || req.body?.proxy_url;
+      if (!proxyUrl) {
+        res.status(400).json({ error: 'proxyUrl required' });
+        return;
+      }
+      const data = await bridge.setSlotProxy(slot, proxyUrl);
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post('/api/sessions/strict-logout', async (req, res) => {
     try {
       const slot = parseInt(req.body?.slot, 10);

@@ -12,11 +12,13 @@
   "scripts": {
     "start": "node index.js",
     "web": "node web.js",
-    "dev:api": "node web.js",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "rebuild:electron": "npx @electron/rebuild -f -w better-sqlite3",
+    "dev:api": "npm run rebuild:node && node web.js",
     "dev:ui": "npm run dev --prefix client",
     "build:ui": "npm run build --prefix client",
     "start:web": "npm run build:ui && npm run dev:api",
-    "desktop": "node scripts/ensure-electron.js && node node_modules/electron/cli.js .",
+    "desktop": "node scripts/ensure-electron.js && npm run rebuild:electron && node node_modules/electron/cli.js .",
     "ensure-electron": "node scripts/ensure-electron.js",
     "codex-login": "npx @openai/codex login",
     "codex-proxy": "npx openai-oauth",
@@ -72,7 +74,7 @@
       "node_modules/openai-oauth/**/*"
     ],
     "win": {
-      "signAndEditExecutable": false,
+      "icon": "electron/icons/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -99,7 +101,9 @@
       "allowToChangeInstallationDirectory": false,
       "deleteAppDataOnUninstall": false,
       "runAfterFinish": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "installerIcon": "electron/icons/icon.ico",
+      "uninstallerIcon": "electron/icons/icon.ico"
     },
     "publish": null
   }

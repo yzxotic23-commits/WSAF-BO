@@ -670,6 +670,7 @@
   border-radius: 12px !important;
   box-shadow: var(--ff-shadow-xs) !important;
   transition: box-shadow var(--ff-duration) var(--ff-ease-out);
+  position: relative;
 }
 
 .wa-msg--in .wa-msg-bubble {
@@ -698,7 +699,7 @@
   position: static !important;
   flex: 0 0 auto;
   align-self: flex-end;
-  margin: 0 0 1px;
+  margin: 0 0 1px auto;
   padding: 0;
   font-size: 0.65rem;
   line-height: 1.2;
@@ -2417,6 +2418,15 @@ body.ff-pairing-active .wa-web-login-footer {
   font-weight: 600;
 }
 
+.ff-pairing-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
 .ff-pairing-switch-qr {
   display: inline-flex;
   align-items: center;
@@ -2438,6 +2448,26 @@ body.ff-pairing-active .wa-web-login-footer {
 
 .ff-pairing-switch-qr span {
   font-size: 1.1em;
+}
+
+.ff-pairing-cancel-link {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--wa-text-secondary);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ff-pairing-cancel-link:hover {
+  color: #c62828;
+  text-decoration: underline;
 }
 
 @media (max-width: 520px) {

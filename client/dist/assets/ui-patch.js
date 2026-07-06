@@ -159,6 +159,7 @@
   /** FeedFlow logo — user's PNG asset (transparent background) */
   function syncOfficialLogo() {
     const LOGO_SRC = './assets/xchat-logo.webp';
+    const LOGO_FALLBACK = './assets/feedflow-logo.png';
     document.querySelectorAll('.wa-app-logo').forEach((el) => {
       if (el.querySelector('img.ff-logo-img')) {
         const size = el.classList.contains('wa-app-logo--header')
@@ -169,6 +170,13 @@
         const img = el.querySelector('img.ff-logo-img');
         img.setAttribute('width', String(size));
         img.setAttribute('height', String(size));
+        if (!img.dataset.ffLogoFallbackBound) {
+          img.dataset.ffLogoFallbackBound = '1';
+          img.addEventListener('error', () => {
+            if (img.src.includes('feedflow-logo.png')) return;
+            img.src = LOGO_FALLBACK;
+          }, { once: true });
+        }
         return;
       }
 
@@ -181,6 +189,11 @@
       el.setAttribute('data-ff-logo-official', 'png');
       el.innerHTML =
         '<img class="ff-logo-img" src="' + LOGO_SRC + '" alt="" width="' + size + '" height="' + size + '" draggable="false" decoding="async" />';
+      const img = el.querySelector('img.ff-logo-img');
+      img?.addEventListener('error', () => {
+        if (img.src.includes('feedflow-logo.png')) return;
+        img.src = LOGO_FALLBACK;
+      }, { once: true });
     });
   }
 
@@ -1770,7 +1783,10 @@
       '<li><span class="ff-pairing-step-num">3</span><span class="ff-pairing-step-text">Tap <strong>Linked devices</strong>, then <strong>Link device</strong></span></li>' +
       '<li><span class="ff-pairing-step-num">4</span><span class="ff-pairing-step-text">Tap <strong>Link with phone number instead</strong> and enter this code on your phone</span></li>' +
       '</ol>' +
+      '<div class="ff-pairing-actions">' +
       '<button type="button" class="ff-pairing-switch-qr">Log in with QR code <span aria-hidden="true">›</span></button>' +
+      '<button type="button" class="ff-pairing-cancel-link">Cancel linking</button>' +
+      '</div>' +
       '</div>';
     host.appendChild(overlay);
     document.body.classList.add('ff-pairing-active');
@@ -1779,6 +1795,22 @@
       switchToQrLoginView().catch((err) => {
         console.warn('[FeedFlow] switchToQrLoginView:', err);
       });
+    });
+
+    overlay.querySelector('.ff-pairing-cancel-link')?.addEventListener('click', () => {
+      if (pairingSwitchInProgress) return;
+      pairingSwitchInProgress = true;
+      cancelActivePairing()
+        .catch(() => {})
+        .finally(() => {
+          pairingSwitchInProgress = false;
+          switchToPhoneLoginView();
+          const input = document.querySelector('.wa-web-pill-input');
+          if (input) {
+            input.focus();
+            input.select?.();
+          }
+        });
     });
 
     overlay.querySelector('.ff-pairing-edit')?.addEventListener('click', () => {
