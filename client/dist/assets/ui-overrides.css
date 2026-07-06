@@ -1677,6 +1677,11 @@
   text-overflow: ellipsis;
 }
 
+.ff-proxy-account-route--live {
+  color: #16a34a;
+  font-weight: 600;
+}
+
 .ff-proxy-bulk {
   margin: 0 0 4px;
   padding: 10px 12px;

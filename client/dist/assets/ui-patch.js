@@ -950,6 +950,13 @@
     renderProxySharedInfo(modal, analyzeProxySharedFromLines(padded, accountCount));
   }
 
+  function proxyRouteIsActive(slot, lines, meta) {
+    const route = meta?.proxyNow || 'direct';
+    if (route && route !== 'direct') return true;
+    const saved = String(lines[slot] || '').trim();
+    return Boolean(saved) && saved !== 'direct';
+  }
+
   function formatProxyRouteLabel(slot, lines, meta) {
     const route = meta?.proxyNow || 'direct';
     if (!route || route === 'direct') {
@@ -1035,7 +1042,7 @@
           `value="${escapeHtml(lines[slot] || '')}" ` +
           'placeholder="socks5://user:pass@ip:port — empty = direct" spellcheck="false" autocomplete="off" />' +
           '</div>' +
-          `<span class="ff-proxy-account-route">${escapeHtml(formatProxyRouteLabel(slot, lines, meta))}</span>`;
+          `<span class="ff-proxy-account-route${proxyRouteIsActive(slot, lines, meta) ? ' ff-proxy-account-route--live' : ''}">${escapeHtml(formatProxyRouteLabel(slot, lines, meta))}</span>`;
 
         const input = row.querySelector('.ff-proxy-account-input');
         input.addEventListener('input', () => {
