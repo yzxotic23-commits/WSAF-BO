@@ -20,6 +20,7 @@ const {
   classifyDisconnect,
   classifySendError,
   formatPolicyAlert,
+  isStrictLogoutAlert,
   isTransientHandshakeMessage,
 } = require('./wa-policy-detector');
 const ProxyManager = require('./proxy-manager');
@@ -1108,10 +1109,27 @@ class WhatsAppSession extends EventEmitter {
           this.reconnectAttempts = 0;
           this.emit('loggedOut');
         } else if (isLoggedOut || isForbidden) {
-          const transient401 =
+          const resolvedAlert = policyAlert || {
+            type: isForbidden ? 'BAN_OR_FORBIDDEN' : 'LOGGED_OUT_OR_RESTRICTED',
+            severity: isForbidden ? 'critical' : 'warning',
+            title: isForbidden
+              ? 'Account forbidden (403) — session removed'
+              : 'Logged out (401) — session ended by WhatsApp',
+            detail: errMsg || 'WhatsApp ended this session.',
+            strictScanPossible: Boolean(isForbidden),
+            action:
+              'Open WhatsApp on your phone. If you see a strict scan or temporary limit, wait ~6 hours. Then use Settings → Session → Clear all sessions before re-linking.',
+          };
+
+          const infra401 =
             isLoggedOut
-            && isTransientHandshakeMessage(errMsg);
-          if (transient401 && ((hadAuth && authValid) || this.pairingPhone || incompleteLink)) {
+            && (
+              isTransientHandshakeMessage(errMsg)
+              || (!String(errMsg || '').trim() && hadAuth && authValid)
+              || resolvedAlert.strictScanPossible === false
+            );
+
+          if (infra401 && ((hadAuth && authValid) || this.pairingPhone || incompleteLink)) {
             console.log(
               `[${this.sessionName}] Handshake retry ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts} (${errMsg || 'connection drop'})`
             );
@@ -1122,6 +1140,22 @@ class WhatsAppSession extends EventEmitter {
             }
             return;
           }
+
+          if (!isStrictLogoutAlert(resolvedAlert)) {
+            if (hadAuth && authValid && this.reconnectAttempts < this.maxReconnectAttempts) {
+              console.log(
+                `[${this.sessionName}] Unconfirmed logout (401) — retry ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts}`
+              );
+              this.reconnectAttempts++;
+              const delay = Math.min(3000 * this.reconnectAttempts, 15000);
+              this.scheduleReconnectWithLoginPlan(delay);
+              return;
+            }
+            this.isLoggedOut = true;
+            this.emit('loggedOut');
+            return;
+          }
+
           this.isLoggedOut = true;
           if (isLoggedOut) {
             console.log(`[${this.sessionName}] Logged out (401). Auth cleared.`);
@@ -1133,21 +1167,7 @@ class WhatsAppSession extends EventEmitter {
           this.reconnectAttempts = 0;
           this.qrCount = 0;
           this.proxyFallbackAttempts = 0;
-          this.emit('strictLogout', {
-            alert:
-              policyAlert
-              || {
-                type: isForbidden ? 'BAN_OR_FORBIDDEN' : 'LOGGED_OUT_OR_RESTRICTED',
-                severity: 'critical',
-                title: isForbidden
-                  ? 'Account forbidden (403) — session removed'
-                  : 'Logged out (401) — session removed',
-                detail: errMsg || 'WhatsApp ended this session.',
-                strictScanPossible: true,
-                action:
-                  'Open WhatsApp on your phone. If you see a strict scan or temporary limit, wait ~6 hours. Then use Settings → Session → Clear all sessions before re-linking.',
-              },
-          });
+          this.emit('strictLogout', { alert: resolvedAlert });
           this.emit('loggedOut');
         } else if (isBadSession && !hadAuth) {
             if (this.linkControlMode) {
@@ -1465,7 +1485,7 @@ class WhatsAppSession extends EventEmitter {
       const policyAlert = classifySendError(error);
       if (policyAlert) {
         this.emitPolicyAlert(policyAlert);
-        if (policyAlert.strictScanPossible && policyAlert.severity === 'critical') {
+        if (policyAlert.strictScanPossible && policyAlert.severity === 'critical' && isStrictLogoutAlert(policyAlert)) {
           this.isLoggedOut = true;
           this.autoReconnectAllowed = false;
           this.clearReconnectTimer();

@@ -22,6 +22,7 @@ const {
   reportStrictLogout,
 } = require('./src/feeding-reporter');
 const { readSlotDisplayLabel } = require('./src/slot-display-labels');
+const { isStrictLogoutAlert } = require('./src/wa-policy-detector');
 
 const MIN_DELAY = parseInt(process.env.MIN_DELAY || '30') * 1000;
 const MAX_DELAY = parseInt(process.env.MAX_DELAY || '90') * 1000;
@@ -820,7 +821,10 @@ async function runPairSession(
     sessionB.on('loggedOut', onLoggedOutB);
 
     const onPolicyAlert = (label, session) => (alert) => {
-      if (isDesktopFeeding()) {
+      if (
+        isDesktopFeeding()
+        && (alert.severity === 'critical' || isStrictLogoutAlert(alert))
+      ) {
         const slot = sessionSlotIndex(session);
         reportAuditEntry({
           runId: process.env.FEEDING_RUN_ID || null,
@@ -828,12 +832,13 @@ async function runPairSession(
           sessionName: session.sessionName,
           accountName: session.getDisplayName?.() || label,
           policyType: alert.type,
+          strictScanPossible: alert.strictScanPossible,
           reason: alert.title || alert.type,
           proxyUrl: session.proxyUrl || accountProxies[slot] || null,
           pairIndex: pairNum - 1,
         }).catch(() => {});
       }
-      if (alert.severity === 'critical') {
+      if (alert.severity === 'critical' && isStrictLogoutAlert(alert)) {
         stopPair(`${label}: ${alert.type} — check phone for WA restriction`);
       }
     };
@@ -843,8 +848,12 @@ async function runPairSession(
     const onStrictLogout = (label, session) => ({ alert }) => {
       if (!isDesktopFeeding()) return;
       const slot = sessionSlotIndex(session);
-      reportStrictLogout(slot, alert).catch(() => {});
-      stopPair(`${label}: strict logout — session removed; check phone for WA limit`);
+      if (isStrictLogoutAlert(alert)) {
+        reportStrictLogout(slot, alert).catch(() => {});
+        stopPair(`${label}: strict logout confirmed — session removed; check phone for WA limit`);
+      } else {
+        stopPair(`${label}: connection lost — not a confirmed strict scan`);
+      }
     };
     sessionA.on('strictLogout', onStrictLogout(pairLabels.A, sessionA));
     sessionB.on('strictLogout', onStrictLogout(pairLabels.B, sessionB));

@@ -1272,7 +1272,10 @@ class DesktopBridge {
         return;
       }
       this.emit('alert', { account: name, slot: slotIndex, ...alert });
-      if (this.isSlotInActiveFeeding(slotIndex)) {
+      if (
+        this.isSlotInActiveFeeding(slotIndex)
+        && (alert.strictScanPossible !== false || alert.severity === 'critical')
+      ) {
         const pairIndex = Math.floor(slotIndex / 2);
         const run = this._getFeedingRun(pairIndex);
         const entry = this.auditLog.recordOrUpdate({
@@ -1281,6 +1284,7 @@ class DesktopBridge {
           sessionName: name,
           accountName: session.getDisplayName?.() || getAccountLabel(slotIndex),
           policyType: alert.type,
+          strictScanPossible: alert.strictScanPossible,
           reason: alert.title || alert.type,
           proxyUrl: session.proxyUrl || this.accountProxies[slotIndex] || null,
           pairIndex: Math.floor(slotIndex / 2),
@@ -1310,6 +1314,7 @@ class DesktopBridge {
       feedingStatus: payload.feedingStatus,
       reason: payload.reason,
       policyType: payload.policyType,
+      strictScanPossible: payload.strictScanPossible,
       proxyUrl:
         payload.proxyUrl
         || session?.proxyUrl

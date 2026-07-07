@@ -41,7 +41,7 @@ function feedingDaysLabel(dayCount) {
   return 'more than D2';
 }
 
-function mapPolicyTypeToStatus(policyType) {
+function mapPolicyTypeToStatus(policyType, { strictScanPossible } = {}) {
   const t = String(policyType || '').toUpperCase();
   if (
     t.includes('BAN')
@@ -54,9 +54,11 @@ function mapPolicyTypeToStatus(policyType) {
     return FEEDING_STATUS.BANNED;
   }
   if (t.includes('RESTRICT') || t.includes('LOGGED_OUT')) {
-    return FEEDING_STATUS.RESTRICT;
+    return strictScanPossible !== false
+      ? FEEDING_STATUS.RESTRICT
+      : FEEDING_STATUS.ACTIVE;
   }
-  return FEEDING_STATUS.RESTRICT;
+  return FEEDING_STATUS.ACTIVE;
 }
 
 function reasonToStatus(reason, completed = false) {
@@ -70,13 +72,18 @@ function reasonToStatus(reason, completed = false) {
   ) {
     return FEEDING_STATUS.BANNED;
   }
-  if (/logged out|401|restrict|strict|unavailable|send failed|policy/.test(r)) {
+  if (
+    /strict\s*logout|strict\s*scan|confirmed\s*restrict|account\s*forbidden|ban_or_forbidden|policy\s*\/\s*restriction|send\s*blocked/.test(r)
+  ) {
     return FEEDING_STATUS.RESTRICT;
   }
   if (/completed|done|finished/.test(r)) {
     return FEEDING_STATUS.SUCCESS;
   }
-  return FEEDING_STATUS.RESTRICT;
+  if (/logged out|401|connection|stopped|disconnect|unavailable/.test(r)) {
+    return FEEDING_STATUS.ACTIVE;
+  }
+  return FEEDING_STATUS.ACTIVE;
 }
 
 function formatDateTime(iso) {
@@ -208,9 +215,14 @@ class AuditLogStore {
       if (accountName) existing.accountName = accountName;
       if (location) existing.location = formatAuditLocation(location);
       if (ip) existing.ipAddress = ip;
+      const relinkActive =
+        reason === 'account_linked' && feedingStatus === FEEDING_STATUS.ACTIVE;
       if (
-        feedingStatus
-        && this.statusRank(feedingStatus) >= this.statusRank(existing.feedingStatus)
+        relinkActive
+        || (
+          feedingStatus
+          && this.statusRank(feedingStatus) >= this.statusRank(existing.feedingStatus)
+        )
       ) {
         existing.feedingStatus = feedingStatus;
       }
@@ -243,9 +255,14 @@ class AuditLogStore {
       payload.feedingStatus === FEEDING_STATUS.SUCCESS
       || String(payload.reason || '').toLowerCase().includes('completed');
 
-    let nextStatus = payload.policyType
-      ? mapPolicyTypeToStatus(payload.policyType)
-      : reasonToStatus(payload.reason, completed);
+    let nextStatus = payload.feedingStatus;
+    if (!nextStatus) {
+      nextStatus = payload.policyType
+        ? mapPolicyTypeToStatus(payload.policyType, {
+          strictScanPossible: payload.strictScanPossible,
+        })
+        : reasonToStatus(payload.reason, completed);
+    }
 
     if (
       completed
@@ -285,6 +302,7 @@ class AuditLogStore {
     feedingStatus = FEEDING_STATUS.SUCCESS,
     reason = null,
     policyType = null,
+    strictScanPossible = undefined,
     proxyUrl = null,
     ipAddress: explicitIp = null,
     location = null,
@@ -297,7 +315,7 @@ class AuditLogStore {
 
     let status = feedingStatus;
     if (policyType) {
-      status = mapPolicyTypeToStatus(policyType);
+      status = mapPolicyTypeToStatus(policyType, { strictScanPossible });
     } else if (reason && feedingStatus === FEEDING_STATUS.SUCCESS) {
       status = reasonToStatus(reason, true);
     }
