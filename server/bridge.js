@@ -70,9 +70,6 @@ class DesktopBridge {
     this.ensureEnvAiDefaults();
     this.ensureFirstRunEnv();
     this.ensureCapacity();
-    this.loadProxies().catch((err) => {
-      this.log('warn', `[PROXY] Startup load failed: ${err.message}`);
-    });
     this.ensureCodexProxy().catch((err) => {
       this.log('warn', `[AI] Codex proxy startup failed: ${err.message}`);
     });
@@ -693,8 +690,7 @@ class DesktopBridge {
   /** Proxy shown in UI/logs: live socket, assigned slot, or saved proxies.txt line. */
   resolveAccountProxy(slot, session) {
     const assigned = this.accountProxies[slot] || null;
-    const slotProxies = this.proxyManager.getProxiesBySlot(this.accountCount());
-    const savedFromFile = slotProxies[slot] || null;
+    const savedFromFile = this.proxyManager.proxies[slot] || null;
     const configured = assigned || savedFromFile;
     const live = session?.proxyUrl || null;
     const feeding = this.isSlotInActiveFeeding(slot);
@@ -743,21 +739,56 @@ class DesktopBridge {
     );
   }
 
-  /** Stricter gate before feeding — both accounts must be fully registered, not linking. */
-  isPairReadyForFeeding(pairIndex) {
+  /**
+   * Gate before feeding — both accounts must be usable (registered on disk, or
+   * live-connected with valid auth). Do not block on a stuck isLinking flag when
+   * the socket is already open and registered.
+   */
+  getPairFeedingBlockReason(pairIndex) {
     const slotA = pairIndex * 2;
     const slotB = slotA + 1;
-    if (slotB >= this.accountCount()) return false;
+    if (slotB >= this.accountCount()) {
+      return `Pair ${pairIndex + 1} slots out of range`;
+    }
 
     for (const slot of [slotA, slotB]) {
-      if (this.logoutSlots.has(slot)) return false;
+      const label = getAccountLabel(slot);
+      if (this.logoutSlots.has(slot)) {
+        return `${label} is logging out — wait or cancel logout first`;
+      }
       const name = getAccountName(slot);
       const auth = new WhatsAppSession(name).getAuthStatus();
-      if (!auth.saved || !auth.valid || !auth.registered) return false;
       const session = this.sessions[slot];
-      if (session?.isLinking || session?.isLoggingOut) return false;
+      const liveConnected = Boolean(
+        session?.isConnected && !session?.isLoggedOut && !session?.isLoggingOut
+      );
+      const registered =
+        Boolean(auth.registered)
+        || Boolean(session?.isRegistrationComplete?.());
+
+      if (session?.isLoggingOut) {
+        return `${label} is logging out`;
+      }
+      if (!auth.saved || !auth.valid) {
+        return `${label} has no valid session on disk — link again`;
+      }
+      // Stuck isLinking after reconnect should not block a fully online account.
+      if (session?.isLinking && !liveConnected && !registered) {
+        return `${label} is still linking — finish or cancel link first`;
+      }
+      if (!registered && !liveConnected) {
+        return `${label} is not fully registered yet (empty/half session)`;
+      }
+      if (!registered && liveConnected) {
+        // Live socket open but creds.registered still false — treat as ready enough to feed.
+        continue;
+      }
     }
-    return true;
+    return null;
+  }
+
+  isPairReadyForFeeding(pairIndex) {
+    return this.getPairFeedingBlockReason(pairIndex) == null;
   }
 
   getStatus() {
@@ -1218,13 +1249,6 @@ class DesktopBridge {
       }
       this.emit('pairingCode', { account: name, slot: slotIndex, ...data });
       this.log('info', `[${name}] Pairing code: ${data.code}`);
-      this.pushChat(slotIndex, {
-        direction: 'system',
-        kind: 'pairing',
-        code: data.code,
-        phone: data.phone,
-        text: `Pairing code: ${data.code}\nOn your phone: WhatsApp → Linked devices → Link with phone number → enter this code.`,
-      });
       this.emit('status', this.getStatus());
     });
 
@@ -2041,7 +2065,22 @@ class DesktopBridge {
       if (pairIndex !== null) {
         const slotA = pairIndex * 2;
         const slotB = slotA + 1;
-        if (!this.isPairReadyForFeeding(pairIndex)) {
+        // Clear stuck linking flags on already-open sessions (reconnect race).
+        for (const slot of [slotA, slotB]) {
+          const session = this.sessions[slot];
+          if (
+            session?.isLinking
+            && session?.isConnected
+            && !session?.isLoggedOut
+            && !session?.isLoggingOut
+            && session?.isRegistrationComplete?.()
+          ) {
+            session.isLinking = false;
+            session.emit?.('linkState');
+          }
+        }
+        const blockReason = this.getPairFeedingBlockReason(pairIndex);
+        if (blockReason) {
           const labelA = getAccountLabel(slotA);
           const labelB = getAccountLabel(slotB);
           const linkedA = this.isAccountLinked(slotA);
@@ -2051,9 +2090,7 @@ class DesktopBridge {
               `Pair ${pairIndex + 1} belum lengkap — link ${labelA} dan ${labelB} (QR/pairing) dulu.`,
             );
           }
-          return fail(
-            `Pair ${pairIndex + 1} belum siap — pastikan kedua akun sudah terdaftar (bukan session kosong/setengah link).`,
-          );
+          return fail(`Pair ${pairIndex + 1} belum siap — ${blockReason}`);
         }
         run.linkedSlots = new Set([slotA, slotB]);
       } else {
