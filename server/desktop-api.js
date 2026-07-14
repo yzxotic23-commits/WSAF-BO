@@ -8,7 +8,7 @@ const { AmsStore } = require('../src/ams-db');
 const { isAmsBridgeRequest } = require('../src/bridge-client-mode');
 
 const PORT = parseInt(
-  process.env.PORT || process.env.DESKTOP_API_PORT || '47821',
+  process.env.DESKTOP_API_PORT || process.env.PORT || '47821',
   10,
 );
 const PKG = require('../package.json');
