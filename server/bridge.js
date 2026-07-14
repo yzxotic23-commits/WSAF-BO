@@ -654,6 +654,20 @@ class DesktopBridge {
     return row;
   }
 
+  /** Resolve AMS site location for audit rows from slot display-label metadata. */
+  resolveSlotAuditLocation(slotIndex, extra = {}) {
+    const labelRow = this.slotLabels.getRow(slotIndex) || {};
+    const merged = { ...labelRow, ...extra };
+    const location = String(merged.location || '').trim();
+    if (location && location !== '-' && location.toLowerCase() !== 'pending') {
+      return location;
+    }
+    const siteKey = String(merged.siteKey || merged.site_key || '').toLowerCase();
+    if (siteKey === 'pp') return 'Poipet';
+    if (siteKey === 'my') return 'Malaysia';
+    return null;
+  }
+
   syncLinkedSlotAudit(slotIndex, extra = {}) {
     if (!this.isAccountLinked(slotIndex)) return null;
     const name = getAccountName(slotIndex);
@@ -669,7 +683,7 @@ class DesktopBridge {
       slot: slotIndex,
       sessionName: name,
       accountName,
-      location: merged.location || null,
+      location: this.resolveSlotAuditLocation(slotIndex, extra) || merged.location || null,
       ipAddress: merged.ipAddress || null,
       proxyUrl: session?.proxyUrl || this.accountProxies[slotIndex] || null,
       reason: 'account_linked',
@@ -1310,6 +1324,7 @@ class DesktopBridge {
           policyType: alert.type,
           strictScanPossible: alert.strictScanPossible,
           reason: alert.title || alert.type,
+          location: this.resolveSlotAuditLocation(slotIndex),
           proxyUrl: session.proxyUrl || this.accountProxies[slotIndex] || null,
           pairIndex: Math.floor(slotIndex / 2),
         });
@@ -1327,9 +1342,11 @@ class DesktopBridge {
 
   recordAuditEntry(payload) {
     const session = this.sessions[payload.slot];
+    const slot = payload.slot;
+    const labelRow = slot != null ? (this.slotLabels.getRow(slot) || {}) : {};
     const entry = this.auditLog.recordOrUpdate({
       runId: payload.runId || this.currentFeedingRunId,
-      slot: payload.slot,
+      slot,
       sessionName: payload.sessionName || getAccountName(payload.slot),
       accountName:
         payload.accountName
@@ -1339,6 +1356,11 @@ class DesktopBridge {
       reason: payload.reason,
       policyType: payload.policyType,
       strictScanPossible: payload.strictScanPossible,
+      location:
+        payload.location
+        || this.resolveSlotAuditLocation(slot)
+        || null,
+      ipAddress: payload.ipAddress || labelRow.ipAddress || null,
       proxyUrl:
         payload.proxyUrl
         || session?.proxyUrl

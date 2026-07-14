@@ -516,7 +516,11 @@ function createDesktopApi(options = {}) {
 
   app.get('/api/audit', (req, res) => {
     try {
-      const limit = parseInt(req.query.limit || '500', 10);
+      // limit<=0 or omitted → return full audit log (no artificial page size)
+      const rawLimit = req.query.limit;
+      const limit = rawLimit == null || rawLimit === ''
+        ? 0
+        : parseInt(rawLimit, 10);
       const offset = parseInt(req.query.offset || '0', 10);
       if (
         req.feedflowClient === 'ams-bridge'
@@ -526,7 +530,10 @@ function createDesktopApi(options = {}) {
         bridge.syncLinkedSlotsAudit();
       }
       res.json({
-        ...bridge.getAuditList({ limit, offset }),
+        ...bridge.getAuditList({
+          limit: Number.isFinite(limit) ? limit : 0,
+          offset,
+        }),
         summary: bridge.getAuditSummary(),
       });
     } catch (e) {

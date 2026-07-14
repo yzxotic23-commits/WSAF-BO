@@ -7,7 +7,10 @@ const DesktopBridge = require('./bridge');
 const { AmsStore } = require('../src/ams-db');
 const { isAmsBridgeRequest } = require('../src/bridge-client-mode');
 
-const PORT = parseInt(process.env.DESKTOP_API_PORT || '47821', 10);
+const PORT = parseInt(
+  process.env.PORT || process.env.DESKTOP_API_PORT || '47821',
+  10,
+);
 const PKG = require('../package.json');
 
 function createDesktopApi(options = {}) {
@@ -44,11 +47,10 @@ function createDesktopApi(options = {}) {
   }
 
   // Allow embedding inside AMS web shell (iframe)
+  const frameAncestors = process.env.AMS_FRAME_ORIGINS
+    || "http://localhost:3000 http://127.0.0.1:3000 http://localhost:5173 http://127.0.0.1:5173 https://ams-dashboard-weld.vercel.app";
   app.use((_req, res, next) => {
-    res.setHeader(
-      'Content-Security-Policy',
-      "frame-ancestors 'self' http://localhost:3000 http://127.0.0.1:3000 http://localhost:5173 http://127.0.0.1:5173",
-    );
+    res.setHeader('Content-Security-Policy', `frame-ancestors 'self' ${frameAncestors}`);
     next();
   });
 
@@ -514,7 +516,11 @@ function createDesktopApi(options = {}) {
 
   app.get('/api/audit', (req, res) => {
     try {
-      const limit = parseInt(req.query.limit || '500', 10);
+      // limit<=0 or omitted → return full audit log (no artificial page size)
+      const rawLimit = req.query.limit;
+      const limit = rawLimit == null || rawLimit === ''
+        ? 0
+        : parseInt(rawLimit, 10);
       const offset = parseInt(req.query.offset || '0', 10);
       if (
         req.feedflowClient === 'ams-bridge'
@@ -524,7 +530,10 @@ function createDesktopApi(options = {}) {
         bridge.syncLinkedSlotsAudit();
       }
       res.json({
-        ...bridge.getAuditList({ limit, offset }),
+        ...bridge.getAuditList({
+          limit: Number.isFinite(limit) ? limit : 0,
+          offset,
+        }),
         summary: bridge.getAuditSummary(),
       });
     } catch (e) {

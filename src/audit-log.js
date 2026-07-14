@@ -283,6 +283,13 @@ class AuditLogStore {
     existing.feedingStatus = nextStatus;
     existing.reason = payload.reason || existing.reason;
     existing.policyType = payload.policyType || existing.policyType;
+    if (payload.location) {
+      existing.location = formatAuditLocation(payload.location);
+    }
+    const nextIp = payload.ipAddress || extractIpAddress(payload.proxyUrl);
+    if (nextIp && nextIp !== 'direct') {
+      existing.ipAddress = nextIp;
+    }
     existing.ts = new Date().toISOString();
     existing.dateTime = formatDateTime(existing.ts);
     this.rewriteLog();
@@ -344,9 +351,11 @@ class AuditLogStore {
     return entry;
   }
 
-  list({ limit = 500, offset = 0 } = {}) {
+  list({ limit = 0, offset = 0 } = {}) {
     const slice = this.entries.slice().reverse();
-    const page = slice.slice(offset, offset + limit).map((e) => ({
+    const start = Math.max(0, offset || 0);
+    const unlimited = !limit || limit <= 0;
+    const page = (unlimited ? slice.slice(start) : slice.slice(start, start + limit)).map((e) => ({
       ...e,
       location: formatAuditLocation(e.location),
     }));
@@ -357,14 +366,21 @@ class AuditLogStore {
   }
 
   computeSummary(entries = this.entries) {
-    const total = entries.length;
     const count = (status) => entries.filter((e) => e.feedingStatus === status).length;
     const banned = count(FEEDING_STATUS.BANNED);
     const restrict = count(FEEDING_STATUS.RESTRICT);
     const success = count(FEEDING_STATUS.SUCCESS);
+    const total = success + restrict + banned;
 
     const ipMap = new Map();
     for (const e of entries) {
+      if (
+        e.feedingStatus !== FEEDING_STATUS.SUCCESS
+        && e.feedingStatus !== FEEDING_STATUS.RESTRICT
+        && e.feedingStatus !== FEEDING_STATUS.BANNED
+      ) {
+        continue;
+      }
       const ip = e.ipAddress || 'direct';
       if (!ipMap.has(ip)) {
         ipMap.set(ip, { total: 0, banned: 0, restrict: 0, success: 0 });
