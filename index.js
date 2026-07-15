@@ -554,16 +554,24 @@ async function runPairSession(
 
   // Creds seed overwrites any stale partner-lid.json from mis-identified contacts.
   // (no need to wait for a manual message to learn the partner's LID)
-  const lidA = sessionA.getMyLid();  // Account A's own LID (as seen by B)
-  const lidB = sessionB.getMyLid();  // Account B's own LID (as seen by A)
-  if (lidA) {
-    sessionB.learnPartnerLid(lidA, 'creds_seed');
-    log(pairNum, `LID seed: ${pairLabels.A} → ${lidA}`);
-  }
-  if (lidB) {
-    sessionA.learnPartnerLid(lidB, 'creds_seed');
-    log(pairNum, `LID seed: ${pairLabels.B} → ${lidB}`);
-  }
+  const refreshPartnerLids = (reason = 'creds_seed') => {
+    const lidA = sessionA.getMyLid();
+    const lidB = sessionB.getMyLid();
+    let changed = false;
+    if (lidA && sessionB.partnerLidJid !== lidA) {
+      sessionB.learnPartnerLid(lidA, reason);
+      changed = true;
+      log(pairNum, `LID seed: ${pairLabels.A} → ${lidA}${reason !== 'creds_seed' ? ` (${reason})` : ''}`);
+    }
+    if (lidB && sessionA.partnerLidJid !== lidB) {
+      sessionA.learnPartnerLid(lidB, reason);
+      changed = true;
+      log(pairNum, `LID seed: ${pairLabels.B} → ${lidB}${reason !== 'creds_seed' ? ` (${reason})` : ''}`);
+    }
+    return { lidA, lidB, changed };
+  };
+
+  refreshPartnerLids('creds_seed');
 
   let chatMessageCount = 0;
   let nudgeCount = 0;
@@ -707,15 +715,18 @@ async function runPairSession(
             inboundCount[waitingSide] === 0 &&
             idleSec >= 45
           ) {
+            // Often LID mismatch (inbound dropped), not missing WA delivery.
+            // Re-seed live LIDs then continue to nudge so recovery is possible.
+            const { changed } = refreshPartnerLids('recv0_reseed');
             if (!deliveryWarnShown) {
               deliveryWarnShown = true;
               log(
                 pairNum,
                 `[WARN] ${waitingForLabel} has not received ${lastChatFrom}'s message in bot ` +
-                `(recv=0). Check chat on phone — nudge skipped until message arrives.`
+                `(recv=0). LID ${changed ? 're-seeded' : 'unchanged'} — check phone; nudge will retry.`
               );
             }
-            return;
+            // Do not return — allow nudge after reseed.
           }
 
           const fromA = waitingForLabel === pairLabels.B;
@@ -1002,6 +1013,8 @@ async function runPairSession(
         lastChatTo = pairLabels.B;
         recordChat(pairLabels.A, opener);
         logOut(pairNum, pairLabels.A, pairLabels.B, opener, chatMessageCount, '', chatSlots('A'));
+        // LID often appears in creds only after first traffic — refresh before waiting for reply.
+        refreshPartnerLids('post_opener');
         startIdleWatch();
       } catch (err) {
         isReplying = false;

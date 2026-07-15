@@ -56,6 +56,7 @@ class WhatsAppSession extends EventEmitter {
     this.pairingCodeRequestTimer = null;
     this.expectedPartnerJid = null;
     this.partnerLidJid = null;
+    this._partnerDropLogged = false;
     this.proxyFallbackAttempts = 0;
     this.proxyLinkFallbackDone = false;
     this.pendingLoginPlan = null;
@@ -229,8 +230,13 @@ class WhatsAppSession extends EventEmitter {
     }
   }
 
-  setExpectedPartner(partnerJid) {
+  setExpectedPartner(partnerJid, options = {}) {
     this.expectedPartnerJid = partnerJid ? jidNormalizedUser(partnerJid) : null;
+    const loadSavedLid = options.loadSavedLid !== false;
+    if (!loadSavedLid) {
+      this.partnerLidJid = null;
+      return;
+    }
     const saved = this.loadPartnerLid(this.expectedPartnerJid);
     if (saved) {
       this.partnerLidJid = jidNormalizedUser(saved);
@@ -1313,8 +1319,18 @@ class WhatsAppSession extends EventEmitter {
           this.expectedPartnerJid
           && !this.isPartnerMessage(sender, remoteJid, this.expectedPartnerJid, { senderPn })
         ) {
+          if (!this._partnerDropLogged) {
+            this._partnerDropLogged = true;
+            console.log(
+              `[${this.sessionName}] [WARN] Dropped inbound (not partner / LID mismatch): ` +
+              `sender=${sender || '?'} chat=${remoteJid || '?'} ` +
+              `expected=${this.expectedPartnerJid} lid=${this.partnerLidJid || 'none'} ` +
+              `senderPn=${senderPn || 'none'}`
+            );
+          }
           continue;
         }
+        this._partnerDropLogged = false;
 
         this.emit('message', {
           sender,
