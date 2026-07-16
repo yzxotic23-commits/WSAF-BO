@@ -590,11 +590,24 @@ async function runPairSession(
   let waitingForLabel = pairLabels.B;
   let replyingAsLabel = '';
   let finishPair = null;
+  /** Partner sent OK but waiting side still recv=0 — bridge after delay. */
+  let lastPendingDelivery = null;
+  let deliveryBridgeUsed = false;
   const chatTranscript = [];
   const recentOutbound = [];
   const messageQueue = [];
   const inboundCount = { A: 0, B: 0 };
   const ignoredInboundLog = { A: false, B: false };
+
+  const notePendingDelivery = (waitingSide, waitingLabel, text) => {
+    lastPendingDelivery = {
+      waitingSide,
+      waitingLabel,
+      text: oneLine(text),
+      at: Date.now(),
+    };
+    deliveryBridgeUsed = false;
+  };
 
   const recordChat = (from, text, { skipTranscript = false } = {}) => {
     if (skipTranscript || !text?.trim()) return;
@@ -691,6 +704,50 @@ async function runPairSession(
         }
       }
 
+      const waitingSide = waitingForLabel === pairLabels.A ? 'A' : 'B';
+
+      // Partner send succeeded in bot, but waiting linked session never got upsert (recv=0).
+      // Bridge the last outbound text so feeding can continue (common after LID/proxy asymmetry).
+      if (
+        !deliveryBridgeUsed
+        && !isReplying
+        && !isNudging
+        && lastPendingDelivery
+        && lastPendingDelivery.waitingLabel === waitingForLabel
+        && inboundCount[waitingSide] === 0
+        && idleSec >= 55
+        && lastPendingDelivery.text
+      ) {
+        deliveryBridgeUsed = true;
+        const bridged = lastPendingDelivery;
+        lastPendingDelivery = null;
+        log(
+          pairNum,
+          `[RECOVERY] Delivery bridge → ${bridged.waitingLabel} ` +
+          `(recv still 0 after ${idleSec}s; continuing from partner's last send)`
+        );
+        try {
+          await processInbound(bridged.waitingSide, 'delivery-bridge', bridged.text);
+        } catch (err) {
+          log(pairNum, `[ERROR] Delivery bridge failed: ${err.message}`);
+          deliveryBridgeUsed = false;
+        }
+        return;
+      }
+
+      if (
+        PAIR_MAX_NUDGES > 0
+        && nudgeCount >= PAIR_MAX_NUDGES
+        && inboundCount[waitingSide] === 0
+        && idleSec >= Math.max(PAIR_IDLE_TIMEOUT_MS / 1000, 180)
+      ) {
+        stopPair(
+          `${waitingForLabel} never received partner message in bot ` +
+          `(recv=0 after ${nudgeCount} nudges / ${idleSec}s)`
+        );
+        return;
+      }
+
       if (
         chatMessageCount > 0 &&
         chatMessageCount < MAX_MESSAGES &&
@@ -708,7 +765,6 @@ async function runPairSession(
         } else if (PAIR_MAX_NUDGES === 0) {
           // nudges disabled
         } else {
-          const waitingSide = waitingForLabel === pairLabels.A ? 'A' : 'B';
           if (
             lastChatTo === waitingForLabel &&
             lastChatFrom &&
@@ -751,6 +807,7 @@ async function runPairSession(
               nudgeCount++;
               totalMessagesSent++;
               recordOutbound(fromLabel, nudge);
+              notePendingDelivery(waitingSide, waitingForLabel, nudge);
               logNudge(pairNum, fromLabel, toLabel, nudge, nudgeCount, chatSlots(fromA ? 'A' : 'B'));
             }
           } finally {
@@ -906,6 +963,7 @@ async function runPairSession(
 
         inboundCount[side]++;
         deliveryWarnShown = false;
+        if (lastPendingDelivery?.waitingSide === side) lastPendingDelivery = null;
         recordChat(recvLabel, text);
         nudgeCount = 0;
 
@@ -934,6 +992,7 @@ async function runPairSession(
         lastChatFrom = sendLabel;
         lastChatTo = recvLabel;
         recordChat(sendLabel, reply);
+        notePendingDelivery(isA ? 'B' : 'A', recvLabel, reply);
         logOut(pairNum, sendLabel, recvLabel, reply, chatMessageCount, '', chatSlots(isA ? 'A' : 'B'));
 
         if (chatMessageCount >= MAX_MESSAGES) {
@@ -1012,6 +1071,7 @@ async function runPairSession(
         lastChatFrom = pairLabels.A;
         lastChatTo = pairLabels.B;
         recordChat(pairLabels.A, opener);
+        notePendingDelivery('B', pairLabels.B, opener);
         logOut(pairNum, pairLabels.A, pairLabels.B, opener, chatMessageCount, '', chatSlots('A'));
         // LID often appears in creds only after first traffic — refresh before waiting for reply.
         refreshPartnerLids('post_opener');

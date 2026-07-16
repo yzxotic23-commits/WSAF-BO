@@ -246,9 +246,16 @@ class WhatsAppSession extends EventEmitter {
     }
   }
 
-  /** Only trust LID mappings from creds seed or verified phone-number metadata. */
+  /**
+   * Trust LID from own creds, WA sender_pn metadata, or feeding reseed after traffic.
+   * (post_opener / recv0_reseed were previously dropped — that blocked recovery.)
+   */
   learnPartnerLid(lidJid, source = '') {
-    const verified = source === 'creds_seed' || source === 'sender_pn' || source === 'phoneNumberShare';
+    const verified = source === 'creds_seed'
+      || source === 'sender_pn'
+      || source === 'phoneNumberShare'
+      || source === 'post_opener'
+      || source === 'recv0_reseed';
     if (!verified) return;
 
     const lid = lidJid ? jidNormalizedUser(lidJid) : '';
@@ -1488,10 +1495,14 @@ class WhatsAppSession extends EventEmitter {
         );
         return false;
       }
+      // Prefer phone JID for DM delivery. LID-only send often reaches the phone
+      // but not the linked Baileys session on the other side (recv=0 stuck pairs).
+      const preferLid = process.env.FEEDING_SEND_VIA_LID === 'true';
       if (
-        this.partnerLidJid &&
-        this.expectedPartnerJid &&
-        this.isSameUser(target, this.expectedPartnerJid)
+        preferLid
+        && this.partnerLidJid
+        && this.expectedPartnerJid
+        && this.isSameUser(target, this.expectedPartnerJid)
       ) {
         target = this.partnerLidJid;
       }
