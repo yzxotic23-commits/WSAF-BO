@@ -1491,6 +1491,14 @@ class DesktopBridge {
     if (this.isSlotInActiveFeeding(slotIndex)) {
       throw new Error('Stop feeding for this pair before linking accounts');
     }
+    // Ensure proxies.txt / AMS lines are loaded before sticky routing decides.
+    if (!this.accountProxies?.length || this.isStickyProxyMode()) {
+      try {
+        await this.loadProxies();
+      } catch {
+        /* keep existing assignment */
+      }
+    }
     const pairIndex = Math.floor(slotIndex / 2);
     const run = this._getFeedingRun(pairIndex);
     if (run?.starting) {
