@@ -1754,6 +1754,7 @@ class DesktopBridge {
     this.logoutSlots.delete(slotIndex);
     this.logoutPhase.delete(slotIndex);
     this.clearChat(slotIndex);
+    this.slotLabels.clearSlot(slotIndex);
 
     const normalizedAlert = {
       type: alert?.type || 'STRICT_LOGOUT',
@@ -1771,7 +1772,7 @@ class DesktopBridge {
 
     this.log(
       'warn',
-      `[${sessionName}] Strict logout — local session deleted. Open Settings → Session → Clear all sessions.`
+      `[${sessionName}] Strict logout — local session deleted; slot label cleared for reuse.`
     );
 
     const payload = {
@@ -1795,7 +1796,12 @@ class DesktopBridge {
     const probe = new WhatsAppSession(sessionName);
     const auth = probe.getAuthStatus();
     if (!auth.valid && !this.sessions[slotIndex]?.isConnected) {
-      throw new Error('No linked session for this account');
+      // Already unlinked — still clear sticky AMS name so the slot can be reused.
+      this.slotLabels.clearSlot(slotIndex);
+      this.clearChat(slotIndex);
+      this.emit('status', this.getStatus());
+      this.log('success', `[${sessionName}] Slot already empty — display name cleared for reuse`);
+      return { ok: true, clearedLabel: true, slot: slotIndex };
     }
 
     this.logoutSlots.add(slotIndex);
@@ -1835,8 +1841,10 @@ class DesktopBridge {
       this.sessions[slotIndex] = null;
       this.emitAccountProgress(slotIndex, 'clear', 'Removing session data…');
       this.clearChat(slotIndex);
-      this.emitAccountProgress(slotIndex, 'done', 'Logout complete');
-      this.log('success', `[${sessionName}] Logged out — scan QR to link again`);
+      // Drop AMS display name so sidebar shows empty Account N — reuse slot for a new account.
+      this.slotLabels.clearSlot(slotIndex);
+      this.emitAccountProgress(slotIndex, 'done', 'Logout complete — slot free for new link');
+      this.log('success', `[${sessionName}] Logged out — slot cleared; link a new account via QR`);
     } finally {
       this.logoutSlots.delete(slotIndex);
       this.logoutPhase.delete(slotIndex);
