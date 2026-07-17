@@ -1641,8 +1641,16 @@ class DesktopBridge {
       this.sessions[slotIndex] = session;
     }
 
-    // Prefer live AMS assignment; fall back to proxies.txt line for this slot.
-    const proxyUrl = this.accountProxies[slotIndex]
+    // Prefer proxy sent with this connect (AMS), then assigned slot, then proxies.txt.
+    if (plan?.proxyUrl) {
+      try {
+        await this.setSlotProxy(slotIndex, plan.proxyUrl);
+      } catch (err) {
+        this.log('warn', `[${sessionName}] Could not bind connect proxy: ${err.message}`);
+      }
+    }
+    const proxyUrl = plan?.proxyUrl
+      || this.accountProxies[slotIndex]
       || this.proxyManager.getProxiesBySlot(this.accountCount())[slotIndex]
       || null;
     const qrMode = this.getProxyQrLinkMode();

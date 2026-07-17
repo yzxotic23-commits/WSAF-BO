@@ -255,9 +255,15 @@ function createDesktopApi(options = {}) {
         res.status(400).json({ error: 'Invalid slot' });
         return;
       }
+      const clear = req.body?.clear === true || req.body?.clear === 'true';
       const accountName = req.body?.accountName || req.body?.account_name;
+      if (clear || accountName === '') {
+        const result = bridge.clearSlotDisplayLabel(slot);
+        res.json({ ok: true, cleared: true, ...result });
+        return;
+      }
       if (!accountName) {
-        res.status(400).json({ error: 'accountName required' });
+        res.status(400).json({ error: 'accountName required (or clear:true)' });
         return;
       }
       const row = bridge.setSlotDisplayLabel(slot, accountName, {
@@ -369,6 +375,7 @@ function createDesktopApi(options = {}) {
       const phoneNumber = req.body?.phoneNumber || null;
       const clearIncomplete = Boolean(req.body?.clearIncomplete);
       const refreshPairing = Boolean(req.body?.refreshPairing);
+      const proxyUrl = req.body?.proxyUrl || req.body?.proxy_url || null;
       if (method === 'pairing') {
         const digits = String(phoneNumber || '').replace(/\D/g, '');
         if (digits.length < 8) {
@@ -377,11 +384,16 @@ function createDesktopApi(options = {}) {
           });
         }
       }
+      // Bind operator proxy BEFORE QR/pairing so WA never sees Railway egress (scam popup).
+      if (proxyUrl) {
+        await bridge.setSlotProxy(slot, proxyUrl);
+      }
       res.json(await bridge.connectAccount(slot, {
         method: method === 'pairing' ? 'pairing' : 'qr',
         phoneNumber: method === 'pairing' ? phoneNumber : undefined,
         clearIncomplete,
         refreshPairing,
+        proxyUrl: proxyUrl || undefined,
       }));
     } catch (e) {
       res.status(500).json({ error: e.message });
