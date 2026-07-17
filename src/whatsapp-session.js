@@ -1235,16 +1235,32 @@ class WhatsAppSession extends EventEmitter {
           // Saved session — bad session is usually proxy/IP change; keep auth folder
           if (this.proxyUrl) {
             const failedProxy = this.proxyUrl;
-            this.linkedViaDirect = true;
-            this.proxyUrl = null;
-            this.reconnectAttempts = 0;
-            console.log(
-              `[${this.sessionName}] Bad session via proxy ${ProxyManager.maskProxyUrl(failedProxy)} — retrying on direct (auth kept)`
-            );
-            console.log(
-              `[${this.sessionName}] Tip: avoid switching proxy IP after link; use stable proxy per account slot`
-            );
-            this.scheduleReconnectWithLoginPlan(3000);
+            const sticky =
+              String(process.env.PROXY_QR_LINK || '').toLowerCase() === 'sticky'
+              || Boolean(process.env.RAILWAY_ENVIRONMENT)
+              || Boolean(process.env.RAILWAY_PROJECT_ID)
+              || process.env.WSAF_STICKY_PROXY === '1';
+            if (sticky) {
+              // Never hop to Railway egress — that changes destination IP and triggers logout.
+              this.linkedViaDirect = false;
+              this.reconnectAttempts = Math.min(this.reconnectAttempts + 1, this.maxReconnectAttempts);
+              const delay = Math.min(3000 * Math.max(1, this.reconnectAttempts), 20000);
+              console.log(
+                `[${this.sessionName}] Bad session via sticky proxy ${ProxyManager.maskProxyUrl(failedProxy)} — retrying SAME proxy in ${delay / 1000}s (no direct fallback)`
+              );
+              this.scheduleReconnectWithLoginPlan(delay);
+            } else {
+              this.linkedViaDirect = true;
+              this.proxyUrl = null;
+              this.reconnectAttempts = 0;
+              console.log(
+                `[${this.sessionName}] Bad session via proxy ${ProxyManager.maskProxyUrl(failedProxy)} — retrying on direct (auth kept)`
+              );
+              console.log(
+                `[${this.sessionName}] Tip: avoid switching proxy IP after link; use stable proxy per account slot`
+              );
+              this.scheduleReconnectWithLoginPlan(3000);
+            }
           } else if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
             const delay = Math.min(3000 * this.reconnectAttempts, 15000);

@@ -18,6 +18,10 @@ RUN npm run build:ui
 
 ENV NODE_ENV=production
 ENV DESKTOP_FEEDING=1
+# Always route WA through AMS/proxies.txt IP — never Railway egress (logout risk).
+ENV PROXY_QR_LINK=sticky
+ENV PROXY_PROBE=false
+ENV WSAF_STICKY_PROXY=1
 
 EXPOSE 47821
 

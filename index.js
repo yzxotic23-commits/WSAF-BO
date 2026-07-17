@@ -1289,10 +1289,18 @@ function getLinkProxyCandidates(slotIndex, proxyManager, assignedUrl) {
   return ordered;
 }
 
-/** direct = QR without proxy (recommended). rotate = try every proxy then direct. */
+/** direct | rotate | sticky (Railway defaults to sticky). */
 function getProxyQrLinkMode() {
-  const mode = (process.env.PROXY_QR_LINK || 'direct').toLowerCase();
-  return mode === 'rotate' ? 'rotate' : 'direct';
+  const raw = String(process.env.PROXY_QR_LINK || '').toLowerCase().trim();
+  if (raw === 'direct' || raw === 'rotate' || raw === 'sticky') return raw;
+  if (
+    process.env.RAILWAY_ENVIRONMENT
+    || process.env.RAILWAY_PROJECT_ID
+    || process.env.WSAF_STICKY_PROXY === '1'
+  ) {
+    return 'sticky';
+  }
+  return 'direct';
 }
 
 /**
@@ -1303,6 +1311,25 @@ async function linkAccountWithProxyRotation(session, plan, sessionName, proxyMan
   const list = candidates.filter(Boolean);
   const probeTimeout = parseInt(process.env.PROXY_LINK_TRY_MS || '22000', 10);
   const qrMode = getProxyQrLinkMode();
+
+  if (qrMode === 'sticky') {
+    const url = list[0] || null;
+    if (!url) {
+      throw new Error(
+        `${sessionName}: sticky proxy mode requires a proxies.txt / AMS proxy line — refusing Railway direct IP`
+      );
+    }
+    console.log('');
+    console.log(`[PROXY] Sticky: QR/link via ${proxyManager.maskUrl(url)} (no direct fallback)`);
+    console.log('');
+    session.setProxy(url);
+    session.linkedViaDirect = false;
+    await session.connect(plan);
+    if (plan.method !== 'qr') {
+      await session.waitUntilConnected();
+    }
+    return url;
+  }
 
   if (qrMode === 'direct') {
     console.log('');
@@ -1490,8 +1517,8 @@ async function reconnectSessionForContinue(session, proxyUrl, proxyManager) {
     return session.isConnected;
   }
 
-  // Session linked or recovered on direct — never force proxy on Continue (avoids bad session + auth wipe)
-  if (session.linkedViaDirect) {
+  // Sticky: ignore linkedViaDirect — always stay on the operator proxy IP.
+  if (session.linkedViaDirect && getProxyQrLinkMode() !== 'sticky') {
     console.log(
       `[PROXY] ${session.sessionName}: reconnect on direct — linkedViaDirect=true (linked without proxy earlier)`
     );
@@ -1502,6 +1529,12 @@ async function reconnectSessionForContinue(session, proxyUrl, proxyManager) {
     await session.disconnect();
     await session.connect();
     return session.isConnected;
+  }
+  if (session.linkedViaDirect && getProxyQrLinkMode() === 'sticky' && proxyUrl) {
+    console.log(
+      `[PROXY] ${session.sessionName}: sticky override — was linkedViaDirect, forcing proxy ${proxyManager.maskUrl(proxyUrl)}`
+    );
+    session.linkedViaDirect = false;
   }
 
   if (proxyUrl) {

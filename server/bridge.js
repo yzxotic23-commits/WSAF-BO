@@ -412,9 +412,28 @@ class DesktopBridge {
     this.emit('account', { slot, action: 'logout', phase, message, time: new Date().toISOString() });
   }
 
+  /**
+   * direct  — QR/link on machine egress IP (desktop default)
+   * rotate  — try proxies then fall back to direct
+   * sticky  — always use the AMS/proxies.txt line for that slot; never fall back to direct
+   *
+   * Railway/cloud defaults to sticky so WA sees the operator IP, not changing Railway egress.
+   */
   getProxyQrLinkMode() {
-    const mode = (process.env.PROXY_QR_LINK || 'direct').toLowerCase();
-    return mode === 'rotate' ? 'rotate' : 'direct';
+    const raw = String(process.env.PROXY_QR_LINK || '').toLowerCase().trim();
+    if (raw === 'direct' || raw === 'rotate' || raw === 'sticky') return raw;
+    if (
+      process.env.RAILWAY_ENVIRONMENT
+      || process.env.RAILWAY_PROJECT_ID
+      || process.env.WSAF_STICKY_PROXY === '1'
+    ) {
+      return 'sticky';
+    }
+    return 'direct';
+  }
+
+  isStickyProxyMode() {
+    return this.getProxyQrLinkMode() === 'sticky';
   }
 
   getChatHistory(slot) {
@@ -1209,6 +1228,13 @@ class DesktopBridge {
   }
 
   async assignWorkingProxies() {
+    // Sticky: keep the exact proxies.txt / AMS line even if TCP probe fails —
+    // never silently downgrade the slot to Railway egress (direct).
+    if (this.isStickyProxyMode()) {
+      const fixed = this.proxyManager.getProxiesBySlot(this.accountCount());
+      this.log('info', '[PROXY] sticky mode — using fixed proxies.txt lines (no probe rotation)');
+      return fixed;
+    }
     const probeEnabled = process.env.PROXY_PROBE !== 'false';
     if (probeEnabled) {
       return this.proxyManager.assignWorkingForAccounts(this.accountCount(), (i) => getAccountName(i));
@@ -1607,8 +1633,12 @@ class DesktopBridge {
       this.sessions[slotIndex] = session;
     }
 
-    const proxyUrl = this.hasProxies ? this.accountProxies[slotIndex] : null;
+    // Prefer live AMS assignment; fall back to proxies.txt line for this slot.
+    const proxyUrl = this.accountProxies[slotIndex]
+      || this.proxyManager.getProxiesBySlot(this.accountCount())[slotIndex]
+      || null;
     const qrMode = this.getProxyQrLinkMode();
+    const sticky = qrMode === 'sticky';
 
     if (needsFreshLink || plan.method === 'pairing') {
       this.linkingSlot = slotIndex;
@@ -1619,8 +1649,6 @@ class DesktopBridge {
     this.attachSessionEvents(session, slotIndex);
 
     if (plan.method === 'pairing') {
-      session.setProxy(null);
-      session.linkedViaDirect = true;
       const resumePairing = Boolean(
         existing?.pairingCodeDisplay
         || existing?.pairingAwaitingUser
@@ -1636,9 +1664,51 @@ class DesktopBridge {
         session.purgeLocalSession();
         this.log('info', `[${sessionName}] Cleared incomplete session before phone pairing`);
       }
-      this.log('info', `[${sessionName}] Link route: direct — phone pairing never uses proxy`);
+      // Sticky: pairing must use the same operator IP as QR / feeding.
+      if (sticky && proxyUrl) {
+        session.setProxy(proxyUrl);
+        session.linkedViaDirect = false;
+        this.log(
+          'info',
+          `[${sessionName}] Link route: sticky proxy ${this.proxyManager.maskUrl(proxyUrl)} (pairing)`
+        );
+        session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
+        return { ok: true, mode: 'sticky', pending: true, proxy: proxyUrl };
+      }
+      if (sticky && !proxyUrl) {
+        this.log(
+          'error',
+          `[${sessionName}] Sticky proxy required — push an Engine proxy from AMS before pairing`
+        );
+        throw new Error(
+          `${getAccountLabel(slotIndex)} needs a proxy from AMS (sticky mode). Set Engine proxy, then retry.`
+        );
+      }
+      session.setProxy(null);
+      session.linkedViaDirect = true;
+      this.log('info', `[${sessionName}] Link route: direct — phone pairing (PROXY_QR_LINK=${qrMode})`);
       session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
       return { ok: true, mode: 'direct', pending: true };
+    }
+
+    if (sticky) {
+      if (!proxyUrl) {
+        this.log(
+          'error',
+          `[${sessionName}] Sticky proxy required — no proxies.txt / AMS proxy for this slot`
+        );
+        throw new Error(
+          `${getAccountLabel(slotIndex)} needs a proxy from AMS (sticky mode on Railway). Set Engine proxy, then scan.`
+        );
+      }
+      session.setProxy(proxyUrl);
+      session.linkedViaDirect = false;
+      this.log(
+        'info',
+        `[${sessionName}] Link route: sticky proxy ${this.proxyManager.maskUrl(proxyUrl)} — no direct fallback`
+      );
+      session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
+      return { ok: true, mode: 'sticky', pending: true, proxy: proxyUrl };
     }
 
     if (qrMode === 'direct' || !proxyUrl) {
