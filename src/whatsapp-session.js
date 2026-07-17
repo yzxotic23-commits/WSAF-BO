@@ -24,6 +24,7 @@ const {
   isTransientHandshakeMessage,
 } = require('./wa-policy-detector');
 const ProxyManager = require('./proxy-manager');
+const { resolveProxyEgressIp } = require('./proxy-probe');
 
 class WhatsAppSession extends EventEmitter {
   constructor(sessionName) {
@@ -872,6 +873,21 @@ class WhatsAppSession extends EventEmitter {
 
     const logger = pino({ level: 'silent' });
     const agent = this.createProxyAgent(this.proxyUrl);
+    if (this.proxyUrl && !agent) {
+      throw new Error('Proxy URL invalid — refusing direct Railway connect (scam/logout risk)');
+    }
+    if (this.proxyUrl && agent) {
+      try {
+        const egressIp = await resolveProxyEgressIp(this.proxyUrl);
+        if (egressIp) {
+          console.log(`[${this.sessionName}] Egress IP via proxy: ${egressIp} (WA must see this IP, not Railway)`);
+        } else {
+          console.log(`[${this.sessionName}] Could not resolve egress IP via proxy — continuing with SOCKS agent`);
+        }
+      } catch (err) {
+        console.log(`[${this.sessionName}] Egress IP check skipped: ${err.message}`);
+      }
+    }
 
     this.qrCount = 0;
 

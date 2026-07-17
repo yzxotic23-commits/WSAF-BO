@@ -66,4 +66,44 @@ async function probeProxy(proxyUrl, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return probeTcp(proxyUrl, timeoutMs);
 }
 
-module.exports = { probeProxy, probeTcp };
+/**
+ * Public egress IP seen through the proxy (proves WA will not use Railway egress).
+ * Returns null if lookup fails.
+ */
+async function resolveProxyEgressIp(proxyUrl, timeoutMs = 10000) {
+  if (!proxyUrl) return null;
+  let agent;
+  try {
+    agent = createAgent(proxyUrl);
+  } catch {
+    return null;
+  }
+
+  const https = require('https');
+  const urls = [
+    'https://api.ipify.org',
+    'https://ifconfig.me/ip',
+  ];
+
+  for (const url of urls) {
+    const ip = await new Promise((resolve) => {
+      const req = https.get(url, { agent, timeout: timeoutMs }, (res) => {
+        let body = '';
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => {
+          const trimmed = String(body || '').trim();
+          resolve(/^\d{1,3}(\.\d{1,3}){3}$/.test(trimmed) ? trimmed : null);
+        });
+      });
+      req.on('error', () => resolve(null));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(null);
+      });
+    });
+    if (ip) return ip;
+  }
+  return null;
+}
+
+module.exports = { probeProxy, probeTcp, resolveProxyEgressIp };
