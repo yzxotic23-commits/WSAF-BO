@@ -648,10 +648,22 @@ class DesktopBridge {
   }
 
   setSlotDisplayLabel(slotIndex, accountName, extra = {}) {
-    const row = this.slotLabels.set(slotIndex, accountName, extra);
+    const name = String(accountName || '').trim();
+    if (!name) {
+      this.slotLabels.clearSlot(slotIndex);
+      this.emit('status', this.getStatus());
+      return null;
+    }
+    const row = this.slotLabels.set(slotIndex, name, extra);
     this.syncLinkedSlotAudit(slotIndex, extra);
     this.emit('status', this.getStatus());
     return row;
+  }
+
+  clearSlotDisplayLabel(slotIndex) {
+    this.slotLabels.clearSlot(slotIndex);
+    this.emit('status', this.getStatus());
+    return { ok: true, slot: slotIndex };
   }
 
   /** Resolve AMS site location for audit rows from slot display-label metadata. */

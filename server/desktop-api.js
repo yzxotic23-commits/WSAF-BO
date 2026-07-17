@@ -255,9 +255,15 @@ function createDesktopApi(options = {}) {
         res.status(400).json({ error: 'Invalid slot' });
         return;
       }
+      const clear = req.body?.clear === true || req.body?.clear === 'true';
       const accountName = req.body?.accountName || req.body?.account_name;
+      if (clear || accountName === '') {
+        const result = bridge.clearSlotDisplayLabel(slot);
+        res.json({ ok: true, cleared: true, ...result });
+        return;
+      }
       if (!accountName) {
-        res.status(400).json({ error: 'accountName required' });
+        res.status(400).json({ error: 'accountName required (or clear:true)' });
         return;
       }
       const row = bridge.setSlotDisplayLabel(slot, accountName, {
