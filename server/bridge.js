@@ -1604,13 +1604,16 @@ class DesktopBridge {
       plan = { ...plan, clearIncomplete: false };
     }
 
-    if (plan.clearIncomplete) {
-      const existing = this.sessions[slotIndex];
-      if (existing) {
-        existing.autoReconnectAllowed = false;
-        existing.clearReconnectTimer?.();
+    // QR must not resume a broken half-pairing session — always wipe incomplete auth first.
+    const forceFreshQr = plan.method === 'qr' && (!authProbe.registered);
+    if (plan.clearIncomplete || forceFreshQr) {
+      const existingSession = this.sessions[slotIndex];
+      if (existingSession) {
+        existingSession.autoReconnectAllowed = false;
+        existingSession.clearReconnectTimer?.();
+        existingSession.isLinking = false;
         try {
-          await existing.shutdown();
+          await existingSession.shutdown();
         } catch {
           /* ignore */
         }
@@ -1619,6 +1622,7 @@ class DesktopBridge {
       const partial = probe.getAuthStatus();
       if (partial.saved && !partial.registered) {
         probe.purgeLocalSession();
+        this.log('info', `[${sessionName}] Cleared incomplete auth before ${plan.method || 'link'}`);
       }
       this.sessions[slotIndex] = null;
       if (this.linkingSlot === slotIndex) {
@@ -1818,17 +1822,34 @@ class DesktopBridge {
   }
 
   async disconnectAccount(slotIndex) {
+    const sessionName = getAccountName(slotIndex);
     const session = this.sessions[slotIndex];
     if (session) {
       session.autoReconnectAllowed = false;
       session.clearReconnectTimer?.();
-      await session.shutdown();
+      session.isLinking = false;
+      try {
+        await session.shutdown();
+      } catch {
+        /* ignore */
+      }
     }
     this.sessions[slotIndex] = null;
     if (this.linkingSlot === slotIndex) {
       this.linkingSlot = null;
     }
-    this.log('info', `[${getAccountName(slotIndex)}] Disconnected`);
+    // Incomplete pairing/QR auth blocks new QR ("Link already in progress" / restore pairing).
+    try {
+      const probe = new WhatsAppSession(sessionName);
+      const auth = probe.getAuthStatus();
+      if (auth.saved && !auth.registered) {
+        probe.purgeLocalSession();
+        this.log('info', `[${sessionName}] Cleared incomplete auth after cancel/disconnect`);
+      }
+    } catch {
+      /* ignore */
+    }
+    this.log('info', `[${sessionName}] Disconnected`);
     this.emit('status', this.getStatus());
   }
 
