@@ -44,12 +44,22 @@ function createDesktopApi(options = {}) {
     next();
   }
 
-  // Allow embedding inside AMS web shell (iframe)
+  // Allow embedding inside AMS web shell (iframe). Extra origins via AMS_FRAME_ORIGINS.
   app.use((_req, res, next) => {
-    res.setHeader(
-      'Content-Security-Policy',
-      "frame-ancestors 'self' http://localhost:3000 http://127.0.0.1:3000 http://localhost:5173 http://127.0.0.1:5173",
-    );
+    const extras = String(process.env.AMS_FRAME_ORIGINS || '')
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const ancestors = [
+      "'self'",
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'https://ams-dashboard-weld.vercel.app',
+      ...extras,
+    ];
+    res.setHeader('Content-Security-Policy', `frame-ancestors ${ancestors.join(' ')}`);
     next();
   });
 
