@@ -976,6 +976,11 @@ class DesktopBridge {
     const env = { ...process.env, APP_ROOT: root };
     // NODE_OPTIONS dari parent bisa merusak argv child di Windows (path ber-spasi).
     delete env.NODE_OPTIONS;
+    // Feeding CLI must load the same proxies.txt as the bridge (Railway volume path).
+    env.WSAF_PROXIES_FILE = this.getProxiesPath();
+    if (Array.isArray(this.accountProxies) && this.accountProxies.length) {
+      env.FEEDING_ACCOUNT_PROXIES = JSON.stringify(this.accountProxies);
+    }
     if (process.env.CODEX_PROXY_BASE_URL) {
       env.CODEX_PROXY_BASE_URL = process.env.CODEX_PROXY_BASE_URL;
     }
@@ -1027,22 +1032,8 @@ class DesktopBridge {
   }
 
   getProxiesPath() {
-    const root = this.getAppRoot();
-    const rootFile = path.join(root, 'proxies.txt');
-    // Railway volume is /app/auth — keep proxies durable across redeploys (not ephemeral container FS).
-    if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) {
-      const volumeFile = path.join(root, 'auth', 'proxies.txt');
-      try {
-        if (!fs.existsSync(volumeFile) && fs.existsSync(rootFile)) {
-          fs.mkdirSync(path.dirname(volumeFile), { recursive: true });
-          fs.copyFileSync(rootFile, volumeFile);
-        }
-      } catch {
-        /* ignore migrate errors */
-      }
-      return volumeFile;
-    }
-    return rootFile;
+    const { getProxiesPath } = require('../src/app-root');
+    return getProxiesPath(this.getAppRoot());
   }
 
   getCodexAuthPath() {

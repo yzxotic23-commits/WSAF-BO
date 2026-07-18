@@ -1182,6 +1182,33 @@ async function assignAccountProxies(proxyManager, options = {}) {
   const probeEnabled = process.env.PROXY_PROBE !== 'false';
   let accountProxies;
 
+  // Bridge injects the exact slot→proxy map so CLI cannot miss auth/proxies.txt on Railway.
+  if (process.env.FEEDING_ACCOUNT_PROXIES) {
+    try {
+      const parsed = JSON.parse(process.env.FEEDING_ACCOUNT_PROXIES);
+      if (Array.isArray(parsed)) {
+        accountProxies = new Array(accountCount()).fill(null);
+        for (let i = 0; i < accountCount(); i++) {
+          accountProxies[i] = parsed[i] || null;
+        }
+        console.log(
+          `[PROXY] Using FEEDING_ACCOUNT_PROXIES from bridge (${accountProxies.filter(Boolean).length} assigned)`
+        );
+        const slotsChecked = onlySlots || Array.from({ length: accountCount() }, (_, i) => i);
+        for (const i of slotsChecked) {
+          const url = accountProxies[i];
+          console.log(
+            `[PROXY] ${getAccountName(i)} → ${url ? proxyManager.maskUrl(url) : 'direct (missing)'}`
+          );
+        }
+        if (accountProxies[0]) proxyManager.currentProxy = accountProxies[0];
+        return accountProxies;
+      }
+    } catch (err) {
+      console.log(`[PROXY] FEEDING_ACCOUNT_PROXIES parse failed: ${err.message}`);
+    }
+  }
+
   if (probeEnabled) {
     if (onlySlots?.length) {
       accountProxies = await proxyManager.assignWorkingForSlotIndices(
@@ -1765,15 +1792,22 @@ async function runDesktopFeedingOnce() {
 
   const proxyManager = new ProxyManager();
   const hasProxies = proxyManager.load();
+  console.log(`[PROXY] proxies file: ${proxyManager.filePath} (loaded=${hasProxies})`);
   const singlePair = getFeedingPairIndex();
   const onlySlots = getFeedingSlotIndices();
-  const accountProxies = hasProxies
+  const accountProxies = hasProxies || process.env.FEEDING_ACCOUNT_PROXIES
     ? await assignAccountProxies(proxyManager, { onlySlots })
     : [];
+  const effectivelyHasProxies = accountProxies.some(Boolean);
+  if (!effectivelyHasProxies && (process.env.WSAF_STICKY_PROXY === '1' || process.env.PROXY_QR_LINK === 'sticky')) {
+    console.error('[PROXY] Sticky mode but no proxy assigned — refusing Railway direct connect (logout risk).');
+    console.error(`[PROXY] Expected proxies at: ${proxyManager.filePath}`);
+    process.exit(1);
+  }
 
   printAuthStatusSummary();
 
-  const sessions = await connectAllSessions(hasProxies, proxyManager, accountProxies, {
+  const sessions = await connectAllSessions(effectivelyHasProxies || hasProxies, proxyManager, accountProxies, {
     onlySlots,
   });
   activeSessions = sessions.filter(Boolean);

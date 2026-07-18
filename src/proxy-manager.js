@@ -1,12 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const { probeProxy } = require('./proxy-probe');
+const { getAppRoot, getProxiesPath } = require('./app-root');
 
-const WORKING_PROXY_STORE = path.join(process.cwd(), 'auth', '_proxy-working.json');
+const WORKING_PROXY_STORE = path.join(getAppRoot(), 'auth', '_proxy-working.json');
 
 class ProxyManager {
   constructor(filePath) {
-    this.filePath = filePath || path.join(process.cwd(), 'proxies.txt');
+    this.filePath = filePath || getProxiesPath();
     this.proxies = [];
     this.usedIndices = [];
     this.currentProxy = null;
