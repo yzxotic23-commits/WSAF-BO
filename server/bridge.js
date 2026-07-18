@@ -1873,6 +1873,8 @@ class DesktopBridge {
   async disconnectAccount(slotIndex) {
     const sessionName = getAccountName(slotIndex);
     const session = this.sessions[slotIndex];
+    const wasConnected = Boolean(session?.isConnected && !session?.isLoggedOut);
+    const wasLinking = Boolean(session?.isLinking && !session?.isConnected);
     if (session) {
       session.autoReconnectAllowed = false;
       session.clearReconnectTimer?.();
@@ -1888,10 +1890,11 @@ class DesktopBridge {
       this.linkingSlot = null;
     }
     // Incomplete pairing/QR auth blocks new QR ("Link already in progress" / restore pairing).
+    // Also wipe partial me.id written mid-link (registered=true) when canceling — not a real connected session.
     try {
       const probe = new WhatsAppSession(sessionName);
       const auth = probe.getAuthStatus();
-      if (auth.saved && !auth.registered) {
+      if (auth.saved && !wasConnected && (wasLinking || !auth.registered)) {
         probe.purgeLocalSession();
         this.log('info', `[${sessionName}] Cleared incomplete auth after cancel/disconnect`);
       }
