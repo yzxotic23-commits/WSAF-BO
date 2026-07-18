@@ -1027,7 +1027,22 @@ class DesktopBridge {
   }
 
   getProxiesPath() {
-    return path.join(this.getAppRoot(), 'proxies.txt');
+    const root = this.getAppRoot();
+    const rootFile = path.join(root, 'proxies.txt');
+    // Railway volume is /app/auth — keep proxies durable across redeploys (not ephemeral container FS).
+    if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) {
+      const volumeFile = path.join(root, 'auth', 'proxies.txt');
+      try {
+        if (!fs.existsSync(volumeFile) && fs.existsSync(rootFile)) {
+          fs.mkdirSync(path.dirname(volumeFile), { recursive: true });
+          fs.copyFileSync(rootFile, volumeFile);
+        }
+      } catch {
+        /* ignore migrate errors */
+      }
+      return volumeFile;
+    }
+    return rootFile;
   }
 
   getCodexAuthPath() {
