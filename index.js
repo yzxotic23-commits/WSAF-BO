@@ -1522,6 +1522,10 @@ async function connectAllSessions(hasProxies, proxyManager, accountProxies, opti
     sessions[i] = session;
     session.syncProfileNameFromDisk?.();
     session.captureProfileName?.('post-connect');
+    // Stagger multi-account connects — back-to-back open often triggers WA conflict.
+    if (slotIndices[slotIndices.length - 1] !== i) {
+      await sleep(2500);
+    }
   }
 
   return sessions;

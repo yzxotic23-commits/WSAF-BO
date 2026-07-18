@@ -29,9 +29,16 @@ function hasPolicyKeywords(text) {
 
 /** Common WA handshake noise — not a ban/strict-scan signal. */
 function isTransientHandshakeMessage(message) {
+  const m = String(message || '');
+  // Conflict = another socket holds this session. Retrying fast makes logout worse.
+  if (/conflict/i.test(m)) return false;
   return /connection\s*failure|connection\s*closed|connection\s*lost|timed\s*out|econnreset|network|stream\s*errored/i.test(
-    message || '',
+    m,
   );
+}
+
+function isConflictDisconnectMessage(message) {
+  return /conflict/i.test(String(message || ''));
 }
 
 /**
@@ -55,6 +62,17 @@ function classifyDisconnect(lastDisconnect) {
   }
 
   if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+    if (isConflictDisconnectMessage(message)) {
+      return {
+        type: 'SESSION_REPLACED',
+        severity: 'warning',
+        statusCode,
+        title: 'Session conflict — another socket held this account',
+        detail: message || 'Stream conflict while reconnecting.',
+        strictScanPossible: false,
+        action: 'Use one client only. Wait a few seconds before Start feeding again.',
+      };
+    }
     if (isTransientHandshakeMessage(message)) {
       return null;
     }
@@ -207,4 +225,5 @@ module.exports = {
   formatPolicyAlert,
   isStrictLogoutAlert,
   isTransientHandshakeMessage,
+  isConflictDisconnectMessage,
 };

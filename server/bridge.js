@@ -2371,7 +2371,9 @@ class DesktopBridge {
 
       setPhase('disconnect');
       await this.disconnectSlots(clearSlots);
-      await new Promise((r) => setTimeout(r, 2500));
+      // Give WhatsApp time to drop the preview socket before the feeding CLI opens a new one.
+      this.log('info', `${runLabel} Waiting 6s for previous sockets to release…`);
+      await new Promise((r) => setTimeout(r, 6000));
 
       setPhase('ai');
       const scriptPath = path.resolve(this.resolveFeedingScript());
@@ -2475,9 +2477,12 @@ class DesktopBridge {
           });
         }
         this.emit('status', this.getStatus());
-        this.reconnectPreviewSessions(slotsForReconnect).catch((err) => {
-          this.log('warn', `[FEEDING] Preview reconnect: ${err.message}`);
-        });
+        // Delay preview restore so it never races the dying CLI sockets (conflict → logout).
+        setTimeout(() => {
+          this.reconnectPreviewSessions(slotsForReconnect).catch((err) => {
+            this.log('warn', `[FEEDING] Preview reconnect: ${err.message}`);
+          });
+        }, 8000);
       });
       child.on('error', (err) => {
         clearTimeout(launchMaxTimer);

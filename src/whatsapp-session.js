@@ -22,6 +22,7 @@ const {
   formatPolicyAlert,
   isStrictLogoutAlert,
   isTransientHandshakeMessage,
+  isConflictDisconnectMessage,
 } = require('./wa-policy-detector');
 const ProxyManager = require('./proxy-manager');
 const { resolveProxyEgressIp } = require('./proxy-probe');
@@ -508,9 +509,9 @@ class WhatsAppSession extends EventEmitter {
     if (statusCode === DisconnectReason.forbidden) return false;
     if (statusCode === DisconnectReason.connectionReplaced) return false;
     if (statusCode === DisconnectReason.restartRequired) return false;
-    const softMsg = /connection\s*failure|connection\s*closed|connection\s*lost|timed\s*out|econnreset|network|stream\s*errored|conflict/i.test(
+    const softMsg = /connection\s*failure|connection\s*closed|connection\s*lost|timed\s*out|econnreset|network|stream\s*errored/i.test(
       errMsg
-    );
+    ) && !/conflict/i.test(errMsg);
     return (
       softMsg
       || statusCode === DisconnectReason.badSession
@@ -616,6 +617,8 @@ class WhatsAppSession extends EventEmitter {
       } catch (_) {}
       this.socket = null;
       this.isConnected = false;
+      // Let WA release the previous socket before any reclaim (avoids self-conflict).
+      await new Promise((r) => setTimeout(r, 1200));
     }
     this.emit('linkState');
   }
@@ -813,6 +816,8 @@ class WhatsAppSession extends EventEmitter {
       this.socket.ev.removeAllListeners();
       try { this.socket.end(); } catch (_) {}
       this.socket = null;
+      // Avoid opening a second Baileys socket while the previous WS is still closing.
+      await new Promise((r) => setTimeout(r, 800));
     }
 
     const authStatus = this.getAuthStatus();
@@ -1157,19 +1162,28 @@ class WhatsAppSession extends EventEmitter {
           return;
         }
 
-        if (isReplaced) {
-          // Dual connect (AMS + FeedFlow auto-reconnect) — keep auth, reclaim once.
-          // Never treat 440 as logout (that triggered wipe / "Connecting to send logout").
+        if (isReplaced || isConflictDisconnectMessage(errMsg)) {
+          // Dual socket / replaced session — calm reclaim. Fast retries cause logout spirals.
           this.isLoggedOut = false;
           this.isLinking = Boolean(!authValid);
           console.log(
-            `[${this.sessionName}] Session replaced (440). Auth kept — reclaiming this socket.`
+            `[${this.sessionName}] Session conflict/replaced. Auth kept — waiting before reclaim (avoid logout spiral).`
           );
           this.emit('linkState');
-          if (hadAuth && authValid && this.autoReconnectAllowed && this.reconnectAttempts < this.maxReconnectAttempts) {
+          const maxConflictRetries = 2;
+          if (hadAuth && authValid && this.autoReconnectAllowed && this.reconnectAttempts < maxConflictRetries) {
             this.reconnectAttempts++;
-            const delay = Math.min(1500 * this.reconnectAttempts, 8000);
+            const delay = 10000 + this.reconnectAttempts * 5000;
+            console.log(
+              `[${this.sessionName}] Conflict reclaim ${this.reconnectAttempts}/${maxConflictRetries} in ${delay / 1000}s`
+            );
             this.scheduleReconnectWithLoginPlan(delay);
+          } else if (this.reconnectAttempts >= maxConflictRetries) {
+            console.log(
+              `[${this.sessionName}] Conflict persists — stopping auto-reconnect. Close other clients / wait, then Start feeding again.`
+            );
+            this.autoReconnectAllowed = false;
+            this.emit('loggedOut');
           }
           return;
         } else if (isLoggedOut || isForbidden) {
