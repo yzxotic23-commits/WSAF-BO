@@ -1332,7 +1332,14 @@ class DesktopBridge {
       this.log('success', `[${shown}] Connected`);
       const partnerJid = this.getPartnerJidForSlot(slotIndex);
       if (partnerJid) session.setExpectedPartner(partnerJid);
-      this.emit('status', this.getStatus());
+      const status = this.getStatus();
+      this.emit('status', status);
+      this.emit('connected', {
+        slot: slotIndex,
+        account: name,
+        profileName: profileName || null,
+        phone: payload?.phone || session.getPhone?.() || null,
+      });
     });
 
     session.on('profileName', (payload) => {
@@ -1564,6 +1571,22 @@ class DesktopBridge {
       return { ok: true, mode: 'direct', pending: true, pairingCodeActive: pairingCodeActive };
     }
 
+    // Already online — never start a second Baileys socket (causes 440 + wipe races).
+    if (
+      existing?.isConnected
+      && !existing?.isLoggedOut
+      && !existing?.isLoggingOut
+      && !plan.clearIncomplete
+      && !plan.forceRelink
+    ) {
+      this.linkingSlot = null;
+      this.emit('status', this.getStatus());
+      this.log('info', `[${sessionName}] Already connected — ignoring duplicate connect`);
+      return { ok: true, alreadyConnected: true };
+    }
+
+    // Post-QR/pairing finish writes me.id (registered) before socket is open.
+    // A second /api/connect here kills the finishing socket → 440 "logged in elsewhere".
     if (
       existing
       && existing.isLinking
@@ -1571,20 +1594,18 @@ class DesktopBridge {
       && !plan.refreshPairing
       && !plan.clearIncomplete
       && !stuckPairingRetry
+      && !plan.forceRelink
     ) {
-      const partial = existing.getAuthStatus();
-      if (!partial.registered) {
-        this.linkingSlot = slotIndex;
-        this.emit('status', this.getStatus());
-        this.log('info', `[${sessionName}] Link already in progress — wait before starting again`);
-        if (existing.pairingCodeDisplay) {
-          existing.emit('pairingCode', {
-            code: existing.pairingCodeDisplay,
-            phone: existing.pairingPhone,
-          });
-        }
-        return { ok: true, mode: 'direct', pending: true, linkInProgress: true };
+      this.linkingSlot = slotIndex;
+      this.emit('status', this.getStatus());
+      this.log('info', `[${sessionName}] Link already in progress — wait before starting again`);
+      if (existing.pairingCodeDisplay) {
+        existing.emit('pairingCode', {
+          code: existing.pairingCodeDisplay,
+          phone: existing.pairingPhone,
+        });
       }
+      return { ok: true, mode: 'direct', pending: true, linkInProgress: true };
     }
 
     const authProbe = new WhatsAppSession(sessionName).getAuthStatus();

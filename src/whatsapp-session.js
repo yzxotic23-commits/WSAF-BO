@@ -935,10 +935,16 @@ class WhatsAppSession extends EventEmitter {
 
       if (qr && this.loginMethod !== 'pairing') {
         const finishing = this.getAuthStatus();
-        if (finishing.valid && finishing.phone && !finishing.registered) {
-          // Post-scan reconnect sometimes emits a stale QR — do not send it to UI.
+        const alreadyLinked = Boolean(
+          this.isConnected
+          || this.socket?.user
+          || this.isRegistrationComplete()
+          || (finishing.valid && finishing.phone)
+        );
+        if (alreadyLinked) {
+          // Post-scan / dual-connect race often emits stale QR after me.id exists.
           console.log(
-            `[${this.sessionName}] Ignoring QR while finishing link for ${finishing.phone}`
+            `[${this.sessionName}] Ignoring QR — session already linked${finishing.phone ? ` (${finishing.phone})` : ''}`
           );
         } else {
           this.qrCount++;
@@ -1152,12 +1158,20 @@ class WhatsAppSession extends EventEmitter {
         }
 
         if (isReplaced) {
-          this.isLoggedOut = true;
+          // Dual connect (AMS + FeedFlow auto-reconnect) — keep auth, reclaim once.
+          // Never treat 440 as logout (that triggered wipe / "Connecting to send logout").
+          this.isLoggedOut = false;
+          this.isLinking = Boolean(!authValid);
           console.log(
-            `[${this.sessionName}] Session opened elsewhere (440). Auth kept — close other clients, then reconnect.`
+            `[${this.sessionName}] Session replaced (440). Auth kept — reclaiming this socket.`
           );
-          this.reconnectAttempts = 0;
-          this.emit('loggedOut');
+          this.emit('linkState');
+          if (hadAuth && authValid && this.autoReconnectAllowed && this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            const delay = Math.min(1500 * this.reconnectAttempts, 8000);
+            this.scheduleReconnectWithLoginPlan(delay);
+          }
+          return;
         } else if (isLoggedOut || isForbidden) {
           const resolvedAlert = policyAlert || {
             type: isForbidden ? 'BAN_OR_FORBIDDEN' : 'LOGGED_OUT_OR_RESTRICTED',
