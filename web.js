@@ -21,7 +21,8 @@ process.env.DESKTOP_FEEDING = '1';
 
 const { createDesktopApi } = require('./server/desktop-api');
 
-const PORT = parseInt(process.env.DESKTOP_API_PORT || '47821', 10);
+// Railway injects PORT; desktop/local may use DESKTOP_API_PORT.
+const PORT = parseInt(process.env.PORT || process.env.DESKTOP_API_PORT || '47821', 10);
 
 // Bind to all interfaces in web mode so LAN access works
 const api = createDesktopApi({ host: '0.0.0.0' });

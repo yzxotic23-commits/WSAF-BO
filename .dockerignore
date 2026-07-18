@@ -1,0 +1,23 @@
+node_modules
+client/node_modules
+client/dist
+.git
+.github
+.env
+.env.*
+!.env.example
+AMS Project
+WSAF
+WhatsApp-Auto-Feeding-*
+release
+UpdateServer
+auth
+data
+*.db
+*.db-*
+.DS_Store
+planning
+feedflow-recovered
+electron
+*.md
+!README.md
