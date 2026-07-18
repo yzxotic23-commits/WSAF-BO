@@ -1,6 +1,5 @@
 node_modules
 client/node_modules
-client/dist
 .git
 .github
 .env
@@ -18,6 +17,7 @@ data
 .DS_Store
 planning
 feedflow-recovered
-electron
 *.md
 !README.md
+# Keep client/dist — FeedFlow PRO desktop UI (do not rebuild AMS-style SPA on Railway)
+# Keep electron — /api/update requires electron/update-config

@@ -7,14 +7,16 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-COPY client/package.json client/package-lock.json* ./client/
 
-RUN npm install \
-  && npm install --prefix client
+# Runtime only — do NOT npm run build:ui (that overwrites FeedFlow PRO with AMS Overview SPA).
+RUN npm install --omit=dev
 
 COPY . .
 
-RUN npm run build:ui
+# Require shipped PRO console (pair sidebar + QR + Start feeding).
+RUN test -f client/dist/index.html \
+  && test -f client/dist/assets/index-CbZz9OZp.js \
+  && grep -q "AI pair conversations" client/dist/assets/index-CbZz9OZp.js
 
 ENV NODE_ENV=production
 ENV DESKTOP_FEEDING=1
