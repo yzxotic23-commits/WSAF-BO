@@ -395,8 +395,9 @@ class WhatsAppSession extends EventEmitter {
       const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
       const meId = creds?.me?.id || '';
       const phone = meId ? meId.split(':')[0].split('@')[0] : null;
-      const registered = Boolean(creds.registered);
       const valid = Boolean(meId && meId.includes('@'));
+      // QR/pairing often writes me.id before Baileys flips registered=true.
+      const registered = Boolean(creds.registered) || valid;
       const rawLid = creds?.me?.lid || '';
       const lid = rawLid ? jidNormalizedUser(rawLid) : null;
       const fromCreds = this.extractProfileNameFromMe(creds?.me);
@@ -445,10 +446,16 @@ class WhatsAppSession extends EventEmitter {
 
   isRegistrationComplete() {
     try {
-      const live = this.socket?.authState?.creds?.registered;
-      if (live === true) return true;
-      if (live === false) return false;
-      return this.getAuthStatus().registered;
+      const creds = this.socket?.authState?.creds;
+      if (creds?.registered === true) return true;
+      // After QR/pairing scan, Baileys often has me/user before `registered` flips true.
+      // Treat a live user JID as linked so UI does not keep showing QR forever.
+      const liveId = this.socket?.user?.id || creds?.me?.id || '';
+      if (liveId && String(liveId).includes('@s.whatsapp.net')) return true;
+      const disk = this.getAuthStatus();
+      if (disk.registered) return true;
+      if (disk.valid && disk.phone && this.socket?.user) return true;
+      return false;
     } catch {
       return false;
     }
@@ -897,7 +904,9 @@ class WhatsAppSession extends EventEmitter {
     this.socket.ev.on('creds.update', async (update) => {
       await safeSaveCreds(update);
       if (this.isShuttingDown) return;
-      if (this.isRegistrationComplete() && !this.isConnected) {
+      if (this.socket?.user && !this.isConnected) {
+        this.finalizeSuccessfulLogin();
+      } else if (this.isRegistrationComplete() && !this.isConnected) {
         this.finalizeSuccessfulLogin();
       } else if (!this.isPairingLinkActive()) {
         this.captureProfileName('creds.update');
@@ -925,22 +934,30 @@ class WhatsAppSession extends EventEmitter {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr && this.loginMethod !== 'pairing') {
-        this.qrCount++;
-        if (this.qrCount > this.maxQrRetries) {
-          console.log(`[${this.sessionName}] QR expired ${this.maxQrRetries}x. Scan QR or restart app.`);
-          return;
-        }
-
-        if (this.qrCount > 1) {
-          console.log(`\n[${this.sessionName}] QR expired, auto-refreshing... (${this.qrCount}/${this.maxQrRetries})`);
+        const finishing = this.getAuthStatus();
+        if (finishing.valid && finishing.phone && !finishing.registered) {
+          // Post-scan reconnect sometimes emits a stale QR — do not send it to UI.
+          console.log(
+            `[${this.sessionName}] Ignoring QR while finishing link for ${finishing.phone}`
+          );
         } else {
-          console.log(`\n[${this.sessionName}] Scan this QR Code:`);
+          this.qrCount++;
+          if (this.qrCount > this.maxQrRetries) {
+            console.log(`[${this.sessionName}] QR expired ${this.maxQrRetries}x. Scan QR or restart app.`);
+            return;
+          }
+
+          if (this.qrCount > 1) {
+            console.log(`\n[${this.sessionName}] QR expired, auto-refreshing... (${this.qrCount}/${this.maxQrRetries})`);
+          } else {
+            console.log(`\n[${this.sessionName}] Scan this QR Code:`);
+          }
+          console.log('-'.repeat(40));
+          qrcode.generate(qr, { small: true });
+          console.log('-'.repeat(40));
+          console.log(`Waiting for scan... (auto-refresh on expire)`);
+          this.emit('qr', qr);
         }
-        console.log('-'.repeat(40));
-        qrcode.generate(qr, { small: true });
-        console.log('-'.repeat(40));
-        console.log(`Waiting for scan... (auto-refresh on expire)`);
-        this.emit('qr', qr);
       }
 
       if (connection === 'connecting') {
@@ -954,6 +971,10 @@ class WhatsAppSession extends EventEmitter {
       }
 
       if (connection === 'open') {
+        if (this.socket?.user) {
+          this.finalizeSuccessfulLogin();
+          return;
+        }
         if (!this.isRegistrationComplete()) {
           this.isLinking = true;
           this.isConnected = false;
