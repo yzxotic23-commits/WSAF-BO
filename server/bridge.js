@@ -1604,9 +1604,23 @@ class DesktopBridge {
       plan = { ...plan, clearIncomplete: false };
     }
 
-    // QR must not resume a broken half-pairing session — always wipe incomplete auth first.
-    const forceFreshQr = plan.method === 'qr' && (!authProbe.registered);
-    if (plan.clearIncomplete || forceFreshQr) {
+    // Wipe incomplete auth only when starting fresh — never while QR/pairing is live.
+    // (Previously forceFreshQr killed active pairing → phone "Couldn't link device".)
+    const liveLink = Boolean(
+      existing
+      && !existing.isConnected
+      && (
+        existing.isLinking
+        || existing.pairingAwaitingUser
+        || existing.pairingCodeDisplay
+        || existing.qrCount > 0
+      )
+    );
+    const forceFreshQr = plan.method === 'qr'
+      && !authProbe.registered
+      && !liveLink
+      && !pairingCodeActive;
+    if ((plan.clearIncomplete || forceFreshQr) && !liveLink) {
       const existingSession = this.sessions[slotIndex];
       if (existingSession) {
         existingSession.autoReconnectAllowed = false;
@@ -1628,6 +1642,20 @@ class DesktopBridge {
       if (this.linkingSlot === slotIndex) {
         this.linkingSlot = null;
       }
+    } else if ((plan.clearIncomplete || forceFreshQr) && liveLink) {
+      this.log(
+        'warn',
+        `[${sessionName}] Kept live link — refused wipe while ${existing?.pairingCodeDisplay ? 'pairing code' : 'QR'} is active`
+      );
+      this.linkingSlot = slotIndex;
+      this.emit('status', this.getStatus());
+      if (existing?.pairingCodeDisplay) {
+        existing.emit('pairingCode', {
+          code: existing.pairingCodeDisplay,
+          phone: existing.pairingPhone,
+        });
+      }
+      return { ok: true, mode: 'sticky', pending: true, linkInProgress: true };
     }
 
     let session = this.sessions[slotIndex];
