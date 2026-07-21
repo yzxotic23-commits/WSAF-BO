@@ -1483,6 +1483,21 @@ class DesktopBridge {
 
   /** Restore desktop preview sockets after feeding CLI exits (one account at a time). */
   async reconnectPreviewSessions(slotsToReconnect = null) {
+    // Railway: auto preview sockets after feeding are the #1 self-conflict source
+    // (CLI socket still dying while bridge opens another for the same account).
+    const raw = String(process.env.FEEDFLOW_PREVIEW_RECONNECT || '').toLowerCase().trim();
+    const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+    const enabled = raw === '1' || raw === 'true' || raw === 'yes'
+      || (!onRailway && raw !== '0' && raw !== 'false' && raw !== 'no');
+    if (!enabled) {
+      this.log(
+        'info',
+        '[FEEDING] Preview auto-reconnect skipped (set FEEDFLOW_PREVIEW_RECONNECT=1 to enable) — avoids WA conflict/logout'
+      );
+      this.emit('status', this.getStatus());
+      return;
+    }
+
     for (let i = 0; i < this.accountCount(); i++) {
       if (slotsToReconnect && !slotsToReconnect.includes(i)) continue;
       if (this.isSlotInActiveFeeding(i)) continue;
@@ -1492,7 +1507,7 @@ class DesktopBridge {
       if (session?.isConnected || session?.isLinking) continue;
       try {
         await this.connectAccount(i, { method: 'qr' });
-        await new Promise((r) => setTimeout(r, 1200));
+        await new Promise((r) => setTimeout(r, 3000));
       } catch (err) {
         this.log('warn', `[${getAccountName(i)}] Preview reconnect: ${err.message}`);
       }
@@ -2372,8 +2387,8 @@ class DesktopBridge {
       setPhase('disconnect');
       await this.disconnectSlots(clearSlots);
       // Give WhatsApp time to drop the preview socket before the feeding CLI opens a new one.
-      this.log('info', `${runLabel} Waiting 6s for previous sockets to release…`);
-      await new Promise((r) => setTimeout(r, 6000));
+      this.log('info', `${runLabel} Waiting 12s for previous sockets to release…`);
+      await new Promise((r) => setTimeout(r, 12000));
 
       setPhase('ai');
       const scriptPath = path.resolve(this.resolveFeedingScript());
@@ -2477,12 +2492,12 @@ class DesktopBridge {
           });
         }
         this.emit('status', this.getStatus());
-        // Delay preview restore so it never races the dying CLI sockets (conflict → logout).
+        // Preview restore is off by default on Railway (see reconnectPreviewSessions).
         setTimeout(() => {
           this.reconnectPreviewSessions(slotsForReconnect).catch((err) => {
             this.log('warn', `[FEEDING] Preview reconnect: ${err.message}`);
           });
-        }, 8000);
+        }, 15000);
       });
       child.on('error', (err) => {
         clearTimeout(launchMaxTimer);

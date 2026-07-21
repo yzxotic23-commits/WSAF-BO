@@ -24,6 +24,8 @@ ENV DESKTOP_FEEDING=1
 ENV PROXY_QR_LINK=sticky
 ENV PROXY_PROBE=false
 ENV WSAF_STICKY_PROXY=1
+# Do not auto-reopen preview WA sockets after feeding (self-conflict → logout).
+ENV FEEDFLOW_PREVIEW_RECONNECT=0
 
 EXPOSE 47821
 
