@@ -27,6 +27,27 @@
   (function patchConnectFetchEarly() {
     const orig = window.fetch;
     if (!orig || orig.__ffPairingPatch) return;
+
+    // Any real user click arms a short window for intentional Connect / Show QR.
+    // React auto-restore (/api/connect when authSaved && !connected) has no recent click → blocked.
+    window.__ffUserConnectUntil = 0;
+    document.addEventListener(
+      'click',
+      () => {
+        window.__ffUserConnectUntil = Date.now() + 4000;
+      },
+      true
+    );
+    document.addEventListener(
+      'keydown',
+      (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          window.__ffUserConnectUntil = Date.now() + 4000;
+        }
+      },
+      true
+    );
+
     function wrappedFetch(input, init) {
       try {
         const url = typeof input === 'string' ? input : input?.url || '';
@@ -41,15 +62,39 @@
             },
           };
         }
-        if (method === 'POST' && /\/api\/connect\/(\d+)/.test(url) && init?.body) {
+        if (method === 'POST' && /\/api\/connect\/(\d+)/.test(url)) {
           const slot = url.match(/\/api\/connect\/(\d+)/)[1];
-          const body = JSON.parse(init.body);
+          let body = {};
+          try {
+            body = init?.body ? JSON.parse(init.body) : {};
+          } catch {
+            body = {};
+          }
           if (body?.method === 'pairing' && body.phoneNumber) {
             body.phoneNumber = normalizePairingPhoneInput(body.phoneNumber);
             body.clearIncomplete = true;
             sessionStorage.setItem('ff-pairing-slot', slot);
             sessionStorage.setItem('ff-pairing-until', String(Date.now() + 15 * 60 * 1000));
             init = { ...init, body: JSON.stringify(body) };
+          }
+
+          const userArmed = Date.now() < (window.__ffUserConnectUntil || 0);
+          const force = Boolean(body?.forceRelink || body?.clearIncomplete || body?.refreshPairing);
+          // Auto-restore signature from PRO bundle: POST { method: 'qr' } with no user click.
+          if (!userArmed && !force && (body?.method || 'qr') === 'qr' && !body?.phoneNumber) {
+            console.warn(
+              `[FeedFlow] Blocked auto /api/connect/${slot} (no user action) — prevents 440 conflict loop`
+            );
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  ok: true,
+                  skipped: 'auto-connect-blocked',
+                  slot: Number(slot),
+                }),
+                { status: 200, headers: { 'Content-Type': 'application/json' } }
+              )
+            );
           }
         }
       } catch {

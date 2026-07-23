@@ -67,12 +67,32 @@ class DesktopBridge {
     this.slotLabels = new SlotDisplayLabelStore(this.getAppRoot());
     this.currentFeedingRunId = null;
     this.lastFeedingComplete = null;
+    /** slot → true while connectAccount is starting a socket (dedupe UI auto-connect). */
+    this.connectInFlight = new Set();
     this.ensureEnvAiDefaults();
     this.ensureFirstRunEnv();
     this.ensureCapacity();
     this.ensureCodexProxy().catch((err) => {
       this.log('warn', `[AI] Codex proxy startup failed: ${err.message}`);
     });
+  }
+
+  shouldAutoReclaimConflict() {
+    const raw = String(process.env.FEEDFLOW_CONFLICT_RECLAIM || '').toLowerCase().trim();
+    if (raw === '1' || raw === 'true' || raw === 'yes') return true;
+    if (raw === '0' || raw === 'false' || raw === 'no') return false;
+    // Railway default: do not auto-reclaim 440 — UI auto-connect + reclaim = permanent conflict loop.
+    return !(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+  }
+
+  armConnectInFlight(slotIndex, session) {
+    this.connectInFlight.add(slotIndex);
+    const clear = () => this.connectInFlight.delete(slotIndex);
+    if (session?.once) {
+      session.once('connected', clear);
+      session.once('loggedOut', clear);
+    }
+    setTimeout(clear, 45000);
   }
 
   /** Create .env in install folder from example on first run (new PC). */
@@ -1535,6 +1555,17 @@ class DesktopBridge {
 
     const sessionName = getAccountName(slotIndex);
     const existing = this.sessions[slotIndex];
+
+    if (this.connectInFlight.has(slotIndex) && !plan.forceRelink) {
+      this.log('info', `[${sessionName}] Connect already in flight — ignoring duplicate`);
+      return { ok: true, pending: true, connectInFlight: true };
+    }
+
+    if (existing?.reconnectTimer && !plan.forceRelink && !plan.clearIncomplete) {
+      this.log('info', `[${sessionName}] Reconnect timer active — ignoring duplicate connect`);
+      return { ok: true, pending: true, reclaimInProgress: true };
+    }
+
     const pairingCodeActive = Boolean(
       existing?.loginMethod === 'pairing'
       && existing?.pairingCodeDisplay
@@ -1737,6 +1768,7 @@ class DesktopBridge {
 
     this.log('info', `[${sessionName}] Connecting...`);
     this.attachSessionEvents(session, slotIndex);
+    this.armConnectInFlight(slotIndex, session);
 
     if (plan.method === 'pairing') {
       const resumePairing = Boolean(

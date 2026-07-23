@@ -26,6 +26,8 @@ ENV PROXY_PROBE=false
 ENV WSAF_STICKY_PROXY=1
 # Do not auto-reopen preview WA sockets after feeding (self-conflict → logout).
 ENV FEEDFLOW_PREVIEW_RECONNECT=0
+# Do not auto-reclaim 440 conflict (UI auto-connect + reclaim = permanent loop).
+ENV FEEDFLOW_CONFLICT_RECLAIM=0
 
 EXPOSE 47821
 

@@ -1165,14 +1165,30 @@ class WhatsAppSession extends EventEmitter {
         if (isReplaced || isConflictDisconnectMessage(errMsg)) {
           // Dual socket / replaced session — calm reclaim. Fast retries cause logout spirals.
           this.isLoggedOut = false;
-          this.isLinking = Boolean(!authValid);
+          this.isLinking = false;
+          this.isConnected = false;
           console.log(
             `[${this.sessionName}] Session conflict/replaced. Auth kept — waiting before reclaim (avoid logout spiral).`
           );
           this.emit('linkState');
+
+          const reclaimRaw = String(process.env.FEEDFLOW_CONFLICT_RECLAIM || '').toLowerCase().trim();
+          const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+          const autoReclaim = reclaimRaw === '1' || reclaimRaw === 'true' || reclaimRaw === 'yes'
+            || (!onRailway && reclaimRaw !== '0' && reclaimRaw !== 'false' && reclaimRaw !== 'no');
+          if (!autoReclaim) {
+            console.log(
+              `[${this.sessionName}] Conflict auto-reclaim OFF — click Connect once manually (prevents 440 loop with UI auto-connect)`
+            );
+            this.clearReconnectTimer();
+            this.emit('loggedOut');
+            return;
+          }
+
           const maxConflictRetries = 2;
           if (hadAuth && authValid && this.autoReconnectAllowed && this.reconnectAttempts < maxConflictRetries) {
             this.reconnectAttempts++;
+            this.isLinking = true;
             const delay = 10000 + this.reconnectAttempts * 5000;
             console.log(
               `[${this.sessionName}] Conflict reclaim ${this.reconnectAttempts}/${maxConflictRetries} in ${delay / 1000}s`
@@ -1180,7 +1196,7 @@ class WhatsAppSession extends EventEmitter {
             this.scheduleReconnectWithLoginPlan(delay);
           } else if (this.reconnectAttempts >= maxConflictRetries) {
             console.log(
-              `[${this.sessionName}] Conflict persists — stopping auto-reconnect. Close other clients / wait, then Start feeding again.`
+              `[${this.sessionName}] Conflict persists — stopping auto-reconnect. Close other clients / wait, then Connect once.`
             );
             this.autoReconnectAllowed = false;
             this.emit('loggedOut');
