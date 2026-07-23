@@ -1164,6 +1164,7 @@ class WhatsAppSession extends EventEmitter {
 
         if (isReplaced || isConflictDisconnectMessage(errMsg)) {
           // Dual socket / replaced session — calm reclaim. Fast retries cause logout spirals.
+          // NOT a real logout / strict scan — auth must stay; do not emit 'loggedOut'.
           this.isLoggedOut = false;
           this.isLinking = false;
           this.isConnected = false;
@@ -1171,6 +1172,12 @@ class WhatsAppSession extends EventEmitter {
             `[${this.sessionName}] Session conflict/replaced. Auth kept — waiting before reclaim (avoid logout spiral).`
           );
           this.emit('linkState');
+
+          const conflictPayload = {
+            authKept: Boolean(hadAuth && authValid),
+            statusCode,
+            detail: errMsg || reasonText,
+          };
 
           const reclaimRaw = String(process.env.FEEDFLOW_CONFLICT_RECLAIM || '').toLowerCase().trim();
           const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
@@ -1181,7 +1188,7 @@ class WhatsAppSession extends EventEmitter {
               `[${this.sessionName}] Conflict auto-reclaim OFF — click Connect once manually (prevents 440 loop with UI auto-connect)`
             );
             this.clearReconnectTimer();
-            this.emit('loggedOut');
+            this.emit('sessionConflict', conflictPayload);
             return;
           }
 
@@ -1199,7 +1206,7 @@ class WhatsAppSession extends EventEmitter {
               `[${this.sessionName}] Conflict persists — stopping auto-reconnect. Close other clients / wait, then Connect once.`
             );
             this.autoReconnectAllowed = false;
-            this.emit('loggedOut');
+            this.emit('sessionConflict', conflictPayload);
           }
           return;
         } else if (isLoggedOut || isForbidden) {

@@ -70,7 +70,7 @@ function classifyDisconnect(lastDisconnect) {
         title: 'Session conflict — another socket held this account',
         detail: message || 'Stream conflict while reconnecting.',
         strictScanPossible: false,
-        action: 'Use one client only. Wait a few seconds before Start feeding again.',
+        action: 'Use one client only. Wait a few seconds, then Connect once (auth kept — no QR).',
       };
     }
     if (isTransientHandshakeMessage(message)) {
@@ -95,7 +95,7 @@ function classifyDisconnect(lastDisconnect) {
       title: 'Session opened elsewhere (440)',
       detail: message || 'Another device or login replaced this session.',
       strictScanPossible: false,
-      action: 'Use only one linked device for this account.',
+      action: 'Use only one linked device. Wait a few seconds, then Connect once (auth kept — no QR).',
     };
   }
 

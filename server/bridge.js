@@ -1306,6 +1306,7 @@ class DesktopBridge {
     session.removeAllListeners('connected');
     session.removeAllListeners('linkState');
     session.removeAllListeners('loggedOut');
+    session.removeAllListeners('sessionConflict');
     session.removeAllListeners('strictLogout');
     session.removeAllListeners('profileName');
     session.removeAllListeners('policyAlert');
@@ -1380,6 +1381,17 @@ class DesktopBridge {
       this.emit('status', this.getStatus());
     });
 
+    session.on('sessionConflict', (payload) => {
+      const kept = payload?.authKept !== false;
+      this.log(
+        'warn',
+        kept
+          ? `[${name}] Session conflict — auth kept. Wait a few seconds, then Connect once (no QR).`
+          : `[${name}] Session conflict — reconnect carefully; avoid dual tabs.`
+      );
+      this.emit('status', this.getStatus());
+    });
+
     session.on('strictLogout', ({ alert }) => {
       this.handleStrictLogout(slotIndex, alert).catch((err) => {
         this.log('error', `[${name}] Strict logout handler: ${err.message}`);
@@ -1388,6 +1400,11 @@ class DesktopBridge {
 
     session.on('policyAlert', (alert) => {
       if (!alert) return;
+      // Conflict / replaced = dual socket noise — never treat as strict/restrict audit.
+      if (alert.type === 'SESSION_REPLACED' || alert.strictScanPossible === false) {
+        this.emit('alert', { account: name, slot: slotIndex, ...alert });
+        return;
+      }
       if (
         (session.isPairingLinkActive?.() || (session.isLinking && !session.isConnected))
         && (alert.type === 'LOGGED_OUT_OR_RESTRICTED' || !alert.strictScanPossible)

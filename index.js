@@ -856,6 +856,8 @@ async function runPairSession(
   return new Promise((resolve) => {
     let onLoggedOutA;
     let onLoggedOutB;
+    let onConflictA;
+    let onConflictB;
 
     const complete = (result) => {
       if (settled) return;
@@ -865,6 +867,8 @@ async function runPairSession(
       sessionB.removeAllListeners('message');
       if (onLoggedOutA) sessionA.removeListener('loggedOut', onLoggedOutA);
       if (onLoggedOutB) sessionB.removeListener('loggedOut', onLoggedOutB);
+      if (onConflictA) sessionA.removeListener('sessionConflict', onConflictA);
+      if (onConflictB) sessionB.removeListener('sessionConflict', onConflictB);
 
       if (result.status === 'completed') {
         log(pairNum, `Done ${chatMessageCount}/${MAX_MESSAGES} chat messages — pair finished.`);
@@ -887,6 +891,15 @@ async function runPairSession(
     onLoggedOutB = () => stopPair(`${pairLabels.B} logged out`);
     sessionA.on('loggedOut', onLoggedOutA);
     sessionB.on('loggedOut', onLoggedOutB);
+
+    onConflictA = () => stopPair(
+      `${pairLabels.A} session conflict (auth kept — Connect once, no QR)`
+    );
+    onConflictB = () => stopPair(
+      `${pairLabels.B} session conflict (auth kept — Connect once, no QR)`
+    );
+    sessionA.on('sessionConflict', onConflictA);
+    sessionB.on('sessionConflict', onConflictB);
 
     const onPolicyAlert = (label, session) => (alert) => {
       if (
@@ -1496,7 +1509,15 @@ async function connectAllSessions(hasProxies, proxyManager, accountProxies, opti
 
     session.on('loggedOut', () => {
       console.log(`[SYSTEM] ${sessionName} disconnected from WhatsApp — pair feeding stopped.`);
-      console.log(`[SYSTEM] Link ${sessionName} again on next connect (QR or pairing code).`);
+      if (session.hasSavedAuth?.() && !session.isLoggedOut) {
+        console.log(`[SYSTEM] Auth kept for ${sessionName} — Connect once (no QR needed).`);
+      } else {
+        console.log(`[SYSTEM] Link ${sessionName} again on next connect (QR or pairing code).`);
+      }
+    });
+    session.on('sessionConflict', () => {
+      console.log(`[SYSTEM] ${sessionName} session conflict — pair feeding stopped.`);
+      console.log(`[SYSTEM] Auth kept for ${sessionName} — wait a few seconds, then Connect once (no QR).`);
     });
 
     if (plan.skipLogin) {
