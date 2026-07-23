@@ -469,6 +469,7 @@ class WhatsAppSession extends EventEmitter {
     this.isLinking = false;
     this.isConnected = true;
     this.isLoggedOut = false;
+    this.conflictCooldownUntil = null;
     this.pairingAwaitingUser = false;
     this.pairingCodeDisplay = null;
     this.pairingCodeRequested = false;
@@ -618,7 +619,7 @@ class WhatsAppSession extends EventEmitter {
       this.socket = null;
       this.isConnected = false;
       // Let WA release the previous socket before any reclaim (avoids self-conflict).
-      await new Promise((r) => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, 2500));
     }
     this.emit('linkState');
   }
@@ -816,8 +817,10 @@ class WhatsAppSession extends EventEmitter {
       this.socket.ev.removeAllListeners();
       try { this.socket.end(); } catch (_) {}
       this.socket = null;
-      // Avoid opening a second Baileys socket while the previous WS is still closing.
-      await new Promise((r) => setTimeout(r, 800));
+      // Avoid opening a second Baileys socket while WA server still thinks the
+      // previous one is alive — local socket.end() closes our side instantly,
+      // but the server-side session slot can take longer to release.
+      await new Promise((r) => setTimeout(r, 2500));
     }
 
     const authStatus = this.getAuthStatus();
@@ -1179,13 +1182,19 @@ class WhatsAppSession extends EventEmitter {
             detail: errMsg || reasonText,
           };
 
+          // WA server needs real time to release the old socket slot, not just our
+          // local socket.end(). Without this, an immediate manual Connect/Show QR
+          // click reopens a socket before WA has let go → conflict repeats endlessly.
+          const conflictCooldownMs = 20000;
+          this.conflictCooldownUntil = Date.now() + conflictCooldownMs;
+
           const reclaimRaw = String(process.env.FEEDFLOW_CONFLICT_RECLAIM || '').toLowerCase().trim();
           const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
           const autoReclaim = reclaimRaw === '1' || reclaimRaw === 'true' || reclaimRaw === 'yes'
             || (!onRailway && reclaimRaw !== '0' && reclaimRaw !== 'false' && reclaimRaw !== 'no');
           if (!autoReclaim) {
             console.log(
-              `[${this.sessionName}] Conflict auto-reclaim OFF — click Connect once manually (prevents 440 loop with UI auto-connect)`
+              `[${this.sessionName}] Conflict auto-reclaim OFF — wait ${conflictCooldownMs / 1000}s, then click Connect once manually (prevents 440 loop with UI auto-connect)`
             );
             this.clearReconnectTimer();
             this.emit('sessionConflict', conflictPayload);

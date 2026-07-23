@@ -1598,6 +1598,20 @@ class DesktopBridge {
       return { ok: true, pending: true, reclaimInProgress: true };
     }
 
+    // After a session conflict (440/401 dual socket), WA needs real time to
+    // release the old socket. Reconnecting too soon just repeats the conflict.
+    if (existing?.conflictCooldownUntil && !plan.forceRelink) {
+      const remainingMs = existing.conflictCooldownUntil - Date.now();
+      if (remainingMs > 0) {
+        this.log(
+          'warn',
+          `[${sessionName}] Conflict cooldown — wait ${Math.ceil(remainingMs / 1000)}s before Connect (avoids repeat conflict)`
+        );
+        return { ok: true, pending: true, conflictCooldown: true, retryInMs: remainingMs };
+      }
+      existing.conflictCooldownUntil = null;
+    }
+
     const pairingCodeActive = Boolean(
       existing?.loginMethod === 'pairing'
       && existing?.pairingCodeDisplay
@@ -2450,9 +2464,11 @@ class DesktopBridge {
 
       setPhase('disconnect');
       await this.disconnectSlots(clearSlots);
-      // Give WhatsApp time to drop the preview socket before the feeding CLI opens a new one.
-      this.log('info', `${runLabel} Waiting 12s for previous sockets to release…`);
-      await new Promise((r) => setTimeout(r, 12000));
+      // Give WhatsApp real server-side time to drop the preview socket before the
+      // feeding CLI opens a new one for the same account — too short here is the
+      // #1 cause of mid-feeding session conflicts.
+      this.log('info', `${runLabel} Waiting 20s for previous sockets to release…`);
+      await new Promise((r) => setTimeout(r, 20000));
 
       setPhase('ai');
       const scriptPath = path.resolve(this.resolveFeedingScript());
