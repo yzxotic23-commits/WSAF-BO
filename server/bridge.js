@@ -2164,17 +2164,27 @@ class DesktopBridge {
     this.emit('status', this.getStatus());
   }
 
+  /**
+   * Close every live socket in parallel — used on process shutdown (SIGTERM/SIGINT)
+   * where we have a bounded time budget before the host force-kills the process.
+   * A clean close here matters: an abrupt kill leaves WA's server still thinking
+   * the device is "Active" (visible on the phone's Linked Devices), so the next
+   * connect attempt for that account looks like a conflict even though nothing
+   * in our own UI shows it as connected anymore.
+   */
   async disconnectAll() {
     const count = this.accountCount();
+    const closers = [];
     for (let i = 0; i < count; i++) {
       const session = this.sessions[i];
       if (session) {
         session.autoReconnectAllowed = false;
         session.clearReconnectTimer();
-        await session.shutdown();
+        closers.push(session.shutdown().catch(() => {}));
       }
       this.sessions[i] = null;
     }
+    await Promise.all(closers);
     this.sessions = [];
     this.emit('status', this.getStatus());
   }

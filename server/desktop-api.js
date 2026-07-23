@@ -782,6 +782,30 @@ function createDesktopApi(options = {}) {
     res.sendFile(spaIndex, (err) => (err ? next(err) : undefined));
   });
 
+  // Host restarts (Railway redeploy/OOM/healthcheck fail) send SIGTERM, then
+  // SIGKILL after a short grace period. Without closing sockets here, the
+  // process dies with WA sockets still open on WA's side — the phone keeps
+  // showing that linked device as "Active" and the next connect attempt for
+  // the same account gets treated as a session conflict.
+  let shuttingDown = false;
+  async function gracefulShutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[SYSTEM] ${signal} received — closing WhatsApp sockets before exit...`);
+    try {
+      await Promise.race([
+        bridge.disconnectAll(),
+        new Promise((resolve) => setTimeout(resolve, 8000)),
+      ]);
+    } catch (err) {
+      console.log(`[SYSTEM] Shutdown disconnect error: ${err.message}`);
+    }
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 1500).unref();
+  }
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
   return {
     app,
     server,
