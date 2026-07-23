@@ -721,10 +721,21 @@ async function runPairSession(
         deliveryBridgeUsed = true;
         const bridged = lastPendingDelivery;
         lastPendingDelivery = null;
+        const senderLabel = bridged.waitingSide === 'A' ? pairLabels.B : pairLabels.A;
         log(
           pairNum,
           `[RECOVERY] Delivery bridge → ${bridged.waitingLabel} ` +
           `(recv still 0 after ${idleSec}s; continuing from partner's last send)`
+        );
+        // Honest note in the chat panel itself — "sent" earlier never meant
+        // "confirmed received"; this is us proceeding without that confirmation.
+        reportFeedingChat(
+          senderLabel,
+          bridged.waitingLabel,
+          `⚠️ Not confirmed received by ${bridged.waitingLabel} after ${idleSec}s — ` +
+          'continuing anyway (message may still be in transit or delayed by a connection issue)',
+          'notice',
+          chatSlots(bridged.waitingSide === 'A' ? 'B' : 'A')
         );
         try {
           await processInbound(bridged.waitingSide, 'delivery-bridge', bridged.text);
@@ -858,6 +869,8 @@ async function runPairSession(
     let onLoggedOutB;
     let onConflictA;
     let onConflictB;
+    let onDeliveredA;
+    let onDeliveredB;
 
     const complete = (result) => {
       if (settled) return;
@@ -869,6 +882,8 @@ async function runPairSession(
       if (onLoggedOutB) sessionB.removeListener('loggedOut', onLoggedOutB);
       if (onConflictA) sessionA.removeListener('sessionConflict', onConflictA);
       if (onConflictB) sessionB.removeListener('sessionConflict', onConflictB);
+      if (onDeliveredA) sessionA.removeListener('messageDelivered', onDeliveredA);
+      if (onDeliveredB) sessionB.removeListener('messageDelivered', onDeliveredB);
 
       if (result.status === 'completed') {
         log(pairNum, `Done ${chatMessageCount}/${MAX_MESSAGES} chat messages — pair finished.`);
@@ -900,6 +915,23 @@ async function runPairSession(
     );
     sessionA.on('sessionConflict', onConflictA);
     sessionB.on('sessionConflict', onConflictB);
+
+    // Real WA delivery/read ack — only surface when it took long enough that
+    // the user would otherwise not know whether "sent" actually arrived.
+    const onDelivered = (label, otherLabel, fromSide) => ({ ms }) => {
+      if (!isDesktopFeeding() || ms < 8000) return;
+      reportFeedingChat(
+        label,
+        otherLabel,
+        `✅ Delivery to ${otherLabel} confirmed by WhatsApp after ${Math.round(ms / 1000)}s`,
+        'notice',
+        chatSlots(fromSide)
+      );
+    };
+    onDeliveredA = onDelivered(pairLabels.A, pairLabels.B, 'A');
+    onDeliveredB = onDelivered(pairLabels.B, pairLabels.A, 'B');
+    sessionA.on('messageDelivered', onDeliveredA);
+    sessionB.on('messageDelivered', onDeliveredB);
 
     const onPolicyAlert = (label, session) => (alert) => {
       if (

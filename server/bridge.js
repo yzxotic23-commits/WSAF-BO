@@ -558,6 +558,20 @@ class DesktopBridge {
       return;
     }
 
+    // Honest delivery status note — shown directly in the chat panel (not just
+    // the System log) so "sent" in the UI never silently means "we assumed it
+    // arrived". Pushed to both accounts in the pair since it's about their
+    // shared conversation, not one direction.
+    if (kind === 'notice') {
+      if (fromSlot >= 0) {
+        this.pushChat(fromSlot, { direction: 'system', text: body, kind: 'notice' });
+      }
+      if (toSlot >= 0 && toSlot !== fromSlot) {
+        this.pushChat(toSlot, { direction: 'system', text: body, kind: 'notice' });
+      }
+      return;
+    }
+
     if (fromSlot >= 0) {
       this.pushChat(fromSlot, {
         direction: 'out',

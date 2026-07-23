@@ -48,6 +48,8 @@ class WhatsAppSession extends EventEmitter {
     /** Set false on shutdown() so delayed reconnect timers cannot reopen the socket. */
     this.autoReconnectAllowed = true;
     this.reconnectTimer = null;
+    /** msg.key.id -> { to, text, sentAt } — cleared once a real WA delivery/read ack arrives. */
+    this.pendingAcks = new Map();
     this.loginMethod = 'qr';
     this.pairingPhone = null;
     this.pairingCodeRequested = false;
@@ -1405,6 +1407,30 @@ class WhatsAppSession extends EventEmitter {
       }
     });
 
+    // Real delivery/read receipt from WhatsApp's own server — the only trustworthy
+    // signal that a sent message actually reached the recipient's device. Do not
+    // rely solely on the partner's bot session noticing it (that only proves the
+    // partner's own process was online, not that WA actually delivered anything).
+    this.socket.ev.on('messages.update', (updates) => {
+      if (!this.pendingAcks.size || !Array.isArray(updates)) return;
+      for (const u of updates) {
+        const id = u?.key?.id;
+        if (!id) continue;
+        const status = u?.update?.status;
+        if (status == null || status < 3) continue; // 3=DELIVERY_ACK, 4=READ
+        const pending = this.pendingAcks.get(id);
+        if (!pending) continue;
+        this.pendingAcks.delete(id);
+        this.emit('messageDelivered', {
+          id,
+          to: pending.to,
+          text: pending.text,
+          ms: Date.now() - pending.sentAt,
+          status,
+        });
+      }
+    });
+
     this.socket.ev.on('messages.upsert', ({ messages, type }) => {
       if (type !== 'notify' && type !== 'append') return;
 
@@ -1640,8 +1666,16 @@ class WhatsAppSession extends EventEmitter {
       ) {
         target = this.partnerLidJid;
       }
-      await this.socket.sendMessage(target, { text });
+      const sendResult = await this.socket.sendMessage(target, { text });
       if (body) this._recentOutbound.set(sendKey, Date.now());
+      const msgId = sendResult?.key?.id;
+      if (msgId && body) {
+        this.pendingAcks.set(msgId, { to: target, text: body, sentAt: Date.now() });
+        if (this.pendingAcks.size > 100) {
+          const oldest = this.pendingAcks.keys().next().value;
+          this.pendingAcks.delete(oldest);
+        }
+      }
       return true;
     } catch (error) {
       const policyAlert = classifySendError(error);
