@@ -32,6 +32,49 @@ async function findCodexAuthFile() {
   return null;
 }
 
+/** Persistent path for the Codex ChatGPT session on hosts with a durable volume (Railway /app/auth). */
+function getPersistedAuthPath() {
+  const { getAppRoot } = require('./app-root');
+  return path.join(getAppRoot(), 'auth', 'codex-auth.json');
+}
+
+/**
+ * On headless hosts (Railway) there is no local `codex login` browser flow.
+ * If CODEX_AUTH_JSON is set (session exported from a machine where login was
+ * done), seed it once into the persistent volume so openai-oauth can refresh
+ * it in place across restarts without needing the env var again.
+ */
+async function ensureSeededAuthFile() {
+  if (process.env.CODEX_AUTH_FILE?.trim()) {
+    return process.env.CODEX_AUTH_FILE.trim();
+  }
+
+  const persistedPath = getPersistedAuthPath();
+  try {
+    await fs.access(persistedPath);
+    process.env.CODEX_AUTH_FILE = persistedPath;
+    return persistedPath;
+  } catch {
+    // not seeded yet — fall through
+  }
+
+  const seedRaw = process.env.CODEX_AUTH_JSON?.trim();
+  if (!seedRaw) return null;
+
+  try {
+    const parsed = JSON.parse(seedRaw);
+    await fs.mkdir(path.dirname(persistedPath), { recursive: true });
+    await fs.writeFile(persistedPath, JSON.stringify(parsed, null, 2), {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
+    process.env.CODEX_AUTH_FILE = persistedPath;
+    return persistedPath;
+  } catch {
+    return null;
+  }
+}
+
 function parseModelList(raw) {
   if (!raw || raw.toLowerCase() === 'auto') return undefined;
   const models = raw.split(',').map((s) => s.trim()).filter(Boolean);
@@ -68,6 +111,8 @@ async function probeCodexProxy(baseURL, timeoutMs = 4000) {
 }
 
 async function startCodexProxy() {
+  await ensureSeededAuthFile();
+
   const envBase = process.env.CODEX_PROXY_BASE_URL?.trim();
   if (envBase) {
     const reachable = await probeCodexProxy(envBase);
@@ -170,6 +215,8 @@ function getCodexLoginHint() {
 module.exports = {
   findCodexAuthFile,
   getAuthFileCandidates,
+  getPersistedAuthPath,
+  ensureSeededAuthFile,
   getRunningProxyBaseURL,
   normalizeBaseURL,
   probeCodexProxy,
