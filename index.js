@@ -933,6 +933,16 @@ async function runPairSession(
       const isA = side === 'A';
       const recvLabel = isA ? pairLabels.B : pairLabels.A;
       const sendLabel = isA ? pairLabels.A : pairLabels.B;
+      const inboundKey = `${side}:${oneLine(text)}`;
+      if (!processInbound._recent) processInbound._recent = new Map();
+      const lastIn = processInbound._recent.get(inboundKey);
+      if (lastIn && Date.now() - lastIn < 15000) {
+        if (DEBUG_MESSAGES) {
+          log(pairNum, `[dedupe] skipped duplicate inbound (${sendLabel})`);
+        }
+        return;
+      }
+      processInbound._recent.set(inboundKey, Date.now());
 
       if (isEchoText(text, sendLabel)) {
         if (DEBUG_MESSAGES) {

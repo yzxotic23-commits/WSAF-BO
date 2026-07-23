@@ -462,6 +462,21 @@ class DesktopBridge {
 
   pushChat(slot, entry) {
     const list = this.chatHistory.get(slot) || [];
+    const body = String(entry?.text || '').trim();
+    const direction = entry?.direction || '';
+    // Dedupe identical bubbles within 8s (notify+append / log+API double path).
+    if (body && direction !== 'system') {
+      const now = Date.now();
+      for (let i = list.length - 1; i >= 0 && i >= list.length - 8; i--) {
+        const prev = list[i];
+        if (!prev || prev.direction !== direction) continue;
+        if (String(prev.text || '').trim() !== body) continue;
+        const prevTs = prev.time ? Date.parse(prev.time) : 0;
+        if (prevTs && now - prevTs < 8000) {
+          return prev;
+        }
+      }
+    }
     const msg = {
       id: `${Date.now()}-${list.length}`,
       time: new Date().toISOString(),

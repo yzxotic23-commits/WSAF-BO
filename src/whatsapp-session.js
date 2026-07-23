@@ -1392,9 +1392,22 @@ class WhatsAppSession extends EventEmitter {
     this.socket.ev.on('messages.upsert', ({ messages, type }) => {
       if (type !== 'notify' && type !== 'append') return;
 
+      if (!this._seenInboundMsgIds) this._seenInboundMsgIds = new Map();
+
       for (const msg of messages) {
         if (msg.key.fromMe) continue;
         if (!msg.message) continue;
+
+        const msgId = String(msg.key?.id || '');
+        if (msgId) {
+          const prev = this._seenInboundMsgIds.get(msgId);
+          if (prev && Date.now() - prev < 120000) continue;
+          this._seenInboundMsgIds.set(msgId, Date.now());
+          if (this._seenInboundMsgIds.size > 500) {
+            const oldest = this._seenInboundMsgIds.keys().next().value;
+            this._seenInboundMsgIds.delete(oldest);
+          }
+        }
 
         const myJid = this.socket?.user?.id
           ? jidNormalizedUser(this.socket.user.id)
@@ -1586,6 +1599,14 @@ class WhatsAppSession extends EventEmitter {
 
     try {
       let target = jidNormalizedUser(jid);
+      const body = String(text || '').trim();
+      const sendKey = `${target}:${body}`;
+      if (!this._recentOutbound) this._recentOutbound = new Map();
+      const lastOut = this._recentOutbound.get(sendKey);
+      if (body && lastOut && Date.now() - lastOut < 10000) {
+        console.log(`[${this.sessionName}] Dedupe outbound — same text to ${target} within 10s`);
+        return true;
+      }
       if (!this.canSendToJid(target)) {
         console.log(
           `[${this.sessionName}] Send blocked — not feeding partner (target=${target}, partner=${this.expectedPartnerJid})`
@@ -1604,6 +1625,7 @@ class WhatsAppSession extends EventEmitter {
         target = this.partnerLidJid;
       }
       await this.socket.sendMessage(target, { text });
+      if (body) this._recentOutbound.set(sendKey, Date.now());
       return true;
     } catch (error) {
       const policyAlert = classifySendError(error);
