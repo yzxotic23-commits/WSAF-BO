@@ -386,6 +386,7 @@ function createDesktopApi(options = {}) {
       const phoneNumber = req.body?.phoneNumber || null;
       const clearIncomplete = Boolean(req.body?.clearIncomplete);
       const refreshPairing = Boolean(req.body?.refreshPairing);
+      const forceRelink = Boolean(req.body?.forceRelink);
       const proxyUrl = req.body?.proxyUrl || req.body?.proxy_url || null;
       if (method === 'pairing') {
         const digits = String(phoneNumber || '').replace(/\D/g, '');
@@ -404,6 +405,7 @@ function createDesktopApi(options = {}) {
         phoneNumber: method === 'pairing' ? phoneNumber : undefined,
         clearIncomplete,
         refreshPairing,
+        forceRelink,
         proxyUrl: proxyUrl || undefined,
       }));
     } catch (e) {
