@@ -597,6 +597,10 @@ async function runPairSession(
   const recentOutbound = [];
   const messageQueue = [];
   const inboundCount = { A: 0, B: 0 };
+  /** Only genuine WA messages.upsert receives — excludes delivery-bridge's
+   *  synthetic continuation, so the "never received anything real" safety
+   *  check below can't be permanently defeated by our own workaround. */
+  const realInboundCount = { A: 0, B: 0 };
   const ignoredInboundLog = { A: false, B: false };
 
   const notePendingDelivery = (waitingSide, waitingLabel, text) => {
@@ -749,12 +753,13 @@ async function runPairSession(
       if (
         PAIR_MAX_NUDGES > 0
         && nudgeCount >= PAIR_MAX_NUDGES
-        && inboundCount[waitingSide] === 0
+        && realInboundCount[waitingSide] === 0
         && idleSec >= Math.max(PAIR_IDLE_TIMEOUT_MS / 1000, 180)
       ) {
         stopPair(
-          `${waitingForLabel} never received partner message in bot ` +
-          `(recv=0 after ${nudgeCount} nudges / ${idleSec}s)`
+          `${waitingForLabel} never actually received a partner message ` +
+          `(only synthetic/bridged progress — recv=0 real after ${nudgeCount} nudges / ${idleSec}s). ` +
+          'Session likely stuck — reconnect this account and restart feeding.'
         );
         return;
       }
@@ -1017,6 +1022,7 @@ async function runPairSession(
         }
 
         inboundCount[side]++;
+        if (sender !== 'delivery-bridge') realInboundCount[side]++;
         deliveryWarnShown = false;
         if (lastPendingDelivery?.waitingSide === side) lastPendingDelivery = null;
         recordChat(recvLabel, text);
