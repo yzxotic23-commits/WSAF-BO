@@ -703,15 +703,26 @@ class DesktopBridge {
     return 'prepare';
   }
 
+  /** Reject phone-looking strings so raw digits don't masquerade as a profile name. */
+  isUsableProfileName(name) {
+    const s = String(name || '').trim();
+    if (!s) return false;
+    // "+60 11-5917 2294", "601159172294", etc.
+    const digits = s.replace(/\D/g, '');
+    if (digits.length >= 8 && digits.length / s.replace(/\s/g, '').length >= 0.7) return false;
+    return true;
+  }
+
   resolveDisplayName(probe, session, auth, slotIndex = null) {
-    const fromCreds = probe.getBestProfileNameFromDisk?.() || null;
-    if (fromCreds) return fromCreds;
-    const fromSession = session?.getDisplayName?.() || auth.profileName || probe.loadProfileName() || null;
-    if (fromSession) return fromSession;
+    // AMS account_name (Elise / kiwi) is the operator identity — always wins when set.
     if (slotIndex != null) {
       const fromAms = this.slotLabels.get(slotIndex);
       if (fromAms) return fromAms;
     }
+    const fromCreds = probe.getBestProfileNameFromDisk?.() || null;
+    if (this.isUsableProfileName(fromCreds)) return fromCreds;
+    const fromSession = session?.getDisplayName?.() || auth.profileName || probe.loadProfileName() || null;
+    if (this.isUsableProfileName(fromSession)) return fromSession;
     return null;
   }
 
