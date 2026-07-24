@@ -1208,9 +1208,10 @@ class DesktopBridge {
       throw new Error('Invalid slot');
     }
     this.ensureCapacity();
-    const url = proxyUrl ? String(proxyUrl).trim() : '';
+    let url = proxyUrl ? String(proxyUrl).trim() : '';
+    if (this.proxyManager.isDirectMarker(url)) url = ''; // explicit "direct" — no proxy for this slot
     if (url && !this.proxyManager.isValidProxyUrl(url)) {
-      throw new Error('Invalid proxy URL — use socks5://user:pass@host:port');
+      throw new Error('Invalid proxy URL — use socks5://user:pass@host:port, or "direct" for no proxy');
     }
 
     const need = Math.max(this.accountCount(), slot + 1);

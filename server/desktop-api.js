@@ -296,12 +296,18 @@ function createDesktopApi(options = {}) {
         res.status(400).json({ error: 'Invalid slot' });
         return;
       }
-      const proxyUrl = req.body?.proxyUrl || req.body?.proxy_url;
-      if (!proxyUrl) {
-        res.status(400).json({ error: 'proxyUrl required' });
+      const rawProxyUrl = req.body?.proxyUrl || req.body?.proxy_url;
+      // Explicit "direct" choice — e.g. the phone's own network is already
+      // routed through a proxy app (Shadowrocket etc.) and stacking WSAF's
+      // own proxy on top causes route mismatch. Accept it as a deliberate
+      // option, not just an accidental empty field.
+      const wantsDirect = req.body?.direct === true
+        || String(rawProxyUrl || '').trim().toLowerCase() === 'direct';
+      if (!rawProxyUrl && !wantsDirect) {
+        res.status(400).json({ error: 'proxyUrl required (or set direct: true for no proxy)' });
         return;
       }
-      const data = await bridge.setSlotProxy(slot, proxyUrl);
+      const data = await bridge.setSlotProxy(slot, wantsDirect ? '' : rawProxyUrl);
       res.json(data);
     } catch (e) {
       res.status(500).json({ error: e.message });

@@ -25,6 +25,15 @@ class ProxyManager {
     }
   }
 
+  /** Explicit opt-out of proxy for a line/account — e.g. the phone already
+   *  routes through its own proxy app (Shadowrocket etc.) and stacking a
+   *  second proxy on the linked-device side causes a route mismatch. This is
+   *  distinct from an empty/unset line so intent is visible in logs. */
+  isDirectMarker(line) {
+    const v = String(line || '').trim().toLowerCase();
+    return v === 'direct' || v === 'none' || v === 'no proxy' || v === '-';
+  }
+
   load() {
     if (!fs.existsSync(this.filePath)) {
       console.log('[PROXY] No proxies.txt found, using direct connection.');
@@ -48,7 +57,7 @@ class ProxyManager {
     const slots = [];
     for (let i = 0; i < accountCount; i++) {
       const line = (rawLines[i] || '').trim();
-      if (!line || line.startsWith('#')) {
+      if (!line || line.startsWith('#') || this.isDirectMarker(line)) {
         slots.push(null);
       } else if (this.isValidProxyUrl(line)) {
         slots.push(line);
@@ -66,6 +75,21 @@ class ProxyManager {
     return this.parseLinesBySlot(content, accountCount);
   }
 
+  /** Slot indices where the account deliberately opted into "direct" via a
+   *  marker line — as opposed to a blank line that merely defaults to direct
+   *  because nothing was configured yet. Used for clearer logs/warnings. */
+  getExplicitDirectSlots(accountCount) {
+    const content = this.rawContent != null
+      ? this.rawContent
+      : (fs.existsSync(this.filePath) ? fs.readFileSync(this.filePath, 'utf8') : '');
+    const rawLines = String(content || '').split(/\r?\n/);
+    const result = new Set();
+    for (let i = 0; i < accountCount; i++) {
+      if (this.isDirectMarker((rawLines[i] || '').trim())) result.add(i);
+    }
+    return result;
+  }
+
   parseContent(content) {
     const lines = String(content || '')
       .split('\n')
@@ -74,6 +98,7 @@ class ProxyManager {
 
     const proxies = [];
     for (const line of lines) {
+      if (this.isDirectMarker(line)) continue; // intentional — not an error, not pooled
       if (this.isValidProxyUrl(line)) {
         proxies.push(line);
       } else {
@@ -261,12 +286,35 @@ class ProxyManager {
     }
   }
 
+  /** Log a "no proxy for this slot" case distinguishing deliberate DIRECT vs
+   *  default/fallback, and warn if DIRECT is used on a cloud runtime (Railway)
+   *  where it re-exposes the datacenter IP to WhatsApp — the exact risk
+   *  proxies exist to avoid there. */
+  static logDirectChoice(accountName, isExplicit, reasonIfFallback) {
+    if (isExplicit) {
+      console.log(`[PROXY] ${accountName}: DIRECT (explicit choice — no proxy stacked on this account)`);
+      const onCloud = Boolean(
+        process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.WSAF_STICKY_PROXY
+      );
+      if (onCloud) {
+        console.log(
+          `[PROXY] WARN ${accountName}: DIRECT on a cloud runtime (Railway) means WA sees the ` +
+          'server\'s own datacenter IP for this account — only intended for local runs where the ' +
+          'phone\'s own network is already correctly routed (e.g. via Shadowrocket) without WSAF adding a second proxy.'
+        );
+      }
+    } else {
+      console.log(`[PROXY] ${accountName}: ${reasonIfFallback || 'no proxy configured'} — direct connection`);
+    }
+  }
+
   /**
    * Probe each account slot's configured line. Same proxy on multiple slots is allowed
    * (e.g. Shadowrocket — one fixed proxy per physical device).
    */
   async assignWorkingForAccounts(accountCount, getAccountName) {
     const slotProxies = this.getProxiesBySlot(accountCount);
+    const explicitDirectSlots = this.getExplicitDirectSlots(accountCount);
     const assigned = [];
     const store = this.loadWorkingStore();
     const updatedStore = { ...store };
@@ -305,7 +353,7 @@ class ProxyManager {
       }
 
       if (!found && !configured) {
-        console.log(`[PROXY] ${accountName}: no proxy on this line — direct connection`);
+        ProxyManager.logDirectChoice(accountName, explicitDirectSlots.has(i), 'no proxy on this line');
       } else if (!found) {
         console.log(`[PROXY] ${accountName}: line proxy failed probe — direct connection`);
       } else {
@@ -338,6 +386,7 @@ class ProxyManager {
     if (!slotIndices?.length) return assigned;
 
     const slotProxies = this.getProxiesBySlot(totalSlots);
+    const explicitDirectSlots = this.getExplicitDirectSlots(totalSlots);
     const store = this.loadWorkingStore();
     const updatedStore = { ...store };
     const probeCache = new Map();
@@ -374,7 +423,7 @@ class ProxyManager {
       }
 
       if (!found && !configured) {
-        console.log(`[PROXY] ${accountName}: no proxy on this line — direct connection`);
+        ProxyManager.logDirectChoice(accountName, explicitDirectSlots.has(i), 'no proxy on this line');
       } else if (!found) {
         console.log(`[PROXY] ${accountName}: line proxy failed probe — direct connection`);
       } else {
