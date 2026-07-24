@@ -45,8 +45,16 @@ function getPersistedAuthPath() {
  * it in place across restarts without needing the env var again.
  */
 async function ensureSeededAuthFile() {
-  if (process.env.CODEX_AUTH_FILE?.trim()) {
-    return process.env.CODEX_AUTH_FILE.trim();
+  const explicitFile = process.env.CODEX_AUTH_FILE?.trim();
+  if (explicitFile) {
+    try {
+      await fs.access(explicitFile);
+      return explicitFile;
+    } catch {
+      // Env var points at a file that no longer exists (e.g. volume was
+      // wiped) — fall through and try to re-seed instead of trusting a
+      // stale path forever.
+    }
   }
 
   const persistedPath = getPersistedAuthPath();
