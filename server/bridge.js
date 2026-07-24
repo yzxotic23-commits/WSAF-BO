@@ -704,14 +704,17 @@ class DesktopBridge {
   }
 
   resolveDisplayName(probe, session, auth, slotIndex = null) {
-    const fromCreds = probe.getBestProfileNameFromDisk?.() || null;
-    if (fromCreds) return fromCreds;
-    const fromSession = session?.getDisplayName?.() || auth.profileName || probe.loadProfileName() || null;
-    if (fromSession) return fromSession;
+    // Explicit AMS-set alias always wins — operators set this deliberately
+    // (e.g. "Elise"/"Iris") and it shouldn't get clobbered by whatever raw
+    // push name/phone number Baileys happens to sync from the linked phone.
     if (slotIndex != null) {
       const fromAms = this.slotLabels.get(slotIndex);
       if (fromAms) return fromAms;
     }
+    const fromCreds = probe.getBestProfileNameFromDisk?.() || null;
+    if (fromCreds) return fromCreds;
+    const fromSession = session?.getDisplayName?.() || auth.profileName || probe.loadProfileName() || null;
+    if (fromSession) return fromSession;
     return null;
   }
 
