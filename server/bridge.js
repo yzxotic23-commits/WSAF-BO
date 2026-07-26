@@ -976,9 +976,20 @@ class DesktopBridge {
           && !session?.isLoggedOut
           && !session?.isLoggingOut
         ),
-        connected:
+        // Live WA socket (preview/feeding). Kept separate so operators can tell
+        // "session ready" vs "socket currently open".
+        liveConnected:
           !this.logoutSlots.has(i)
           && Boolean(session?.isConnected && !session?.isLoggedOut && !session?.isLoggingOut),
+        // UI "online": live socket OR saved valid session (Railway preview reconnect
+        // is often off — session still ready for Start feeding).
+        connected:
+          !this.logoutSlots.has(i)
+          && !session?.isLoggingOut
+          && (
+            Boolean(session?.isConnected && !session?.isLoggedOut)
+            || Boolean(hasSaved)
+          ),
         feedingActive: this.isSlotInActiveFeeding(i),
         linkedViaDirect: Boolean(session?.linkedViaDirect),
         ...(() => {
