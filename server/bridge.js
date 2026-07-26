@@ -896,7 +896,44 @@ class DesktopBridge {
     return this.getPairFeedingBlockReason(pairIndex) == null;
   }
 
+  /**
+   * Drop linkingSlot when it points at a missing account or no session is
+   * actually linking — otherwise a ghost slot (e.g. Account3 with only 2
+   * accounts) permanently blocks QR for everyone.
+   */
+  clearStaleLinkingSlot() {
+    const slot = this.linkingSlot;
+    if (slot == null) return false;
+    if (!Number.isInteger(slot) || slot < 0 || slot >= this.accountCount()) {
+      this.log('warn', `[LINK] Cleared stale linkingSlot=${slot} (out of range 0..${this.accountCount() - 1})`);
+      this.linkingSlot = null;
+      return true;
+    }
+    const session = this.sessions[slot];
+    const activelyLinking = Boolean(
+      session
+      && session.isLinking
+      && !session.isConnected
+      && !session.isLoggedOut
+      && !session.isLoggingOut
+    );
+    if (!activelyLinking) {
+      this.log('warn', `[LINK] Cleared stale linkingSlot=${slot} (no active link session)`);
+      this.linkingSlot = null;
+      return true;
+    }
+    return false;
+  }
+
+  forceClearLinkingSlot() {
+    if (this.linkingSlot != null) {
+      this.log('warn', `[LINK] Force-cleared linkingSlot=${this.linkingSlot}`);
+    }
+    this.linkingSlot = null;
+  }
+
   getStatus() {
+    this.clearStaleLinkingSlot();
     this.refreshProfileNamesFromDisk();
     const accounts = [];
     for (let i = 0; i < this.accountCount(); i++) {
@@ -1723,6 +1760,7 @@ class DesktopBridge {
     const authProbe = new WhatsAppSession(sessionName).getAuthStatus();
     const needsFreshLink = !authProbe.valid || !authProbe.registered;
 
+    this.clearStaleLinkingSlot();
     if (needsFreshLink && this.linkingSlot !== null && this.linkingSlot !== slotIndex) {
       throw new Error(
         `${getAccountLabel(this.linkingSlot)} is still linking. Finish or cancel that link before starting ${getAccountLabel(slotIndex)}.`

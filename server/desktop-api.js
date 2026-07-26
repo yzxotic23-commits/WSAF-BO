@@ -385,6 +385,25 @@ function createDesktopApi(options = {}) {
     });
   });
 
+  /** Clear a stuck linkingSlot (ghost AccountN) so another slot can show QR. */
+  app.post('/api/linking/cancel', async (req, res) => {
+    try {
+      const raw = req.body?.slot;
+      const slot = raw != null && raw !== '' ? parseInt(raw, 10) : bridge.linkingSlot;
+      if (slot != null && !Number.isNaN(slot) && slot >= 0) {
+        try {
+          await bridge.disconnectAccount(slot);
+        } catch {
+          /* ignore — may be out of range */
+        }
+      }
+      bridge.forceClearLinkingSlot();
+      res.json({ ok: true, ...bridge.getStatus() });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post('/api/connect/:slot', async (req, res) => {
     try {
       const slot = parseInt(req.params.slot, 10);
