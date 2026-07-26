@@ -1038,9 +1038,9 @@ class DesktopBridge {
     delete env.NODE_OPTIONS;
     // Feeding CLI must load the same proxies.txt as the bridge (Railway volume path).
     env.WSAF_PROXIES_FILE = this.getProxiesPath();
-    if (Array.isArray(this.accountProxies) && this.accountProxies.length) {
-      env.FEEDING_ACCOUNT_PROXIES = JSON.stringify(this.accountProxies);
-    }
+    // Always inject slot→proxy map (null = intentional direct) so sticky feeding can allow Shadowrocket path.
+    const proxyMap = Array.from({ length: this.accountCount() }, (_, i) => this.accountProxies[i] || null);
+    env.FEEDING_ACCOUNT_PROXIES = JSON.stringify(proxyMap);
     if (process.env.CODEX_PROXY_BASE_URL) {
       env.CODEX_PROXY_BASE_URL = process.env.CODEX_PROXY_BASE_URL;
     }
@@ -1220,15 +1220,18 @@ class DesktopBridge {
     }
     this.ensureCapacity();
     let url = proxyUrl ? String(proxyUrl).trim() : '';
-    if (this.proxyManager.isDirectMarker(url)) url = ''; // explicit "direct" — no proxy for this slot
-    if (url && !this.proxyManager.isValidProxyUrl(url)) {
+    const wantsDirect = !url || this.proxyManager.isDirectMarker(url);
+    if (wantsDirect) {
+      url = ''; // live session: no SOCKS agent
+    } else if (!this.proxyManager.isValidProxyUrl(url)) {
       throw new Error('Invalid proxy URL — use socks5://user:pass@host:port, or "direct" for no proxy');
     }
 
     const need = Math.max(this.accountCount(), slot + 1);
     const lines = String(this.readProxiesRaw() || '').split(/\r?\n/);
     while (lines.length < need) lines.push('');
-    lines[slot] = url;
+    // Persist "direct" marker (not blank) so feeding CLI / sticky can tell intentional vs unconfigured.
+    lines[slot] = wantsDirect ? 'direct' : url;
     fs.writeFileSync(this.getProxiesPath(), lines.join('\n'), 'utf8');
     this.log('success', `[PROXY] ${getAccountName(slot)} proxy saved from AMS`);
 
@@ -2620,7 +2623,7 @@ class DesktopBridge {
           const detail = code != null ? `code ${code}` : signal ? `signal ${signal}` : 'unknown';
           this.log(
             'error',
-            `${runLabel} CLI failed (${detail}). Restart the app if this persists.`
+            `${runLabel} CLI failed (${detail}). Check System log above for [PROXY]/[AI]/[FEEDING] — fix that cause, then Start feeding again (restart only if the process is wedged).`
           );
         }
         if (!this.lastFeedingComplete?.at && !intentional && !this.isFeedingActive()) {

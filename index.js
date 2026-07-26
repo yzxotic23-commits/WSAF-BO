@@ -1259,7 +1259,7 @@ async function assignAccountProxies(proxyManager, options = {}) {
         for (const i of slotsChecked) {
           const url = accountProxies[i];
           console.log(
-            `[PROXY] ${getAccountName(i)} → ${url ? proxyManager.maskUrl(url) : 'direct (missing)'}`
+            `[PROXY] ${getAccountName(i)} → ${url ? proxyManager.maskUrl(url) : 'direct'}`
           );
         }
         if (accountProxies[0]) proxyManager.currentProxy = accountProxies[0];
@@ -1403,9 +1403,18 @@ async function linkAccountWithProxyRotation(session, plan, sessionName, proxyMan
   if (qrMode === 'sticky') {
     const url = list[0] || null;
     if (!url) {
-      throw new Error(
-        `${sessionName}: sticky proxy mode requires a proxies.txt / AMS proxy line — refusing Railway direct IP`
-      );
+      // Intentional direct (AMS optional proxy / phone Shadowrocket) — same as desktop.
+      console.log('');
+      console.log('[PROXY] Sticky: intentional DIRECT for link (no AMS SOCKS on this slot)');
+      ProxyManager.logDirectChoice(sessionName, true, 'sticky link without proxy line');
+      console.log('');
+      session.setProxy(null);
+      session.linkedViaDirect = true;
+      await session.connect(plan);
+      if (plan.method !== 'qr') {
+        await session.waitUntilConnected();
+      }
+      return null;
     }
     console.log('');
     console.log(`[PROXY] Sticky: QR/link via ${proxyManager.maskUrl(url)} (no direct fallback)`);
@@ -1872,10 +1881,27 @@ async function runDesktopFeedingOnce() {
     ? await assignAccountProxies(proxyManager, { onlySlots })
     : [];
   const effectivelyHasProxies = accountProxies.some(Boolean);
-  if (!effectivelyHasProxies && (process.env.WSAF_STICKY_PROXY === '1' || process.env.PROXY_QR_LINK === 'sticky')) {
-    console.error('[PROXY] Sticky mode but no proxy assigned — refusing Railway direct connect (logout risk).');
-    console.error(`[PROXY] Expected proxies at: ${proxyManager.filePath}`);
-    process.exit(1);
+  const stickyMode = process.env.WSAF_STICKY_PROXY === '1' || process.env.PROXY_QR_LINK === 'sticky';
+  if (!effectivelyHasProxies && stickyMode) {
+    const slots = onlySlots?.length
+      ? onlySlots
+      : Array.from({ length: accountCount() }, (_, i) => i);
+    const explicitDirect = proxyManager.getExplicitDirectSlots(accountCount());
+    // Bridge injects the slot map (null = intentional direct after AMS optional proxy).
+    const bridgeMap = Boolean(process.env.FEEDING_ACCOUNT_PROXIES);
+    const allowIntentionalDirect = slots.every(
+      (i) => !accountProxies[i] && (explicitDirect.has(i) || bridgeMap),
+    );
+    if (!allowIntentionalDirect) {
+      console.error('[PROXY] Sticky mode but no proxy assigned — refusing Railway direct connect (logout risk).');
+      console.error(`[PROXY] Expected proxies at: ${proxyManager.filePath}`);
+      console.error('[PROXY] Or set Engine proxy / choose Phone·direct (Shadowrocket) in AMS so the slot is marked direct.');
+      process.exit(1);
+    }
+    console.log('[PROXY] Sticky mode: intentional DIRECT for feeding slots (phone Shadowrocket / AMS optional proxy)');
+    for (const i of slots) {
+      ProxyManager.logDirectChoice(getAccountName(i), true, 'feeding without AMS SOCKS');
+    }
   }
 
   printAuthStatusSummary();
