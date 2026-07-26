@@ -393,7 +393,11 @@ function createDesktopApi(options = {}) {
       const clearIncomplete = Boolean(req.body?.clearIncomplete);
       const refreshPairing = Boolean(req.body?.refreshPairing);
       const forceRelink = Boolean(req.body?.forceRelink);
-      const proxyUrl = req.body?.proxyUrl || req.body?.proxy_url || null;
+      const rawProxyUrl = req.body?.proxyUrl || req.body?.proxy_url || null;
+      const wantsDirect = req.body?.direct === true
+        || String(rawProxyUrl || '').trim().toLowerCase() === 'direct'
+        || String(rawProxyUrl || '').trim().toLowerCase() === 'none'
+        || String(rawProxyUrl || '').trim() === '-';
       if (method === 'pairing') {
         const digits = String(phoneNumber || '').replace(/\D/g, '');
         if (digits.length < 8) {
@@ -403,8 +407,11 @@ function createDesktopApi(options = {}) {
         }
       }
       // Bind operator proxy BEFORE QR/pairing so WA never sees Railway egress (scam popup).
-      if (proxyUrl) {
-        await bridge.setSlotProxy(slot, proxyUrl);
+      // Intentional direct clears any sticky line (phone already on Shadowrocket).
+      if (wantsDirect) {
+        await bridge.setSlotProxy(slot, 'direct');
+      } else if (rawProxyUrl) {
+        await bridge.setSlotProxy(slot, rawProxyUrl);
       }
       res.json(await bridge.connectAccount(slot, {
         method: method === 'pairing' ? 'pairing' : 'qr',
@@ -412,7 +419,8 @@ function createDesktopApi(options = {}) {
         clearIncomplete,
         refreshPairing,
         forceRelink,
-        proxyUrl: proxyUrl || undefined,
+        direct: wantsDirect,
+        proxyUrl: wantsDirect ? undefined : (rawProxyUrl || undefined),
       }));
     } catch (e) {
       res.status(500).json({ error: e.message });

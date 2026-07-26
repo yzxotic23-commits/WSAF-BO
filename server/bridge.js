@@ -1819,17 +1819,30 @@ class DesktopBridge {
     }
 
     // Prefer proxy sent with this connect (AMS), then assigned slot, then proxies.txt.
-    if (plan?.proxyUrl) {
+    // Intentional direct (Shadowrocket on phone / desktop-like) clears sticky line first.
+    const wantsDirect = plan?.direct === true
+      || this.proxyManager.isDirectMarker(plan?.proxyUrl);
+    if (wantsDirect) {
+      try {
+        await this.setSlotProxy(slotIndex, 'direct');
+      } catch (err) {
+        this.log('warn', `[${sessionName}] Could not clear slot proxy for direct: ${err.message}`);
+      }
+    } else if (plan?.proxyUrl) {
       try {
         await this.setSlotProxy(slotIndex, plan.proxyUrl);
       } catch (err) {
         this.log('warn', `[${sessionName}] Could not bind connect proxy: ${err.message}`);
       }
     }
-    const proxyUrl = plan?.proxyUrl
-      || this.accountProxies[slotIndex]
-      || this.proxyManager.getProxiesBySlot(this.accountCount())[slotIndex]
-      || null;
+    const proxyUrl = wantsDirect
+      ? null
+      : (
+        plan?.proxyUrl
+        || this.accountProxies[slotIndex]
+        || this.proxyManager.getProxiesBySlot(this.accountCount())[slotIndex]
+        || null
+      );
     const qrMode = this.getProxyQrLinkMode();
     const sticky = qrMode === 'sticky';
 
@@ -1858,7 +1871,7 @@ class DesktopBridge {
         session.purgeLocalSession();
         this.log('info', `[${sessionName}] Cleared incomplete session before phone pairing`);
       }
-      // Sticky: pairing must use the same operator IP as QR / feeding.
+      // Sticky: pairing must use the same operator IP as QR / feeding — unless intentional direct.
       if (sticky && proxyUrl) {
         session.setProxy(proxyUrl);
         session.linkedViaDirect = false;
@@ -1869,7 +1882,7 @@ class DesktopBridge {
         session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
         return { ok: true, mode: 'sticky', pending: true, proxy: proxyUrl };
       }
-      if (sticky && !proxyUrl) {
+      if (sticky && !proxyUrl && !wantsDirect) {
         this.log(
           'error',
           `[${sessionName}] Sticky proxy required — push an Engine proxy from AMS before pairing`
@@ -1880,13 +1893,24 @@ class DesktopBridge {
       }
       session.setProxy(null);
       session.linkedViaDirect = true;
+      ProxyManager.logDirectChoice(sessionName, wantsDirect, `phone pairing (PROXY_QR_LINK=${qrMode})`);
       this.log('info', `[${sessionName}] Link route: direct — phone pairing (PROXY_QR_LINK=${qrMode})`);
       session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
       return { ok: true, mode: 'direct', pending: true };
     }
 
     if (sticky) {
-      if (!proxyUrl) {
+      if (proxyUrl) {
+        session.setProxy(proxyUrl);
+        session.linkedViaDirect = false;
+        this.log(
+          'info',
+          `[${sessionName}] Link route: sticky proxy ${this.proxyManager.maskUrl(proxyUrl)} — no direct fallback`
+        );
+        session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
+        return { ok: true, mode: 'sticky', pending: true, proxy: proxyUrl };
+      }
+      if (!wantsDirect) {
         this.log(
           'error',
           `[${sessionName}] Sticky proxy required — no proxies.txt / AMS proxy for this slot`
@@ -1895,14 +1919,16 @@ class DesktopBridge {
           `${getAccountLabel(slotIndex)} needs a proxy from AMS (sticky mode on Railway). Set Engine proxy, then scan.`
         );
       }
-      session.setProxy(proxyUrl);
-      session.linkedViaDirect = false;
+      // Intentional direct on sticky/Railway — phone Shadowrocket / desktop-like ops choice.
+      session.setProxy(null);
+      session.linkedViaDirect = true;
+      ProxyManager.logDirectChoice(sessionName, true, 'intentional direct from AMS/desktop');
       this.log(
         'info',
-        `[${sessionName}] Link route: sticky proxy ${this.proxyManager.maskUrl(proxyUrl)} — no direct fallback`
+        `[${sessionName}] Link route: direct (intentional) — sticky mode overridden for this slot`
       );
       session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
-      return { ok: true, mode: 'sticky', pending: true, proxy: proxyUrl };
+      return { ok: true, mode: 'direct', pending: true };
     }
 
     if (qrMode === 'direct' || !proxyUrl) {
@@ -1911,6 +1937,7 @@ class DesktopBridge {
       const why = !proxyUrl
         ? 'no proxy assigned to this slot'
         : `PROXY_QR_LINK=${qrMode} (QR link uses local IP by default)`;
+      ProxyManager.logDirectChoice(sessionName, wantsDirect, why);
       this.log('info', `[${sessionName}] Link route: direct — ${why}`);
       session.connect(plan).catch((err) => this.log('error', `[${sessionName}] ${err.message}`));
       return { ok: true, mode: 'direct', pending: true };
