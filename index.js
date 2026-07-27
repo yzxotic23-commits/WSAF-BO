@@ -33,6 +33,8 @@ const PAIR_NUDGE_AFTER_MS = parseInt(process.env.PAIR_NUDGE_AFTER || '90', 10) *
 const PAIR_MAX_NUDGES = Math.max(0, parseInt(process.env.PAIR_MAX_NUDGES || '3', 10));
 const PAIR_STOP_ON_IDLE = process.env.PAIR_STOP_ON_IDLE === 'true';
 const ECHO_IGNORE_MS = parseInt(process.env.ECHO_IGNORE_MS || '60000', 10);
+/** Ignore real WA upsert that arrives after we already continued via delivery-bridge. */
+const BRIDGED_LATE_IGNORE_MS = parseInt(process.env.BRIDGED_LATE_IGNORE_MS || '180000', 10);
 const DEBUG_MESSAGES = process.env.DEBUG_MESSAGES === 'true';
 const {
   getPairCount,
@@ -596,6 +598,8 @@ async function runPairSession(
   const chatTranscript = [];
   const recentOutbound = [];
   const messageQueue = [];
+  /** Texts already continued via delivery-bridge — late real WA upserts must not trigger a 2nd reply. */
+  const bridgedInbound = [];
   const inboundCount = { A: 0, B: 0 };
   /** Only genuine WA messages.upsert receives — excludes delivery-bridge's
    *  synthetic continuation, so the "never received anything real" safety
@@ -611,6 +615,27 @@ async function runPairSession(
       at: Date.now(),
     };
     deliveryBridgeUsed = false;
+  };
+
+  const rememberBridgedInbound = (side, text) => {
+    const trimmed = oneLine(text);
+    if (!trimmed) return;
+    bridgedInbound.push({ side, text: trimmed, at: Date.now() });
+    if (bridgedInbound.length > 12) bridgedInbound.shift();
+  };
+
+  /** Real WA message that matches a recent delivery-bridge continuation for this side. */
+  const isLateBridgedDuplicate = (side, text, sender) => {
+    if (sender === 'delivery-bridge') return false;
+    const trimmed = oneLine(text);
+    if (!trimmed) return false;
+    const now = Date.now();
+    return bridgedInbound.some(
+      (entry) =>
+        entry.side === side
+        && entry.text === trimmed
+        && now - entry.at < BRIDGED_LATE_IGNORE_MS
+    );
   };
 
   const recordChat = (from, text, { skipTranscript = false } = {}) => {
@@ -667,9 +692,23 @@ async function runPairSession(
 
   const drainMessageQueue = async () => {
     if (!processInbound) return;
-    while (messageQueue.length > 0 && !settled && !controller.isPairStopped(pairNum)) {
+    // Turn-based feeding: while one reply was in flight, keep only the newest
+    // queued inbound so we never burst 2 replies for the same side.
+    let latest = null;
+    while (messageQueue.length > 0) {
       const next = messageQueue.shift();
-      await processInbound(next.side, next.sender, next.text);
+      if (isLateBridgedDuplicate(next.side, next.text, next.sender)) {
+        // Late real delivery of an already-bridged text — count as real recv, no reply.
+        realInboundCount[next.side]++;
+        if (DEBUG_MESSAGES) {
+          log(pairNum, `[dedupe] dropped queued late-bridged inbound (${next.side})`);
+        }
+        continue;
+      }
+      latest = next;
+    }
+    if (latest && !settled && !controller.isPairStopped(pairNum)) {
+      await processInbound(latest.side, latest.sender, latest.text);
     }
   };
 
@@ -1001,6 +1040,19 @@ async function runPairSession(
         return;
       }
 
+      // Delivery-bridge already continued from this text; late real WA upsert must not
+      // trigger a second AI reply (that caused 2-then-2 bursts in the chat UI).
+      if (isLateBridgedDuplicate(side, text, sender)) {
+        realInboundCount[side]++;
+        if (lastPendingDelivery?.waitingSide === side) lastPendingDelivery = null;
+        log(
+          pairNum,
+          `[dedupe] skipped late WA inbound after delivery-bridge (${sendLabel}): ` +
+          `${oneLine(text).slice(0, 60)}`
+        );
+        return;
+      }
+
       if (isReplying) {
         messageQueue.push({ side, sender, text });
         if (DEBUG_MESSAGES) {
@@ -1023,6 +1075,7 @@ async function runPairSession(
 
         inboundCount[side]++;
         if (sender !== 'delivery-bridge') realInboundCount[side]++;
+        if (sender === 'delivery-bridge') rememberBridgedInbound(side, text);
         deliveryWarnShown = false;
         if (lastPendingDelivery?.waitingSide === side) lastPendingDelivery = null;
         recordChat(recvLabel, text);
