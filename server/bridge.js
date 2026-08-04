@@ -17,6 +17,7 @@ const {
   getAccountName,
   getAccountLabel,
   getMaxPairs,
+  isMaxPairsUnlimited,
 } = require('../src/app-config');
 const { AuditLogStore, FEEDING_STATUS } = require('../src/audit-log');
 const { SlotDisplayLabelStore } = require('../src/slot-display-labels');
@@ -268,6 +269,9 @@ class DesktopBridge {
     const current = this.pairCount();
     const maxPairs = getMaxPairs();
     if (current >= maxPairs) {
+      if (isMaxPairsUnlimited()) {
+        return { ok: false, error: 'Cannot add more pairs (internal capacity overflow)' };
+      }
       return { ok: false, error: `Maximum ${maxPairs} pairs (${maxPairs * 2} accounts)` };
     }
     const next = current + 1;
