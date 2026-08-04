@@ -1062,6 +1062,8 @@ class DesktopBridge {
         language: process.env.LANGUAGE || 'English',
         openaiAuthMode: process.env.OPENAI_AUTH_MODE || 'codex',
         pairCount: this.pairCount(),
+        maxPairs: isMaxPairsUnlimited() ? null : getMaxPairs(),
+        maxPairsUnlimited: isMaxPairsUnlimited(),
         accountStart: parseInt(process.env.ACCOUNT_START || '1', 10),
       },
       codex: this.getCodexStatus(),
