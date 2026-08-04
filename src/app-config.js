@@ -6,14 +6,13 @@ function getPairCount() {
 
 /**
  * Ceiling for add-pair (accounts = pairs × 2).
- * MAX_PAIRS=0 / unlimited / none → no practical limit (add pairs freely).
- * Otherwise a positive integer cap.
+ * Default: 50 pairs (100 accounts).
+ * Set MAX_PAIRS=0 / unlimited only if ops explicitly want no soft cap.
  */
 function getMaxPairs() {
-  const raw = String(process.env.MAX_PAIRS ?? '0').trim().toLowerCase();
+  const raw = String(process.env.MAX_PAIRS ?? '50').trim().toLowerCase();
   if (
-    !raw
-    || raw === '0'
+    raw === '0'
     || raw === 'unlimited'
     || raw === 'none'
     || raw === 'inf'
@@ -22,7 +21,7 @@ function getMaxPairs() {
     return Number.MAX_SAFE_INTEGER;
   }
   const n = parseInt(raw, 10);
-  if (!Number.isFinite(n) || n <= 0) return Number.MAX_SAFE_INTEGER;
+  if (!Number.isFinite(n) || n <= 0) return 50;
   return n;
 }
 
