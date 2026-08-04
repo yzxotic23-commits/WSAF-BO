@@ -16,11 +16,10 @@ const {
   getAccountCount,
   getAccountName,
   getAccountLabel,
+  getMaxPairs,
 } = require('../src/app-config');
 const { AuditLogStore, FEEDING_STATUS } = require('../src/audit-log');
 const { SlotDisplayLabelStore } = require('../src/slot-display-labels');
-
-const MAX_PAIRS = 10;
 
 const MAX_CHAT_PER_ACCOUNT = 400;
 
@@ -255,8 +254,9 @@ class DesktopBridge {
 
   async addPair() {
     const current = this.pairCount();
-    if (current >= MAX_PAIRS) {
-      return { ok: false, error: `Maximum ${MAX_PAIRS} pairs (${MAX_PAIRS * 2} accounts)` };
+    const maxPairs = getMaxPairs();
+    if (current >= maxPairs) {
+      return { ok: false, error: `Maximum ${maxPairs} pairs (${maxPairs * 2} accounts)` };
     }
     const next = current + 1;
     this.writeEnvUpdates({ PAIR_COUNT: String(next) });

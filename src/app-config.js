@@ -4,6 +4,12 @@ function getPairCount() {
   return Math.max(1, parseInt(process.env.PAIR_COUNT || '1', 10));
 }
 
+/** Hard ceiling for add-pair (accounts = pairs × 2). Override with MAX_PAIRS. */
+function getMaxPairs() {
+  const n = parseInt(process.env.MAX_PAIRS || '25', 10);
+  return Math.max(1, Number.isFinite(n) ? n : 25);
+}
+
 function getAccountStart() {
   return Math.max(1, parseInt(process.env.ACCOUNT_START || '1', 10));
 }
@@ -22,6 +28,7 @@ function getAccountLabel(slotIndex) {
 
 module.exports = {
   getPairCount,
+  getMaxPairs,
   getAccountStart,
   getAccountCount,
   getAccountEnd: () => getAccountStart() + getAccountCount() - 1,
@@ -33,6 +40,9 @@ module.exports = {
   // Legacy aliases (evaluated at require time — prefer getters in new code)
   get PAIR_COUNT() {
     return getPairCount();
+  },
+  get MAX_PAIRS() {
+    return getMaxPairs();
   },
   get ACCOUNT_COUNT() {
     return getAccountCount();
