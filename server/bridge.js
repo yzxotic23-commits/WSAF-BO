@@ -114,7 +114,19 @@ class DesktopBridge {
       try {
         fs.copyFileSync(src, envPath);
         this.log('info', `[CONFIG] Created .env from ${path.basename(src)}`);
+        // Never let .env.example defaults (PAIR_COUNT=1) wipe Railway/runtime env.
+        const preserveKeys = ['PAIR_COUNT', 'MAX_PAIRS', 'ACCOUNT_START', 'APP_ROOT'];
+        const preserved = {};
+        for (const k of preserveKeys) {
+          if (process.env[k] != null && String(process.env[k]).trim() !== '') {
+            preserved[k] = String(process.env[k]);
+          }
+        }
         require('dotenv').config({ path: envPath, override: true });
+        Object.assign(process.env, preserved);
+        if (Object.keys(preserved).length > 0) {
+          this.writeEnvUpdates(preserved);
+        }
         return;
       } catch (err) {
         this.log('warn', `[CONFIG] Could not create .env: ${err.message}`);
@@ -1206,7 +1218,20 @@ class DesktopBridge {
       }
     }
 
-    const keys = Object.keys(updates);
+    // Keep live capacity from Railway/process.env when seeding/writing .env —
+    // otherwise .env.example PAIR_COUNT=1 hides all other pairs after redeploy.
+    const fileUpdates = { ...updates };
+    for (const k of ['PAIR_COUNT', 'MAX_PAIRS', 'ACCOUNT_START']) {
+      if (
+        !Object.prototype.hasOwnProperty.call(fileUpdates, k)
+        && process.env[k] != null
+        && String(process.env[k]).trim() !== ''
+      ) {
+        fileUpdates[k] = String(process.env[k]);
+      }
+    }
+
+    const keys = Object.keys(fileUpdates);
     const seen = new Set();
 
     const newLines = lines.map((line) => {
@@ -1215,15 +1240,15 @@ class DesktopBridge {
       const eq = t.indexOf('=');
       if (eq === -1) return line;
       const key = t.slice(0, eq).trim();
-      if (Object.prototype.hasOwnProperty.call(updates, key)) {
+      if (Object.prototype.hasOwnProperty.call(fileUpdates, key)) {
         seen.add(key);
-        return `${key}=${updates[key]}`;
+        return `${key}=${fileUpdates[key]}`;
       }
       return line;
     });
 
     for (const key of keys) {
-      if (!seen.has(key)) newLines.push(`${key}=${updates[key]}`);
+      if (!seen.has(key)) newLines.push(`${key}=${fileUpdates[key]}`);
     }
 
     fs.writeFileSync(envPath, `${newLines.join('\n').replace(/\n*$/, '')}\n`, 'utf8');
@@ -1232,7 +1257,11 @@ class DesktopBridge {
       if (v !== undefined && v !== null) process.env[k] = String(v);
     }
 
-    require('dotenv').config({ path: envPath, override: true });
+    // Do not override Railway-injected PAIR_COUNT/MAX_PAIRS with stale file defaults.
+    require('dotenv').config({ path: envPath, override: false });
+    for (const [k, v] of Object.entries(updates)) {
+      if (v !== undefined && v !== null) process.env[k] = String(v);
+    }
     this.log('success', '[SETTINGS] .env saved');
     this.emit('status', this.getStatus());
     return this.readEnvFile();
