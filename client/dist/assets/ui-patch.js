@@ -641,6 +641,11 @@
 
     removeBtn.dataset.pairIndex = String(pairIndex);
     removeBtn.disabled = feeding;
+    removeBtn.style.opacity = feeding ? '' : '1';
+    removeBtn.style.pointerEvents = feeding ? '' : 'auto';
+    removeBtn.title = feeding
+      ? 'Stop feeding before removing this pair'
+      : 'Remove pair';
   }
 
   function injectPerPairControls() {

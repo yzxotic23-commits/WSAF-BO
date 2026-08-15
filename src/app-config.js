@@ -1,7 +1,8 @@
 require('dotenv').config();
 
 function getPairCount() {
-  return Math.max(1, parseInt(process.env.PAIR_COUNT || '50', 10));
+  // Active pairs (not the ceiling). Default 1; raise via Add pair up to MAX_PAIRS.
+  return Math.max(1, parseInt(process.env.PAIR_COUNT || '1', 10));
 }
 
 /**
