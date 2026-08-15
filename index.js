@@ -1337,19 +1337,28 @@ async function assignAccountProxies(proxyManager, options = {}) {
       );
     }
   } else {
+    // Fixed slot lines only — never round-robin SOCKS onto blank/direct slots.
     accountProxies = new Array(accountCount()).fill(null);
+    const bySlot = proxyManager.getProxiesBySlot(accountCount());
     const slots = onlySlots || Array.from({ length: accountCount() }, (_, i) => i);
     for (const i of slots) {
-      accountProxies[i] = proxyManager.getProxyAt(i);
+      accountProxies[i] = bySlot[i] || null;
+      if (!accountProxies[i]) {
+        proxyManager.clearWorkingProxy(getAccountName(i));
+      }
     }
-    console.log('[PROXY] PROXY_PROBE=false — using fixed slot order (no rotation test)');
+    console.log('[PROXY] PROXY_PROBE=false — using proxies.txt line per slot (direct/empty stay direct)');
   }
 
   const n = proxyManager.proxies.length;
   const slotsChecked = onlySlots || Array.from({ length: accountCount() }, (_, i) => i);
 
   if (n > 0 && n < slotsChecked.length && !probeEnabled) {
-    console.log(`[PROXY] ${n} proxy(ies) for ${slotsChecked.length} account slot(s) — round-robin reuse`);
+    const proxied = slotsChecked.filter((i) => accountProxies[i]).length;
+    const direct = slotsChecked.length - proxied;
+    console.log(
+      `[PROXY] ${n} proxy line(s) in file — ${proxied} slot(s) proxied, ${direct} direct (no round-robin onto blank slots)`,
+    );
   }
 
   const pairsToLog = onlySlots?.length === 2

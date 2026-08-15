@@ -1339,7 +1339,7 @@ class WhatsAppSession extends EventEmitter {
               || Boolean(process.env.RAILWAY_ENVIRONMENT)
               || Boolean(process.env.RAILWAY_PROJECT_ID)
               || process.env.WSAF_STICKY_PROXY === '1';
-            if (sticky) {
+            if (sticky && !this.linkedViaDirect) {
               // Never hop to Railway egress — that changes destination IP and triggers logout.
               this.linkedViaDirect = false;
               this.reconnectAttempts = Math.min(this.reconnectAttempts + 1, this.maxReconnectAttempts);

@@ -90,6 +90,20 @@ class ProxyManager {
     return result;
   }
 
+  /** True when this slot must stay direct (explicit marker or blank/comment line). */
+  isSlotDirect(accountCount, slotIndex) {
+    const url = this.getProxiesBySlot(accountCount)[slotIndex];
+    return !url;
+  }
+
+  clearWorkingProxy(accountName) {
+    if (!accountName) return;
+    const store = this.loadWorkingStore();
+    if (!(accountName in store)) return;
+    delete store[accountName];
+    this.saveWorkingStore(store);
+  }
+
   parseContent(content) {
     const lines = String(content || '')
       .split('\n')
@@ -311,6 +325,7 @@ class ProxyManager {
   /**
    * Probe each account slot's configured line. Same proxy on multiple slots is allowed
    * (e.g. Shadowrocket — one fixed proxy per physical device).
+   * Blank / "direct" lines never revive SOCKS from the working-proxy store.
    */
   async assignWorkingForAccounts(accountCount, getAccountName) {
     const slotProxies = this.getProxiesBySlot(accountCount);
@@ -327,12 +342,26 @@ class ProxyManager {
     for (let i = 0; i < accountCount; i++) {
       const accountName = getAccountName ? getAccountName(i) : `account${i + 1}`;
       const configured = slotProxies[i];
+
+      if (!configured) {
+        if (accountName in updatedStore) delete updatedStore[accountName];
+        ProxyManager.logDirectChoice(
+          accountName,
+          explicitDirectSlots.has(i),
+          'no proxy on this line',
+        );
+        assigned.push(null);
+        continue;
+      }
+
       const saved = store[accountName];
       let found = null;
 
       const candidates = [];
       if (configured) candidates.push(configured);
-      if (saved && !candidates.includes(saved)) candidates.push(saved);
+      if (saved && saved !== configured && this.isValidProxyUrl(saved)) {
+        candidates.push(saved);
+      }
 
       for (const url of candidates) {
         let ok = probeCache.get(url);
@@ -352,10 +381,9 @@ class ProxyManager {
         }
       }
 
-      if (!found && !configured) {
-        ProxyManager.logDirectChoice(accountName, explicitDirectSlots.has(i), 'no proxy on this line');
-      } else if (!found) {
+      if (!found) {
         console.log(`[PROXY] ${accountName}: line proxy failed probe — direct connection`);
+        if (accountName in updatedStore) delete updatedStore[accountName];
       } else {
         console.log(`[PROXY] ${accountName}: assigned ${this.maskUrl(found)}`);
       }
@@ -380,6 +408,7 @@ class ProxyManager {
   /**
    * Probe and assign proxies for specific account slots only (per-pair feeding).
    * Returns a full-length array; unassigned slots stay null.
+   * Blank / "direct" lines never revive SOCKS from the working-proxy store.
    */
   async assignWorkingForSlotIndices(totalSlots, slotIndices, getAccountName) {
     const assigned = new Array(totalSlots).fill(null);
@@ -397,12 +426,26 @@ class ProxyManager {
     for (const i of slotIndices) {
       const accountName = getAccountName ? getAccountName(i) : `account${i + 1}`;
       const configured = slotProxies[i];
+
+      if (!configured) {
+        if (accountName in updatedStore) delete updatedStore[accountName];
+        ProxyManager.logDirectChoice(
+          accountName,
+          explicitDirectSlots.has(i),
+          'no proxy on this line',
+        );
+        assigned[i] = null;
+        continue;
+      }
+
       const saved = store[accountName];
       let found = null;
 
       const candidates = [];
       if (configured) candidates.push(configured);
-      if (saved && !candidates.includes(saved)) candidates.push(saved);
+      if (saved && saved !== configured && this.isValidProxyUrl(saved)) {
+        candidates.push(saved);
+      }
 
       for (const url of candidates) {
         let ok = probeCache.get(url);
@@ -422,10 +465,9 @@ class ProxyManager {
         }
       }
 
-      if (!found && !configured) {
-        ProxyManager.logDirectChoice(accountName, explicitDirectSlots.has(i), 'no proxy on this line');
-      } else if (!found) {
+      if (!found) {
         console.log(`[PROXY] ${accountName}: line proxy failed probe — direct connection`);
+        if (accountName in updatedStore) delete updatedStore[accountName];
       } else {
         console.log(`[PROXY] ${accountName}: assigned ${this.maskUrl(found)}`);
       }

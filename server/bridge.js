@@ -811,10 +811,28 @@ class DesktopBridge {
   /** Proxy shown in UI/logs: live socket, assigned slot, or saved proxies.txt line. */
   resolveAccountProxy(slot, session) {
     const assigned = this.accountProxies[slot] || null;
-    const savedFromFile = this.proxyManager.proxies[slot] || null;
-    const configured = assigned || savedFromFile;
+    const bySlot = this.proxyManager.getProxiesBySlot(this.accountCount());
+    const savedFromFile = bySlot[slot] || null;
+    const configuredDirect = !savedFromFile;
     const live = session?.proxyUrl || null;
     const feeding = this.isSlotInActiveFeeding(slot);
+
+    if (configuredDirect && !feeding) {
+      const explicit = this.proxyManager.getExplicitDirectSlots(this.accountCount()).has(slot);
+      const linkedDirect = Boolean(session?.linkedViaDirect) || !live;
+      return {
+        masked: 'direct',
+        mode: 'direct',
+        source: explicit ? 'configured-direct' : (linkedDirect ? 'linked-via-direct' : 'none'),
+        detail: explicit
+          ? 'Configured direct — no proxy for this slot'
+          : (linkedDirect
+            ? 'Linked without proxy — preview uses local IP'
+            : 'No proxy configured'),
+      };
+    }
+
+    const configured = assigned || savedFromFile;
     const url = live || configured;
 
     if (!url) {
@@ -1322,10 +1340,14 @@ class DesktopBridge {
     this.hasProxies = this.proxyManager.proxies.some(Boolean);
     while (this.accountProxies.length < need) this.accountProxies.push(null);
     this.accountProxies[slot] = url || null;
+    if (wantsDirect) {
+      this.proxyManager.clearWorkingProxy(getAccountName(slot));
+    }
 
     const session = this.sessions[slot];
     if (session) {
       session.setProxy(url || null);
+      if (wantsDirect) session.linkedViaDirect = true;
     }
 
     this.emit('status', this.getStatus());
@@ -1906,16 +1928,23 @@ class DesktopBridge {
     }
 
     // Prefer proxy sent with this connect (AMS), then assigned slot, then proxies.txt.
-    // Intentional direct (Shadowrocket on phone / desktop-like) clears sticky line first.
+    // Blank/"direct" slots stay direct unless AMS explicitly sends a proxy URL.
+    const slotDirect = this.proxyManager.isSlotDirect(this.accountCount(), slotIndex);
+    const planForcesProxy = Boolean(
+      plan?.proxyUrl
+      && !this.proxyManager.isDirectMarker(plan.proxyUrl)
+      && this.proxyManager.isValidProxyUrl(String(plan.proxyUrl).trim()),
+    );
     const wantsDirect = plan?.direct === true
-      || this.proxyManager.isDirectMarker(plan?.proxyUrl);
+      || this.proxyManager.isDirectMarker(plan?.proxyUrl)
+      || (!planForcesProxy && slotDirect);
     if (wantsDirect) {
       try {
         await this.setSlotProxy(slotIndex, 'direct');
       } catch (err) {
         this.log('warn', `[${sessionName}] Could not clear slot proxy for direct: ${err.message}`);
       }
-    } else if (plan?.proxyUrl) {
+    } else if (planForcesProxy) {
       try {
         await this.setSlotProxy(slotIndex, plan.proxyUrl);
       } catch (err) {
@@ -1925,7 +1954,7 @@ class DesktopBridge {
     const proxyUrl = wantsDirect
       ? null
       : (
-        plan?.proxyUrl
+        (planForcesProxy ? plan.proxyUrl : null)
         || this.accountProxies[slotIndex]
         || this.proxyManager.getProxiesBySlot(this.accountCount())[slotIndex]
         || null
@@ -2587,13 +2616,38 @@ class DesktopBridge {
 
       if (this.hasProxies) {
         if (pairIndex !== null) {
-          const partial = await this.proxyManager.assignWorkingForSlotIndices(
-            this.accountCount(),
-            clearSlots,
-            (i) => getAccountName(i)
-          );
-          for (const i of clearSlots) {
-            this.accountProxies[i] = partial[i];
+          // Sticky: honor proxies.txt line only — never revive SOCKS from
+          // _proxy-working.json onto blank/"direct" slots (Pair 21+ no-proxy path).
+          if (this.isStickyProxyMode()) {
+            const fixed = this.proxyManager.getProxiesBySlot(this.accountCount());
+            for (const i of clearSlots) {
+              this.accountProxies[i] = fixed[i] || null;
+              if (!fixed[i]) {
+                this.proxyManager.clearWorkingProxy(getAccountName(i));
+                const session = this.sessions[i];
+                if (session) {
+                  session.setProxy(null);
+                  session.linkedViaDirect = true;
+                }
+              }
+            }
+            this.log('info', `${runLabel} sticky proxy plan — blank/direct slots stay direct`);
+          } else {
+            const partial = await this.proxyManager.assignWorkingForSlotIndices(
+              this.accountCount(),
+              clearSlots,
+              (i) => getAccountName(i)
+            );
+            for (const i of clearSlots) {
+              this.accountProxies[i] = partial[i];
+              if (!partial[i]) {
+                const session = this.sessions[i];
+                if (session) {
+                  session.setProxy(null);
+                  session.linkedViaDirect = true;
+                }
+              }
+            }
           }
         }
         this.log('info', `${runLabel} Proxy plan for this run:`);
