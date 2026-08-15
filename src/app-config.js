@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 function getPairCount() {
-  return Math.max(1, parseInt(process.env.PAIR_COUNT || '1', 10));
+  return Math.max(1, parseInt(process.env.PAIR_COUNT || '50', 10));
 }
 
 /**
