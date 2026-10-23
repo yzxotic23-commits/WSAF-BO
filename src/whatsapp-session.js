@@ -608,6 +608,25 @@ class WhatsAppSession extends EventEmitter {
     console.log(`[${this.sessionName}] Local session data fully removed`);
   }
 
+  /**
+   * Confirmed WA logout / 403 / invalid session: delete local auth so the slot
+   * goes back to empty + new QR (profile name is cleared by the bridge handler).
+   */
+  confirmLocalLogout(alert, logLine) {
+    this.isLoggedOut = true;
+    this.isLinking = false;
+    this.isConnected = false;
+    this.autoReconnectAllowed = false;
+    this.clearReconnectTimer();
+    this.reconnectAttempts = 0;
+    this.qrCount = 0;
+    this.proxyFallbackAttempts = 0;
+    if (logLine) console.log(`[${this.sessionName}] ${logLine}`);
+    this.purgeLocalSession();
+    if (alert) this.emit('strictLogout', { alert });
+    this.emit('loggedOut');
+  }
+
   /** True only when the Baileys socket is actually open — not leftover isConnected. */
   isSocketLive() {
     if (this.isLoggedOut || this.isLoggingOut || this.isShuttingDown) return false;
@@ -1242,54 +1261,49 @@ class WhatsAppSession extends EventEmitter {
               'Open WhatsApp on your phone. If you see a strict scan or temporary limit, wait ~6 hours. Then use Settings → Session → Clear all sessions before re-linking.',
           };
 
-          const infra401 =
+          const logoutLine = isForbidden
+            ? 'Forbidden (403). Auth cleared — slot empty, scan a new QR.'
+            : 'Logged out (401). Auth cleared — slot empty, scan a new QR.';
+
+          // 401 + conflict = dual socket, not a real logout. Keep auth.
+          if (isLoggedOut && isConflictDisconnectMessage(errMsg)) {
+            this.isLoggedOut = false;
+            this.isLinking = false;
+            this.isConnected = false;
+            console.log(`[${this.sessionName}] 401 conflict — auth kept (not a logout)`);
+            this.emit('sessionConflict', {
+              authKept: Boolean(hadAuth && authValid),
+              statusCode,
+              detail: errMsg || reasonText,
+            });
+            return;
+          }
+
+          // Handshake / empty 401 — retry twice, then treat as real logout and wipe.
+          const handshake401 =
             isLoggedOut
+            && !isForbidden
             && (
               isTransientHandshakeMessage(errMsg)
-              || (!String(errMsg || '').trim() && hadAuth && authValid)
-              || resolvedAlert.strictScanPossible === false
+              || !String(errMsg || '').trim()
             );
 
-          if (infra401 && ((hadAuth && authValid) || this.pairingPhone || incompleteLink)) {
+          if (handshake401 && this.reconnectAttempts < 2) {
+            this.reconnectAttempts++;
+            const delay = Math.min(3000 * this.reconnectAttempts, 15000);
             console.log(
-              `[${this.sessionName}] Handshake retry ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts} (${errMsg || 'connection drop'})`
+              `[${this.sessionName}] Handshake retry ${this.reconnectAttempts}/2 (${errMsg || 'connection drop'})`
             );
-            if (this.reconnectAttempts < this.maxReconnectAttempts) {
-              this.reconnectAttempts++;
-              const delay = Math.min(3000 * this.reconnectAttempts, 15000);
-              this.scheduleReconnectWithLoginPlan(delay);
-            }
+            this.scheduleReconnectWithLoginPlan(delay);
             return;
           }
 
-          if (!isStrictLogoutAlert(resolvedAlert)) {
-            if (hadAuth && authValid && this.reconnectAttempts < this.maxReconnectAttempts) {
-              console.log(
-                `[${this.sessionName}] Unconfirmed logout (401) — retry ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts}`
-              );
-              this.reconnectAttempts++;
-              const delay = Math.min(3000 * this.reconnectAttempts, 15000);
-              this.scheduleReconnectWithLoginPlan(delay);
-              return;
-            }
-            this.isLoggedOut = true;
-            this.emit('loggedOut');
-            return;
-          }
-
-          this.isLoggedOut = true;
+          this.confirmLocalLogout(resolvedAlert, logoutLine);
           if (isLoggedOut) {
-            console.log(`[${this.sessionName}] Logged out (401). Auth cleared.`);
-            console.log(`[${this.sessionName}] Check phone: if you see a strict scan / temporary limit notice → wait ~6h before re-linking.`);
-          } else {
-            console.log(`[${this.sessionName}] Forbidden (403). Auth cleared.`);
+            console.log(
+              `[${this.sessionName}] Check phone: if you see a strict scan / temporary limit notice → wait ~6h before re-linking.`
+            );
           }
-          this.purgeLocalSession();
-          this.reconnectAttempts = 0;
-          this.qrCount = 0;
-          this.proxyFallbackAttempts = 0;
-          this.emit('strictLogout', { alert: resolvedAlert });
-          this.emit('loggedOut');
         } else if (isBadSession && !hadAuth) {
             if (this.linkControlMode) {
               this.emit('linkAttemptFailed');
@@ -1380,10 +1394,17 @@ class WhatsAppSession extends EventEmitter {
             console.log(`[${this.sessionName}] Bad session persists — auth kept; restart app or check proxy in proxies.txt`);
           }
         } else if (isBadSession && hadAuth && !authValid) {
-          console.log(`[${this.sessionName}] Invalid saved session — auth cleared`);
-          this.purgeLocalSession();
-          this.reconnectAttempts = 0;
-          this.emit('loggedOut');
+          this.confirmLocalLogout(
+            {
+              type: 'LOGGED_OUT_OR_RESTRICTED',
+              severity: 'warning',
+              title: 'Invalid session — removed',
+              detail: 'Saved credentials are no longer valid.',
+              strictScanPossible: false,
+              action: 'Scan a new QR to link this slot again.',
+            },
+            'Invalid saved session — auth cleared'
+          );
         } else if (this.isPairingLinkActive()) {
           this.isLinking = true;
           this.isLoggedOut = false;
@@ -1691,13 +1712,8 @@ class WhatsAppSession extends EventEmitter {
       if (policyAlert) {
         this.emitPolicyAlert(policyAlert);
         if (policyAlert.strictScanPossible && policyAlert.severity === 'critical' && isStrictLogoutAlert(policyAlert)) {
-          this.isLoggedOut = true;
-          this.autoReconnectAllowed = false;
-          this.clearReconnectTimer();
           await this.disconnect();
-          this.purgeLocalSession();
-          this.emit('strictLogout', { alert: policyAlert });
-          this.emit('loggedOut');
+          this.confirmLocalLogout(policyAlert, 'Send forbidden — session removed');
         }
       } else {
         console.error(`[${this.sessionName}] Failed to send: ${error.message}`);

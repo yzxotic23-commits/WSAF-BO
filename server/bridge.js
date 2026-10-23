@@ -907,7 +907,15 @@ class DesktopBridge {
     }
     const slot = this.slotFromSessionName(match[1]);
     if (slot == null) return false;
-    this.markSlotSessionDead(slot, text.slice(0, 100));
+    this.handleStrictLogout(slot, {
+      type: 'LOGGED_OUT_OR_RESTRICTED',
+      severity: 'warning',
+      title: 'Logged out — session removed',
+      detail: text.slice(0, 180),
+      action: 'Click Connect on this slot and scan a new QR. Profile name is cleared.',
+    }).catch((err) => {
+      this.log('error', `[${match[1]}] Logout wipe failed: ${err.message}`);
+    });
     return true;
   }
 
@@ -1052,13 +1060,17 @@ class DesktopBridge {
       const partnerAuth = partnerProbe.getAuthStatus();
       const hasSaved = this.isAccountLinked(i);
       const partnerHasSaved = this.isAccountLinked(partnerSlot);
-      const displayName = this.resolveDisplayName(probe, session, auth, i);
-      const partnerDisplayName = this.resolveDisplayName(
-        partnerProbe,
-        partnerSession,
-        partnerAuth,
-        partnerSlot
-      );
+      const displayName = this.isHardLogoutSlot(i)
+        ? null
+        : this.resolveDisplayName(probe, session, auth, i);
+      const partnerDisplayName = this.isHardLogoutSlot(partnerSlot)
+        ? null
+        : this.resolveDisplayName(
+          partnerProbe,
+          partnerSession,
+          partnerAuth,
+          partnerSlot
+        );
       const slotLabel = getAccountLabel(i);
       const partnerSlotLabel = getAccountLabel(partnerSlot);
       accounts.push({
@@ -1072,7 +1084,7 @@ class DesktopBridge {
         partnerSlotLabel,
         partnerDisplayName,
         partnerSlot,
-        phone: hasSaved || (auth.saved && auth.valid)
+        phone: !this.isHardLogoutSlot(i) && (hasSaved || (auth.saved && auth.valid))
           ? session?.getPhone() || auth.phone || null
           : null,
         linking: Boolean(
@@ -1584,7 +1596,15 @@ class DesktopBridge {
     });
 
     session.on('loggedOut', () => {
-      this.markSlotSessionDead(slotIndex, 'WhatsApp logged out');
+      this.handleStrictLogout(slotIndex, {
+        type: 'LOGGED_OUT_OR_RESTRICTED',
+        severity: 'warning',
+        title: 'Logged out — session removed',
+        detail: 'WhatsApp ended this session. Local auth was deleted. Scan a new QR to link again.',
+        action: 'Click Connect on this slot and scan a new QR. Profile name is cleared.',
+      }).catch((err) => {
+        this.log('error', `[${name}] Logout wipe failed: ${err.message}`);
+      });
     });
 
     session.on('sessionConflict', (payload) => {
@@ -1899,6 +1919,9 @@ class DesktopBridge {
 
     const authProbe = new WhatsAppSession(sessionName).getAuthStatus();
     const needsFreshLink = !authProbe.valid || !authProbe.registered;
+    if (needsFreshLink) {
+      this.hardLogoutSlots.delete(slotIndex);
+    }
 
     this.clearStaleLinkingSlot();
     if (needsFreshLink && this.linkingSlot !== null && this.linkingSlot !== slotIndex) {
@@ -2240,6 +2263,7 @@ class DesktopBridge {
       return { ok: true, deduped: true };
     }
     this.strictLogoutAt.set(slotIndex, now);
+    this.hardLogoutSlots.add(slotIndex);
 
     const sessionName = getAccountName(slotIndex);
     const accountLabel = getAccountLabel(slotIndex);
