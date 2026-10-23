@@ -145,7 +145,7 @@ function createDesktopApi(options = {}) {
       const status = bridge.getStatus();
       const summary = bridge.getAuditSummary();
       const accounts = status.accounts || [];
-      const slotsOnline = accounts.filter((a) => a.connected).length;
+      const slotsOnline = accounts.filter((a) => a.connected || a.feedingActive).length;
       const slotsFeeding = accounts.filter((a) => a.feedingActive).length;
       const slotsLinking = accounts.filter((a) => a.linking).length;
 
@@ -170,8 +170,10 @@ function createDesktopApi(options = {}) {
           label: a.label || a.name,
           phone: a.phone || null,
           connected: Boolean(a.connected),
+          loggedOut: Boolean(a.loggedOut),
           linking: Boolean(a.linking),
           feedingActive: Boolean(a.feedingActive),
+          authSaved: Boolean(a.authSaved),
         })),
         feeding: {
           summary: {

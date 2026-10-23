@@ -58,6 +58,9 @@ class DesktopBridge {
     this.chatHistory = new Map();
     this.logoutSlots = new Set();
     this.logoutPhase = new Map();
+    /** Slots whose WhatsApp session died (feeding or idle). Do not preview-reconnect. */
+    this.hardLogoutSlots = new Set();
+    this._sessionWatchdog = null;
     /** slot → timestamp — debounce duplicate strict-logout handling */
     this.strictLogoutAt = new Map();
     /** Only one account may link (QR/pairing) at a time — avoids session collision. */
@@ -72,6 +75,7 @@ class DesktopBridge {
     this.ensureEnvAiDefaults();
     this.ensureFirstRunEnv();
     this.ensureCapacity();
+    this.startSessionWatchdog();
     this.ensureCodexProxy().catch((err) => {
       this.log('warn', `[AI] Codex proxy startup failed: ${err.message}`);
     });
@@ -862,10 +866,77 @@ class DesktopBridge {
     };
   }
 
+  slotFromSessionName(name) {
+    const match = String(name || '').match(/^account(\d+)$/i);
+    if (!match) return null;
+    const start = parseInt(process.env.ACCOUNT_START || '1', 10);
+    const slot = parseInt(match[1], 10) - (Number.isFinite(start) ? start : 1);
+    if (slot < 0 || slot >= this.accountCount()) return null;
+    return slot;
+  }
+
+  isHardLogoutSlot(slot) {
+    return this.hardLogoutSlots.has(slot) || Boolean(this.sessions[slot]?.isLoggedOut);
+  }
+
+  markSlotSessionDead(slot, reason) {
+    if (slot == null || slot < 0) return;
+    if (this.hardLogoutSlots.has(slot) && this.sessions[slot]?.isLoggedOut) return;
+    this.hardLogoutSlots.add(slot);
+    const session = this.sessions[slot];
+    if (session) {
+      session.isConnected = false;
+      session.isLoggedOut = true;
+      session.autoReconnectAllowed = false;
+      session.clearReconnectTimer?.();
+      session.emit?.('linkState');
+    }
+    this.log('warn', `[${getAccountName(slot)}] Active session lost — ${reason}`);
+    this.emit('status', this.getStatus());
+  }
+
+  noteActiveSessionLine(line) {
+    const match = String(line || '').match(/^\[(account\d+)\]\s+(.+)$/i);
+    if (!match) return false;
+    const text = match[2];
+    if (!/logged out|invalid session|forbidden \(403\)|auth cleared|strict logout/i.test(text)) {
+      return false;
+    }
+    if (/handshake retry|link handshake|pairing in progress|unconfirmed logout/i.test(text)) {
+      return false;
+    }
+    const slot = this.slotFromSessionName(match[1]);
+    if (slot == null) return false;
+    this.markSlotSessionDead(slot, text.slice(0, 100));
+    return true;
+  }
+
+  startSessionWatchdog() {
+    if (this._sessionWatchdog) return;
+    this._sessionWatchdog = setInterval(() => {
+      let changed = false;
+      for (let i = 0; i < this.accountCount(); i++) {
+        if (this.isSlotInActiveFeeding(i)) continue;
+        const session = this.sessions[i];
+        if (!session) continue;
+        if (session.isLinking || session.isLoggingOut) continue;
+        if (!session.isConnected) continue;
+        if (session.isSocketLive?.()) continue;
+        session.isConnected = false;
+        session.emit?.('linkState');
+        this.log('warn', `[${getAccountName(i)}] Preview socket not live — marked offline`);
+        changed = true;
+      }
+      if (changed) this.emit('status', this.getStatus());
+    }, 15_000);
+    if (typeof this._sessionWatchdog.unref === 'function') this._sessionWatchdog.unref();
+  }
+
   isAccountLinked(slot) {
     const name = getAccountName(slot);
     const session = this.sessions[slot];
     const auth = new WhatsAppSession(name).getAuthStatus();
+    if (this.hardLogoutSlots.has(slot) || session?.isLoggedOut) return false;
     if (this.logoutSlots.has(slot)) return false;
     if (this.isSlotInActiveFeeding(slot)) return true;
     if (auth.saved && auth.valid && auth.registered) return true;
@@ -892,8 +963,8 @@ class DesktopBridge {
 
     for (const slot of [slotA, slotB]) {
       const label = getAccountLabel(slot);
-      if (this.logoutSlots.has(slot)) {
-        return `${label} is logging out — wait or cancel logout first`;
+      if (this.logoutSlots.has(slot) || this.hardLogoutSlots.has(slot)) {
+        return `${label} session ended — link again before feeding`;
       }
       const name = getAccountName(slot);
       const auth = new WhatsAppSession(name).getAuthStatus();
@@ -1010,20 +1081,21 @@ class DesktopBridge {
           && !session?.isLoggedOut
           && !session?.isLoggingOut
         ),
-        // Live WA socket (preview/feeding). Kept separate so operators can tell
-        // "session ready" vs "socket currently open".
+        // Live WA socket only. Saved auth is NOT Online — leftover creds after
+        // phone logout were keeping AMS green.
         liveConnected:
           !this.logoutSlots.has(i)
-          && Boolean(session?.isConnected && !session?.isLoggedOut && !session?.isLoggingOut),
-        // UI "online": live socket OR saved valid session (Railway preview reconnect
-        // is often off — session still ready for Start feeding).
+          && !this.hardLogoutSlots.has(i)
+          && Boolean(session?.isSocketLive?.() ?? (
+            session?.isConnected && session?.socket && !session?.isLoggedOut && !session?.isLoggingOut
+          )),
         connected:
           !this.logoutSlots.has(i)
-          && !session?.isLoggingOut
-          && (
-            Boolean(session?.isConnected && !session?.isLoggedOut)
-            || Boolean(hasSaved)
-          ),
+          && !this.hardLogoutSlots.has(i)
+          && Boolean(session?.isSocketLive?.() ?? (
+            session?.isConnected && session?.socket && !session?.isLoggedOut && !session?.isLoggingOut
+          )),
+        loggedOut: this.isHardLogoutSlot(i),
         feedingActive: this.isSlotInActiveFeeding(i),
         linkedViaDirect: Boolean(session?.linkedViaDirect),
         ...(() => {
@@ -1485,6 +1557,7 @@ class DesktopBridge {
     });
 
     session.on('connected', (payload) => {
+      this.hardLogoutSlots.delete(slotIndex);
       if (this.linkingSlot === slotIndex) {
         this.linkingSlot = null;
       }
@@ -1511,8 +1584,7 @@ class DesktopBridge {
     });
 
     session.on('loggedOut', () => {
-      this.log('warn', `[${name}] Logged out`);
-      this.emit('status', this.getStatus());
+      this.markSlotSessionDead(slotIndex, 'WhatsApp logged out');
     });
 
     session.on('sessionConflict', (payload) => {
@@ -1688,7 +1760,7 @@ class DesktopBridge {
       if (slotsToReconnect && !slotsToReconnect.includes(i)) continue;
       if (this.isSlotInActiveFeeding(i)) continue;
       const auth = new WhatsAppSession(getAccountName(i)).getAuthStatus();
-      if (!auth.saved || this.logoutSlots.has(i)) continue;
+      if (!auth.saved || this.logoutSlots.has(i) || this.hardLogoutSlots.has(i)) continue;
       const session = this.sessions[i];
       if (session?.isConnected || session?.isLinking) continue;
       try {
@@ -2719,6 +2791,10 @@ class DesktopBridge {
           .filter(Boolean)
           .forEach((line) => {
             if (this.tryParseFeedingChatLog(line)) return;
+            if (this.noteActiveSessionLine(line)) {
+              this.log('warn', line);
+              return;
+            }
             if (/Profile name|Connected as:/i.test(line) && !/~\s*$/.test(line)) {
               this.refreshProfileNamesFromDisk();
               this.emit('status', this.getStatus());

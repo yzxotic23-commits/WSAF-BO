@@ -608,18 +608,27 @@ class WhatsAppSession extends EventEmitter {
     console.log(`[${this.sessionName}] Local session data fully removed`);
   }
 
+  /** True only when the Baileys socket is actually open — not leftover isConnected. */
+  isSocketLive() {
+    if (this.isLoggedOut || this.isLoggingOut || this.isShuttingDown) return false;
+    if (!this.isConnected || !this.socket) return false;
+    const ws = this.socket.ws;
+    if (ws && typeof ws.readyState === 'number' && ws.readyState !== 1) return false;
+    return Boolean(this.socket.user || this.isRegistrationComplete());
+  }
+
   async disconnect() {
     this.clearProfileProbeTimers();
     this.clearReconnectTimer();
     this.clearPairingCodeRequestTimer();
     this.isLinking = false;
+    this.isConnected = false;
     if (this.socket) {
       this.socket.ev.removeAllListeners();
       try {
         this.socket.end();
       } catch (_) {}
       this.socket = null;
-      this.isConnected = false;
       // Let WA release the previous socket before any reclaim (avoids self-conflict).
       await new Promise((r) => setTimeout(r, 2500));
     }
